@@ -4,7 +4,8 @@
  * @ingroup buffer_mgr
  *
  * @details
- * MVP implementation: RAM-only ring buffer.  Each buffered record stores a
+ * Two-tier buffering: RAM ring buffer (fast) + optional flash-backed
+ * persistent buffer (survives reboot).  Each buffered record stores a
  * pre-encoded JSON string plus its MQTT topic, so that flushing does not
  * require re-encoding.
  *
@@ -13,11 +14,13 @@
  *   - drop_oldest policy from g_config.buffer.drop_oldest
  *   - Depth query for metrics gauges
  *   - Flush helper for draining to MQTT
+ *   - Flash tier: persistent storage in Em_EEPROM (32 KB, 63 records)
+ *     activated when g_config.buffer.flash_max_records > 0
  *
- * @see agent.md §6 (Task C), §8
+ * @see agent.md §6 (Task C), §8, docs/persistent_buffer.md
  *
  * @defgroup buffer_mgr Buffer Manager
- * @brief Offline store-and-forward RAM ring buffer with drop-oldest policy.
+ * @brief Offline store-and-forward buffer: RAM ring + optional flash persistence.
  * @{
  */
 
@@ -64,8 +67,12 @@ bool buffer_mgr_init(void);
 /**
  * @brief Enqueue a record into the buffer.
  *
- * If the buffer is full:
- *   - drop_oldest = true  → oldest record is overwritten
+ * Records go to the RAM ring buffer first.  If RAM is full and flash
+ * buffering is enabled (flash_max_records > 0), the record spills to
+ * flash persistent storage.
+ *
+ * If both tiers are full:
+ *   - drop_oldest = true  → oldest RAM record is overwritten
  *   - drop_oldest = false → new record is dropped
  *
  * Increments buffer_enqueued and (if applicable) buffer_dropped metrics.
@@ -108,8 +115,8 @@ uint32_t buffer_mgr_depth(void);
  */
 void buffer_task(void *pvParameters);
 
-/** Task stack & priority */
-#define BUFFER_TASK_STACK_SIZE   (512u)
+/** Task stack size (increased for flash I/O + printf in flash_buffer.c) */
+#define BUFFER_TASK_STACK_SIZE   (1024u)
 #define BUFFER_TASK_PRIORITY     (2u)
 
 /** @} */  /* end of buffer_mgr */

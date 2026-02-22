@@ -1,0 +1,25 @@
+# Mosquitto MQTT Broker — Docker Compose
+#
+# Quick start:
+#   cd scripts/mqtt_broker
+#   docker-compose up -d
+#
+# This starts Mosquitto 2.x on port 1883 with anonymous access enabled
+# (matching the gateway's default profile configuration).
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: pmbus-mqtt-broker
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:

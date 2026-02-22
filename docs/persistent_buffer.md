@@ -1,15 +1,21 @@
-# Persistent Buffer (Store-and-Forward) — MVP Design
+# Persistent Buffer (Store-and-Forward) — Design & Implementation
 
 This document defines the persistent store-and-forward buffer used by the gateway when MQTT is offline.
 
-## 1) Goals (MVP)
+## 1) Goals
 - Do not lose telemetry/status messages during Wi-Fi/MQTT outages (until storage capacity is exceeded).
 - Survive gateway reboot/power loss.
 - Deterministic behavior on overflow (`drop_oldest`).
 - Fast recovery and simple implementation (append-only log).
+- Two-tier architecture: fast RAM ring buffer + persistent flash tier.
 
 Non-goals:
 - Local database, complex queries, compaction.
+
+## Status
+
+**Implemented** in `source/flash_buffer.c` / `source/flash_buffer.h`.
+Integrated into `buffer_mgr.c` (two-tier put + flush).
 
 ---
 

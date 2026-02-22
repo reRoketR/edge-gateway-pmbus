@@ -1,19 +1,28 @@
 /*******************************************************************************
  * File Name:   buffer_mgr.c
  *
- * Description: RAM-only store-and-forward ring buffer implementation.
+ * Description: Two-tier store-and-forward buffer implementation.
  *
- *              The ring buffer stores pre-encoded JSON + topic strings.
+ *              Tier 1: RAM ring buffer (fast, volatile)
+ *              Tier 2: Flash-backed persistent buffer (Em_EEPROM, survives reboot)
+ *
+ *              The RAM ring buffer stores pre-encoded JSON + topic strings.
  *              Size is determined by g_config.buffer.ram_max_records.
+ *
+ *              When flash_max_records > 0, records that cannot fit in RAM
+ *              are spilled to flash.  On boot, any records recovered from
+ *              flash are flushed before new RAM records.
  *
  *              Thread safety: taskENTER_CRITICAL / taskEXIT_CRITICAL
  *              (short critical sections — only pointer manipulation).
+ *              Flash writes happen outside critical sections (they block ~16ms).
  *
- * Related Document: agent.md §6 (Task C), §8
+ * Related Document: agent.md §6 (Task C), §8, docs/persistent_buffer.md
  *
  ******************************************************************************/
 
 #include "buffer_mgr.h"
+#include "flash_buffer.h"
 #include "gateway_config.h"
 #include "gateway_ipc.h"
 #include "metrics.h"
@@ -82,6 +91,16 @@ bool buffer_mgr_init(void)
            (unsigned)sizeof(buffer_record_t),
            (unsigned)((uint32_t)s_capacity * sizeof(buffer_record_t)));
 
+    /* Initialise flash tier (if configured) */
+    if (g_config.buffer.flash_max_records > 0u)
+    {
+        if (!flash_buffer_init())
+        {
+            printf("[BUF] WARNING: Flash buffer init failed, flash tier disabled\n");
+            /* Continue with RAM-only — not a fatal error */
+        }
+    }
+
     return true;
 }
 
@@ -99,19 +118,38 @@ bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len
 
     if (s_count >= s_capacity)
     {
-        if (g_config.buffer.drop_oldest)
+        taskEXIT_CRITICAL();
+
+        /* RAM full — try to spill to flash if enabled */
+        if (g_config.buffer.flash_max_records > 0u)
         {
-            /* Overwrite oldest: advance tail */
-            s_tail = (s_tail + 1u) % s_capacity;
-            s_count--;
-            metrics_inc_buffer_dropped();
+            bool spilled = flash_buffer_put(topic, payload, payload_len);
+            if (spilled)
+            {
+                return true;  /* Metrics already updated by flash_buffer_put */
+            }
+            /* Flash also full — fall through to drop policy */
         }
-        else
+
+        taskENTER_CRITICAL();
+
+        /* Re-check (another task may have consumed) */
+        if (s_count >= s_capacity)
         {
-            /* Drop new record */
-            taskEXIT_CRITICAL();
-            metrics_inc_buffer_dropped();
-            return false;
+            if (g_config.buffer.drop_oldest)
+            {
+                /* Overwrite oldest: advance tail */
+                s_tail = (s_tail + 1u) % s_capacity;
+                s_count--;
+                metrics_inc_buffer_dropped();
+            }
+            else
+            {
+                /* Drop new record */
+                taskEXIT_CRITICAL();
+                metrics_inc_buffer_dropped();
+                return false;
+            }
         }
     }
 
@@ -193,6 +231,8 @@ void buffer_task(void *pvParameters)
         for (;;) vTaskDelay(pdMS_TO_TICKS(10000));
     }
 
+    const bool flash_enabled = (g_config.buffer.flash_max_records > 0u);
+
     buffer_record_t rec;
 
     for (;;)
@@ -202,13 +242,49 @@ void buffer_task(void *pvParameters)
         /* Only flush when MQTT is online */
         if (!gateway_ipc_is_mqtt_online())
         {
-            /* Update gauge */
+            /* Update gauges */
             metrics_set_buffer_depth_ram(buffer_mgr_depth());
+            if (flash_enabled)
+            {
+                metrics_set_buffer_depth_flash(flash_buffer_depth());
+            }
             continue;
         }
 
-        /* Flush up to flush_batch_size records */
         uint16_t flushed = 0u;
+
+        /* ---- Phase 1: Flush flash records first (oldest data) ---- */
+        if (flash_enabled)
+        {
+            while (flushed < g_config.buffer.flush_batch_size &&
+                   flash_buffer_peek(&rec))
+            {
+                cy_mqtt_publish_info_t pub = {
+                    .qos         = (cy_mqtt_qos_t)g_config.mqtt.qos,
+                    .retain      = false,
+                    .dup         = false,
+                    .topic       = rec.topic,
+                    .topic_len   = (uint16_t)strlen(rec.topic),
+                    .payload     = rec.payload,
+                    .payload_len = rec.payload_len,
+                };
+
+                cy_rslt_t res = cy_mqtt_publish(mqtt_connection, &pub);
+                if (res != CY_RSLT_SUCCESS)
+                {
+                    metrics_inc_mqtt_pub_fail();
+                    break;  /* Stop flushing on first failure */
+                }
+                else
+                {
+                    flash_buffer_consume();
+                    metrics_inc_mqtt_pub_ok();
+                    flushed++;
+                }
+            }
+        }
+
+        /* ---- Phase 2: Flush RAM records ---- */
         while (flushed < g_config.buffer.flush_batch_size &&
                buffer_mgr_get(&rec))
         {
@@ -237,8 +313,12 @@ void buffer_task(void *pvParameters)
             }
         }
 
-        /* Update gauge */
+        /* Update gauges */
         metrics_set_buffer_depth_ram(buffer_mgr_depth());
+        if (flash_enabled)
+        {
+            metrics_set_buffer_depth_flash(flash_buffer_depth());
+        }
 
         if (flushed > 0u)
         {

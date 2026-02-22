@@ -56,11 +56,11 @@ static const device_cfg_t k_devices[] = {
     .buffer = {                                                                \
         .enabled          = true,                                              \
         .ram_max_records  = 256,                                               \
-        .flash_max_records = 0,                                                \
+        .flash_max_records = 63,        /* Enable flash persistence (63 rows) */\
         .flush_batch_size = 50,                                                \
         .flush_interval_ms = 200,                                              \
         .drop_oldest      = true,                                              \
-        .persist_seq      = false,                                             \
+        .persist_seq      = true,       /* Persist seq counter across reboot */\
     },                                                                         \
                                                                                \
     .devices         = k_devices,                                              \
