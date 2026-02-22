@@ -7,7 +7,7 @@
 ## 0) Project boundaries (do not expand until MVP is done)
 
 ### Must have (MVP)
-- PMBus master polling on I2C/SMBus with timeout + retries + bus recovery (best-effort).
+- PMBus master polling on I2C/SMBus with timeout + retries + bus recovery (best‑effort).
 - Telemetry snapshot message to MQTT (single message per cycle).
 - Status message to MQTT (less frequent).
 - Metrics message to MQTT (periodic).
@@ -81,7 +81,7 @@
 - `MFR_MODEL`
 - `MFR_REVISION`
 
-**Telemetry (read-only)**
+**Telemetry (read‑only)**
 - `READ_VIN`
 - `READ_VOUT`
 - `READ_IIN` (optional but recommended)
@@ -208,73 +208,121 @@ Event types (MVP):
 
 ---
 
-## 5) Configuration file (YAML) — minimum keys
+## 5) Configuration (MCU-friendly, compile-time profiles)
 
-Example (store in `gateway_fw/configs/config.yaml`):
-```yaml
-gw_id: "gw01"
+**YAML/JSON parsing is intentionally NOT used on the gateway MCU.** Configuration is provided as:
+- `gateway_config.h` (types + extern)
+- `gateway_config.c` (single definition of `const config_t g_config`)
+- `configs/profile_*.h` (compile-time profiles for experiments)
 
-i2c:
-  bus: 0
-  speed_hz: 100000
-  timeout_ms: 20
-  retries: 2
-  bus_recovery: true
-  pec_enabled: true
+### 5.1 Files
+- `gateway_fw/include/gateway_config.h`
+- `gateway_fw/src/gateway_config.c`
+- `gateway_fw/configs/profile_default.h`
+- `gateway_fw/configs/profile_exp1_200ms.h`
+- `gateway_fw/configs/profile_exp4_pec_off.h`
+- etc.
 
-devices:
-  - label: "psu_a"
-    addr: 0x58
-    poll:
-      period_ms: 200
-    status_period_ms: 1000
-    commands:
-      telemetry: ["READ_VIN","READ_VOUT","READ_IIN","READ_IOUT","READ_TEMPERATURE_1","READ_POUT"]
-      status: ["STATUS_WORD","STATUS_VOUT","STATUS_IOUT","STATUS_TEMPERATURE"]
+### 5.2 Required config fields (MVP)
+- `gw_id`
+- I2C/SMBus: `bus`, `speed_hz`, `timeout_ms`, `retries`, `bus_recovery`, `pec_enabled`
+- Devices: list of `{addr_7bit, label, poll_period_ms, status_period_ms}`
+- MQTT: `host`, `port`, `client_id`, `base_topic`, `qos`, reconnect backoff min/max
+- Buffer: `enabled`, `ram_max_records`, `flash_max_records`, `flush_batch_size`, `flush_interval_ms`, `drop_oldest`, `persist_seq`
+- `metrics_period_ms`
 
-  - label: "psu_b"
-    addr: 0x59
-    poll:
-      period_ms: 200
-    status_period_ms: 1000
-    commands:
-      telemetry: ["READ_VIN","READ_VOUT","READ_IIN","READ_IOUT","READ_TEMPERATURE_1","READ_POUT"]
-      status: ["STATUS_WORD","STATUS_VOUT","STATUS_IOUT","STATUS_TEMPERATURE"]
+### 5.3 Skeleton (copy into repo)
 
-mqtt:
-  broker:
-    host: "192.168.1.10"
-    port: 1883
-  client_id: "pmbus-gw01"
-  username: ""
-  password: ""
-  tls:
-    enabled: false
-  qos: 1
-  base_topic: "pmbus/gw01"
-  reconnect:
-    backoff_ms_min: 500
-    backoff_ms_max: 10000
+**gateway_config.h**
+```c
+#pragma once
+#include <stdint.h>
+#include <stdbool.h>
 
-buffer:
-  enabled: true
-  mode: "ram+flash"
-  ram_max_records: 256
-  flash_max_records: 20000
-  flush_batch_size: 50
-  flush_interval_ms: 200
-  drop_policy: "drop_oldest"
-  seq:
-    persist: true
+typedef struct {
+  uint8_t  addr_7bit;
+  const char *label;
+  uint32_t poll_period_ms;
+  uint32_t status_period_ms;
+} device_cfg_t;
 
-log:
-  level: "INFO"
-  format: "json"
+typedef struct {
+  const char *gw_id;
 
-metrics:
-  enabled: true
-  publish_period_ms: 2000
+  struct {
+    uint8_t  bus;
+    uint32_t speed_hz;
+    uint32_t timeout_ms;
+    uint8_t  retries;
+    bool     bus_recovery;
+    bool     pec_enabled;
+  } i2c;
+
+  struct {
+    const char *host;
+    uint16_t    port;
+    const char *client_id;
+    const char *base_topic;
+    uint8_t     qos;
+    uint32_t    backoff_min_ms;
+    uint32_t    backoff_max_ms;
+  } mqtt;
+
+  struct {
+    bool     enabled;
+    uint16_t ram_max_records;
+    uint32_t flash_max_records;
+    uint16_t flush_batch_size;
+    uint32_t flush_interval_ms;
+    bool     drop_oldest;
+    bool     persist_seq;
+  } buffer;
+
+  const device_cfg_t *devices;
+  uint8_t num_devices;
+
+  uint32_t metrics_period_ms;
+} config_t;
+
+extern const config_t g_config;
+extern const char *g_profile_name; // defined by active profile
 ```
+
+**gateway_config.c**
+```c
+#include "gateway_config.h"
+#include "configs/profile_default.h"  // swapped by build flag/profile
+
+const char *g_profile_name = PROFILE_NAME;
+const config_t g_config = PROFILE_CONFIG; // defined exactly once
+```
+
+**profile_default.h**
+```c
+#pragma once
+#include "gateway_config.h"
+
+static const device_cfg_t k_devices[] = {
+  {.addr_7bit=0x58, .label="psu_a", .poll_period_ms=200, .status_period_ms=1000},
+  {.addr_7bit=0x59, .label="psu_b", .poll_period_ms=200, .status_period_ms=1000},
+};
+
+#define PROFILE_NAME "default"
+#define PROFILE_CONFIG ((config_t){   .gw_id = "gw01",   .i2c = {.bus=0, .speed_hz=100000, .timeout_ms=20, .retries=2, .bus_recovery=true, .pec_enabled=true},   .mqtt = {.host="192.168.1.10", .port=1883, .client_id="pmbus-gw01", .base_topic="pmbus/gw01", .qos=1,            .backoff_min_ms=500, .backoff_max_ms=10000},   .buffer = {.enabled=true, .ram_max_records=256, .flash_max_records=20000, .flush_batch_size=50,              .flush_interval_ms=200, .drop_oldest=true, .persist_seq=true},   .devices = k_devices, .num_devices = 2,   .metrics_period_ms = 2000 })
+```
+
+### 5.4 Reproducibility requirement (thesis-critical)
+At boot, the gateway must log:
+- firmware version/commit (if available)
+- `g_profile_name`
+- key parameters: poll periods, PEC enabled, MQTT host/port, QoS, buffer sizes
+
+Example boot log line:
+- `SYS: profile=exp4_pec_off pec=0 poll_ms=200 mqtt=192.168.1.10:1883 qos=1 buf_flash=20000`
+
+Runtime overrides (optional, minimal):
+- only network credentials (SSID/pass) and broker host/port may be overridden via NVS/FRAM/UART CLI.
+- experimental parameters (poll rate, PEC, buffer sizes) must remain compile-time for repeatability.
 
 ---
 
@@ -293,7 +341,7 @@ Use **3 tasks** (4th optional). Prefer static allocation where possible.
 - Maintain MQTT connection (reconnect with backoff).
 - Consume `telemetry_queue` and publish.
 - On publish fail/offline: enqueue record into buffer (RAM/flash) and increment buffer counters.
-- Publish `metrics` every `metrics.publish_period_ms`.
+- Publish `metrics` every `g_config.metrics_period_ms`.
 - Publish events from `event_queue`.
 
 ### Task C — `buffer_task` (prio: low-medium)
@@ -337,7 +385,7 @@ MVP approach:
 ## 8) Store-and-forward persistence (MVP rules)
 
 - Use append-only record log.
-- Each record contains: `seq`, `ts_ms`, topic type (telemetry/status), payload fields (or prebuilt JSON), CRC.
+- Each record contains: `seq`, `ts_ms`, type (telemetry/status), minimal fields or prebuilt JSON, CRC.
 - Head/tail pointers:
   - store in FRAM (preferred) or in a small flash metadata sector with wear leveling.
 - On reboot:
@@ -380,7 +428,6 @@ All experiments must save raw logs as **JSONL**:
 
 ### `scripts/mqtt_broker/docker-compose.yml`
 - Mosquitto broker
-- optional: a simple logger container
 
 ### `scripts/capture/capture.py`
 - Subscribe to:
@@ -419,14 +466,14 @@ Store-and-forward:
 Reproducibility:
 - [ ] Quickstart in README
 - [ ] scripts to capture logs and generate plots
-- [ ] experiments docs with exact config and steps
+- [ ] experiments docs with exact profile used and steps
 
 ---
 
-## 12) Copilot usage rules (copy-paste prompts)
+## 12) Copilot usage rules (copy‑paste prompts)
 
 ### General rules to include in every Copilot prompt
-- Language: **C (or C++)** for firmware; no dynamic allocation in hot path.
+- Language: **C** for firmware; no dynamic allocation in hot path.
 - Use **preallocated buffers**, fixed-size structs, ring buffers.
 - No blocking calls in high-priority tasks beyond configured timeouts.
 - Provide unit-testable helper functions for:
@@ -438,16 +485,16 @@ Reproducibility:
 > Implement a `TelemetryRecord` struct for PMBus snapshot and a function `encode_telemetry_json(const TelemetryRecord*, char* out, size_t out_sz)` that produces the exact JSON schema from agent.md. Use snprintf, validate buffer size, return length or error. No heap allocations.
 
 ### Prompt: implement PMBus polling cycle
-> Implement `pmbus_poll_device(device)` that reads commands [READ_VIN, READ_VOUT, READ_IIN, READ_IOUT, READ_TEMPERATURE_1, READ_POUT] with retries+timeout, accumulates total retries and total read_ms, and returns TelemetryRecord + per-command raw hex words (optional). PEC must be configurable. Update counters.
+> Implement `pmbus_poll_device(device)` that reads commands [READ_VIN, READ_VOUT, READ_IIN, READ_IOUT, READ_TEMPERATURE_1, READ_POUT] with retries+timeout, accumulates total retries and total read_ms, and returns TelemetryRecord + per-command raw hex words (optional). PEC must be configurable via `g_config.i2c.pec_enabled`. Update counters.
 
 ### Prompt: implement metrics aggregation
 > Implement delta counters, gauges, timing ring buffer for read_to_publish latency, and `publish_metrics()` that outputs the metrics JSON schema. Use N=200 latency samples, compute p95 via copy+sort.
 
 ### Prompt: implement persistent buffer (append-only)
-> Implement an append-only record log interface: `buffer_put(record)`, `buffer_get_next(record*)`, `buffer_commit_next()`, `buffer_depth()`. Records have CRC. Head/tail pointers persist. Include drop_oldest policy.
+> Implement an append-only record log interface: `buffer_put(record)`, `buffer_get_next(record*)`, `buffer_commit_next()`, `buffer_depth()`. Records have CRC. Head/tail pointers persist. Include drop_oldest policy from `g_config.buffer.drop_oldest`.
 
 ### Prompt: implement MQTT task state machine
-> Implement `mqtt_task` with reconnect backoff, publish telemetry/status/events, and offline behavior: if publish fails, enqueue to buffer and continue. Expose `mqtt_is_online()` flag.
+> Implement `mqtt_task` with reconnect backoff (min/max from config), publish telemetry/status/events, and offline behavior: if publish fails, enqueue to buffer and continue. Expose `mqtt_is_online()` flag.
 
 ---
 
@@ -460,21 +507,22 @@ Reproducibility:
   - `mqtt_client.c/.h`
   - `buffer.c/.h`
   - `events.c/.h`
+  - `gateway_config.h/.c`
 - Every public function documented with inputs/outputs/errors.
 - Log tags: `PMBUS`, `MQTT`, `BUF`, `METR`, `SYS`
-- All “magic numbers” from config.
+- All “magic numbers” come from config/profile.
 
 ---
 
 ## 14) Safety note (thesis-friendly)
-- MVP is **read-only** PMBus: no power control writes.
+- MVP is **read‑only** PMBus: no power control writes.
 - If later adding writes: strict whitelist, rate limiting, and full audit log.
 
 ---
 
 ## 15) Quickstart checklist (for README)
 - Flash 2 targets, verify they respond on I2C addresses.
-- Flash gateway, configure broker IP and device list.
+- Flash gateway with chosen profile; on boot it must print the profile and key params.
 - Run broker (docker-compose).
 - Run capture script and confirm telemetry/status/metrics/events are recorded.
 - Run plot script to generate figures.

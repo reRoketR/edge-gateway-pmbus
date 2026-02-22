@@ -46,7 +46,7 @@ TARGET=APP_CY8CKIT-062S2-43012
 #
 # If APPNAME is edited, ensure to update or regenerate launch
 # configurations for your IDE.
-APPNAME=mtb-example-empty-app
+APPNAME=pmbus-mqtt-gateway
 
 # Name of toolchain to use. Options include:
 #
@@ -85,7 +85,7 @@ VERBOSE=
 # ... then code in directories named COMPONENT_foo and COMPONENT_bar will be
 # added to the build
 #
-COMPONENTS=
+COMPONENTS=FREERTOS LWIP MBEDTLS SECURE_SOCKETS
 
 # Like COMPONENTS, but disable optional code that was enabled by default.
 DISABLE_COMPONENTS=
@@ -98,10 +98,24 @@ SOURCES=
 
 # Like SOURCES, but for include directories. Value should be paths to
 # directories (without a leading -I).
-INCLUDES=
+INCLUDES=./configs ./configs/COMPONENT_$(CORE)
 
 # Add additional defines to the build process (without a leading -D).
-DEFINES=
+# Custom configuration of mbedtls library.
+MBEDTLSFLAGS = MBEDTLS_USER_CONFIG_FILE='"mbedtls_user_config.h"'
+
+DEFINES=$(MBEDTLSFLAGS) CYBSP_WIFI_CAPABLE CY_RETARGET_IO_CONVERT_LF_TO_CRLF CY_RTOS_AWARE
+DEFINES+= MQTT_PINGRESP_TIMEOUT_MS=5000
+DEFINES+= MQTT_MAX_CONNACK_RECEIVE_RETRY_COUNT=2
+DEFINES+= CY_WIFI_HOST_WAKE_SW_FORCE=0
+
+# Gateway configuration profile selection.
+# Usage:  make build GW_PROFILE=exp1_fast
+#         make build GW_PROFILE=exp4_pec_off
+# If not set, source/profiles/profile_default.h is used.
+ifneq ($(GW_PROFILE),)
+DEFINES+= GW_PROFILE_HEADER='"profiles/profile_$(GW_PROFILE).h"'
+endif
 
 # Select softfp or hardfp floating point. Default is softfp.
 VFP_SELECT=

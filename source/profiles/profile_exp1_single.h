@@ -1,0 +1,66 @@
+/*******************************************************************************
+ * File Name:   profile_exp1_single.h
+ *
+ * Description: Experiment 1 variant — single target only.
+ *              Compare with profile_default (2 targets) to measure the
+ *              latency impact of polling multiple devices per cycle.
+ *
+ *              Changes vs default:
+ *                - Only 1 device (psu_a @ 0x58)
+ *                - metrics_period_ms: 2000 → 1000
+ *
+ * Related Document: agent.md §9 — Exp1
+ *
+ ******************************************************************************/
+
+#pragma once
+
+#include "gateway_config.h"
+
+static const device_cfg_t k_devices[] = {
+    {
+        .addr_7bit       = 0x58,
+        .label           = "psu_a",
+        .poll_period_ms  = 200,
+        .status_period_ms = 1000,
+    },
+};
+
+#define PROFILE_NAME   "exp1_single"
+
+#define PROFILE_CONFIG ((config_t){                                             \
+    .gw_id = "gw01",                                                           \
+                                                                               \
+    .i2c = {                                                                   \
+        .bus            = 0,                                                   \
+        .speed_hz       = 100000,                                              \
+        .timeout_ms     = 20,                                                  \
+        .retries        = 2,                                                   \
+        .bus_recovery   = true,                                                \
+        .pec_enabled    = true,                                                \
+    },                                                                         \
+                                                                               \
+    .mqtt = {                                                                  \
+        .host           = "192.168.1.2",                                      \
+        .port           = 1883,                                                \
+        .client_id      = "pmbus-gw01",                                        \
+        .base_topic     = "pmbus/gw01",                                        \
+        .qos            = 1,                                                   \
+        .backoff_min_ms = 500,                                                 \
+        .backoff_max_ms = 10000,                                               \
+    },                                                                         \
+                                                                               \
+    .buffer = {                                                                \
+        .enabled          = true,                                              \
+        .ram_max_records  = 256,                                               \
+        .flash_max_records = 0,                                                \
+        .flush_batch_size = 50,                                                \
+        .flush_interval_ms = 200,                                              \
+        .drop_oldest      = true,                                              \
+        .persist_seq      = false,                                             \
+    },                                                                         \
+                                                                               \
+    .devices         = k_devices,                                              \
+    .num_devices     = sizeof(k_devices) / sizeof(k_devices[0]),               \
+    .metrics_period_ms = 1000,                                                 \
+})
