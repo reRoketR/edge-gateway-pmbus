@@ -1,0 +1,164 @@
+# =============================================================================
+# .gitignore — PMBus-MQTT Edge Gateway (rtos_test)
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# ModusToolbox: library repos (restored by `make getlibs`)
+# ---------------------------------------------------------------------------
+libs/
+mtb_shared/
+
+# Lock files — assetlocks.json is intentionally tracked so library versions
+# are reproducible across machines.
+# assetlocks.json   ← keep this tracked
+
+# ModusToolbox Configurator generated source & lock file
+GeneratedSource/
+*.lock
+
+# ModusToolbox internal query / build cache
+.mtbqueryapi
+.ninja_log
+library-manager.log
+
+# ModusToolbox build output
+build/
+Debug/
+Release/
+*_build/
+
+# ---------------------------------------------------------------------------
+# BSP — bsps/ is intentionally tracked (custom board support package)
+# Auto-generated Doxygen HTML docs are excluded (regenerate locally).
+# ---------------------------------------------------------------------------
+bsps/*/docs/html/
+
+# ---------------------------------------------------------------------------
+# ModusToolbox auto-generated project metadata
+# ---------------------------------------------------------------------------
+project_info.json
+
+# Original MTB template README (replaced by project-specific README.md)
+README_original.md
+
+# ---------------------------------------------------------------------------
+# Secrets — local Wi-Fi credentials (never committed)
+# ---------------------------------------------------------------------------
+configs/wifi_config_local.h
+
+# ---------------------------------------------------------------------------
+# Toolchain / IDE artefacts
+# ---------------------------------------------------------------------------
+
+# Eclipse / ModusToolbox IDE
+.metadata/
+.settings/
+.cproject
+.project
+.mtbLaunchConfigs/
+makefile.init
+
+# VS Code — machine-specific, auto-generated files
+*.code-workspace
+.vscode/launch.json
+.vscode/c_cpp_properties.json
+.vscode/settings.json
+
+# clangd LSP cache
+.cache/
+.clangd
+
+# OpenOCD session file (regenerated each debug session)
+openocd.tcl
+
+# IAR Embedded Workbench
+/settings/
+*.custom_argvars
+*.ewt
+*.dep
+*.uvguix.*
+Backup*/
+
+# Keil uVision
+*.cpdsc
+*.gpdsc
+*.uvguix.*
+
+# ---------------------------------------------------------------------------
+# Compiled binaries & intermediate build artefacts
+# ---------------------------------------------------------------------------
+*.bin
+*.elf
+*.exe
+*.hex
+*.map
+*.lst
+*.a
+*.o
+*.d
+
+# ---------------------------------------------------------------------------
+# Doxygen generated output (regenerate with: doxygen Doxyfile)
+# ---------------------------------------------------------------------------
+docs/doxygen_output/
+
+# ---------------------------------------------------------------------------
+# Python artefacts
+# ---------------------------------------------------------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+
+# ---------------------------------------------------------------------------
+# Experiment captured data — JSONL logs and generated plots
+# Directories are preserved via .gitkeep; raw data files are excluded.
+# ---------------------------------------------------------------------------
+logs/
+scripts/logs/**/*.jsonl
+scripts/logs/**/*.png
+scripts/logs/**/*.csv
+!scripts/logs/**/.gitkeep
+
+# ---------------------------------------------------------------------------
+# Editor / OS incidental files
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+
+# Editor backup / swap
+*.bak
+*~
+\#*\#
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+
+# git merge conflict temporaries
+*.BACKUP.*
+*.BASE.*
+*.LOCAL.*
+*.REMOTE.*
+*_BACKUP_*.txt
+*_BASE_*.txt
+*_LOCAL_*.txt
+*_REMOTE_*.txt
+
+# ---------------------------------------------------------------------------
+# Log files (generic)
+# ---------------------------------------------------------------------------
+*.log

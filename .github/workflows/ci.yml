@@ -34,27 +34,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build & run test_buffer_ring
-        run: |
-          gcc -Wall -Wextra -Werror -o test_buffer_ring tests/test_buffer_ring.c
-          ./test_buffer_ring
-
-      - name: Build & run test_pmbus_decode
-        run: |
-          gcc -Wall -Wextra -Werror -o test_pmbus_decode \
-            tests/test_pmbus_decode.c source/pmbus_decode.c \
-            -Isource -lm
-          ./test_pmbus_decode
-
-      - name: Build & run test_json_encode
-        run: |
-          gcc -Wall -Wextra -Werror -o test_json_encode \
-            tests/test_json_encode.c \
-            source/telemetry.c source/events.c \
-            source/metrics.c source/gateway_config.c \
-            source/pmbus_decode.c source/gw_util.c \
-            -Isource -Isource/profiles -Itests/stubs -lm
-          ./test_json_encode
+      - name: Run unit tests
+        working-directory: rtos_test
+        run: make test
 
       - name: Python script syntax check
         run: |
@@ -95,9 +77,11 @@ jobs:
           echo "Found ModusToolbox: $TOOLS_DIR"
 
       - name: Fetch libraries
+        working-directory: rtos_test
         run: make getlibs CY_TOOLS_PATHS=${{ env.CY_TOOLS_DIR }}
 
       - name: Build default profile
+        working-directory: rtos_test
         run: |
           make build \
             TOOLCHAIN=${{ env.TOOLCHAIN }} \
@@ -106,6 +90,7 @@ jobs:
             -j$(nproc)
 
       - name: Build experiment profiles
+        working-directory: rtos_test
         run: |
           for profile in exp1_fast exp1_single exp2_throughput exp3_offline exp4_pec_off; do
             echo "::group::Building profile: $profile"
@@ -124,6 +109,6 @@ jobs:
         with:
           name: firmware-${{ env.CONFIG }}
           path: |
-            build/${{ env.TARGET }}/${{ env.CONFIG }}/*.elf
-            build/${{ env.TARGET }}/${{ env.CONFIG }}/*.hex
+            rtos_test/build/${{ env.TARGET }}/${{ env.CONFIG }}/*.elf
+            rtos_test/build/${{ env.TARGET }}/${{ env.CONFIG }}/*.hex
           retention-days: 7

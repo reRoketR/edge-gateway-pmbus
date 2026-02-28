@@ -1,0 +1,17 @@
+# Documentation
+images
+
+# Host-side unit tests (not for MCU build)
+tests
+
+# Exports, Project settings
+.mtbLaunchConfigs
+.settings
+.vscode
+
+# Exclude unused AWS SDK sub-libraries that cause build errors
+# coreHTTP — not needed, we only use MQTT
+$(SEARCH_aws-iot-device-sdk-embedded-C)/libraries/standard/coreHTTP
+# corePKCS11 mbedtls_utils — uses mbedTLS 2.x API (mbedtls/config.h) incompatible with mbedTLS 3.4
+$(SEARCH_aws-iot-device-sdk-embedded-C)/libraries/standard/corePKCS11/source/dependency/3rdparty/mbedtls_utils
+
