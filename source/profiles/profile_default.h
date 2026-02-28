@@ -4,7 +4,7 @@
  * Description: Default configuration profile for the PMBus-MQTT gateway.
  *              Used for normal development and as a baseline for experiments.
  *
- *              2 targets @ 200 ms polling, PEC enabled, RAM buffer only (MVP).
+ *              1 target @ 2000 ms polling, PEC enabled, RAM buffer only.
  *
  * Related Document: agent.md §5
  *

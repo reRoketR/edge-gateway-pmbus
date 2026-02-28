@@ -10,7 +10,8 @@
  *                - poll_period_ms:   2000 → 500  (2 msgs/s for predictable
  *                  buffer fill math)
  *                - ram_max_records:  256 (unchanged — fills in ~128 s)
- *                - metrics_period_ms: 2000 (unchanged)
+ *                - flash_max_records: 0 → 63 (enable flash persistence)
+ *                - metrics_period_ms: 10000 → 2000 (finer monitoring)
  *
  * Related Document: agent.md §9 — Exp3, docs/experiments/exp3_offline_buffer.md
  *

@@ -3,12 +3,13 @@
  *
  * Description: Experiment 1 — End-to-end latency measurement.
  *              Fast polling (100 ms) to stress the read→publish pipeline.
- *              Compare with profile_default (200 ms) for latency analysis.
+ *              Compare with profile_default (2000 ms) for latency analysis.
  *
  *              Changes vs default:
- *                - poll_period_ms:  200 → 100
- *                - status_period_ms: 1000 → 2000  (reduce noise)
- *                - metrics_period_ms: 2000 → 1000 (finer granularity)
+ *                - poll_period_ms:  2000 → 100
+ *                - status_period_ms: 10000 → 2000  (reduce noise)
+ *                - metrics_period_ms: 10000 → 1000 (finer granularity)
+ *                - 2 devices (stress multi-device pipeline)
  *
  * Related Document: agent.md §9 — Exp1
  *
