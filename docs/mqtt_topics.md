@@ -43,8 +43,9 @@ Duplicates **are acceptable**. Consumers MUST deduplicate by key:
 `(gw_id, addr, seq)`
 
 Rules:
-- `seq` is monotonic per gateway instance and SHOULD persist across reboot if possible.
-- If the gateway reboots and `seq` restarts (not desired), consumers still deduplicate within a single run, but plots may show discontinuities.
+- `seq` is monotonic per gateway instance.
+- `seq` resets to 0 on reboot. Consumers MUST deduplicate within a single run.
+- Cross-reboot deduplication is NOT supported.
 
 ---
 
@@ -118,7 +119,8 @@ Topic: `.../metrics`
     "mqtt_reconnects": 1,
     "buffer_enqueued": 102,
     "buffer_dequeued": 80,
-    "buffer_dropped": 0
+    "buffer_dropped": 0,
+    "queue_drops": 0
   },
   "gauges": {
     "buffer_depth_ram": 120,

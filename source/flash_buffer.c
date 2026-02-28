@@ -356,8 +356,9 @@ bool flash_buffer_put(const char *topic, const char *payload, uint16_t payload_l
     if (!meta_write())
     {
         printf("[FLASH] WARNING: Data written but metadata update failed\n");
-        /* Data is written; metadata will be stale but recoverable on reboot
-         * by scanning data rows. For MVP, accept the risk. */
+        /* Data is written but metadata is now stale. On reboot the record
+         * may be lost because init only trusts the metadata (no row scan).
+         * For MVP, accept the risk — meta write failures are rare. */
     }
 
     metrics_inc_buffer_enqueued();
