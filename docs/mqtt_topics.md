@@ -166,7 +166,21 @@ Event types (MVP):
 
 ---
 
-## 5) Timing source requirement
+## 5) Timing source
 
-All timing/latency fields MUST be produced by the gateway using a **monotonic millisecond timer**.
-Consumers MUST NOT infer latency from receive timestamps.
+### 5.1 Wall-clock timestamps (`ts_ms`)
+
+`ts_ms` is **Unix epoch milliseconds (UTC)**, synchronised via SNTP (lwIP)
+after the first Wi-Fi connection.  NTP servers: `pool.ntp.org`,
+`time.google.com`.  Re-sync interval: 1 hour.
+
+If NTP is unreachable at boot, `ts_ms` falls back to
+milliseconds-since-FreeRTOS-start until the first successful sync.
+Once synced, subsequent values are wall-clock.
+
+### 5.2 Monotonic timing fields
+
+All timing/latency fields (`read_to_publish_*`, `pmbus_txn_*`, `mqtt_publish_*`,
+`window_ms`) MUST be produced by the gateway using a **monotonic millisecond
+timer** (FreeRTOS tick).  Consumers MUST NOT infer latency from receive
+timestamps.

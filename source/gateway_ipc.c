@@ -8,6 +8,7 @@
  ******************************************************************************/
 
 #include "gateway_ipc.h"
+#include "wallclock.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -93,7 +94,7 @@ uint32_t gateway_ipc_next_seq(void)
  ******************************************************************************/
 uint64_t gateway_ipc_now_ms(void)
 {
-    return (uint64_t)xTaskGetTickCount() * (uint64_t)portTICK_PERIOD_MS;
+    return wallclock_now_ms();
 }
 
 /*******************************************************************************

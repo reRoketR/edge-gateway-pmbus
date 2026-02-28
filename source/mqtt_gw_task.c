@@ -48,6 +48,7 @@
 #include "telemetry.h"
 #include "events.h"
 #include "metrics.h"
+#include "wallclock.h"
 #include "buffer_mgr.h"
 #include "flash_buffer.h"
 
@@ -156,6 +157,9 @@ void mqtt_gw_task(void *pvParameters)
                 continue;
             }
         }
+
+        /* Step 1b: SNTP wall-clock — start once after first Wi-Fi connect */
+        wallclock_sntp_init();
 
         /* Step 2: MQTT library init (once) */
         if (!mqtt_lib_ready)

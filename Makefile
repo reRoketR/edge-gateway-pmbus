@@ -94,7 +94,9 @@ DISABLE_COMPONENTS=
 # tree for source code and builds it. The SOURCES variable can be used to
 # manually add source code to the build process from a location not searched
 # by default, or otherwise not found by the build system.
-SOURCES=
+#
+# lwIP SNTP app is not auto-discovered; add it explicitly.
+SOURCES=../mtb_shared/lwip/STABLE-2_1_2_RELEASE/src/apps/sntp/sntp.c
 
 # Like SOURCES, but for include directories. Value should be paths to
 # directories (without a leading -I).

@@ -100,7 +100,7 @@
 #define MEMP_NUM_TCP_PCB                (8)
 #define MEMP_NUM_TCP_PCB_LISTEN         (1)
 #define MEMP_NUM_TCP_SEG                (27)
-#define MEMP_NUM_SYS_TIMEOUT            (12)
+#define MEMP_NUM_SYS_TIMEOUT            (14)
 #define PBUF_POOL_SIZE                  (5)
 #define MEMP_NUM_NETBUF                 (8)
 #define MEMP_NUM_NETCONN                (16)
@@ -136,5 +136,15 @@
 #if defined(__GNUC__) && !defined(__ARMCC_VERSION)
 #define LWIP_TIMEVAL_PRIVATE            (0)
 #endif
+
+/* ---------- SNTP (wall-clock timestamps) ---------- */
+#define SNTP_SERVER_DNS                 (1)
+#define SNTP_MAX_SERVERS                (2)
+#define SNTP_UPDATE_DELAY               (3600000)   /* re-sync every hour */
+#define SNTP_STARTUP_DELAY              (0)         /* no random start delay */
+
+/* Called by lwip/sntp.c with Unix-epoch seconds + microseconds */
+extern void wallclock_sntp_set_time(uint32_t sec, uint32_t us);
+#define SNTP_SET_SYSTEM_TIME_US(sec, us) wallclock_sntp_set_time((sec), (us))
 
 extern void sys_check_core_locking(void);
