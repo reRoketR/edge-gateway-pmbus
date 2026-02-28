@@ -383,20 +383,27 @@ static void poll_telemetry(const device_cfg_t *dev, device_state_t *state)
     rec.read_ms  = (uint16_t)read_ms;
     rec.retries  = total_retries;
 
-    /* Track online/offline transition and consecutive failures */
-    check_online_transition(dev, state, any_ok);
+    /* Update consecutive-fail counter BEFORE online/offline transition check */
     if (any_ok)
     {
         state->consec_fails = 0u;
-        log_telemetry_table(&rec);
     }
     else
     {
         if (state->consec_fails < UINT16_MAX)
             state->consec_fails++;
+    }
+
+    /* Track online/offline transition (uses updated consec_fails) */
+    check_online_transition(dev, state, any_ok);
+
+    if (!any_ok)
+    {
         /* Don't queue empty records — waste of queue space */
         return;
     }
+
+    log_telemetry_table(&rec);
 
     /* Push to telemetry queue (non-blocking — drop if full) */
     if (xQueueSend(gateway_ipc_telemetry_queue(), &rec, 0) != pdTRUE)
@@ -511,7 +518,7 @@ static void check_online_transition(const device_cfg_t *dev,
 {
     if (success && !state->online)
     {
-        /* Device came online */
+        /* Device came online (1 successful poll is enough) */
         state->online = true;
         char detail[EVT_DETAIL_MAX];
         snprintf(detail, sizeof(detail), "addr=0x%02X", dev->addr_7bit);
@@ -519,15 +526,17 @@ static void check_online_transition(const device_cfg_t *dev,
         printf("[POLL] Device 0x%02X \"%s\" ONLINE\n",
                dev->addr_7bit, dev->label);
     }
-    else if (!success && state->online)
+    else if (!success && state->online &&
+             state->consec_fails >= OFFLINE_FAIL_THRESHOLD)
     {
-        /* Device went offline */
+        /* Device went offline after N consecutive failures (avoids flicker) */
         state->online = false;
         char detail[EVT_DETAIL_MAX];
-        snprintf(detail, sizeof(detail), "addr=0x%02X", dev->addr_7bit);
+        snprintf(detail, sizeof(detail), "addr=0x%02X,consec_fails=%u",
+                 dev->addr_7bit, (unsigned)state->consec_fails);
         gateway_ipc_post_event(EVT_PMBUS_DEVICE_OFFLINE, detail);
-        printf("[POLL] Device 0x%02X \"%s\" OFFLINE\n",
-               dev->addr_7bit, dev->label);
+        printf("[POLL] Device 0x%02X \"%s\" OFFLINE (after %u fails)\n",
+               dev->addr_7bit, dev->label, (unsigned)state->consec_fails);
     }
 }
 
