@@ -1,0 +1,129 @@
+# GitHub Actions CI — PMBus-MQTT Edge Gateway
+#
+# Two jobs:
+#   1) host-tests  — compiles & runs host-side unit tests with native GCC
+#                     (no ModusToolbox needed, runs on GitHub-hosted runners)
+#   2) firmware     — cross-compiles all gateway profiles with GCC_ARM
+#                     (requires ModusToolbox; runs on self-hosted runner only)
+#
+# Triggers: push/PR to main and feature branches.
+
+name: CI
+
+on:
+  push:
+    branches: [ main, "feature/**" ]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+
+# ---------------------------------------------------------------------------
+# Job 1: Host-side unit tests (always runs)
+# ---------------------------------------------------------------------------
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build & run test_buffer_ring
+        run: |
+          gcc -Wall -Wextra -Werror -o test_buffer_ring tests/test_buffer_ring.c
+          ./test_buffer_ring
+
+      - name: Build & run test_pmbus_decode
+        run: |
+          gcc -Wall -Wextra -Werror -o test_pmbus_decode \
+            tests/test_pmbus_decode.c source/pmbus_decode.c \
+            -Isource -lm
+          ./test_pmbus_decode
+
+      - name: Build & run test_json_encode
+        run: |
+          gcc -Wall -Wextra -Werror -o test_json_encode \
+            tests/test_json_encode.c \
+            source/telemetry.c source/events.c \
+            source/metrics.c source/gateway_config.c \
+            source/pmbus_decode.c \
+            -Isource -Isource/profiles -Itests/stubs -lm
+          ./test_json_encode
+
+      - name: Python script syntax check
+        run: |
+          python3 -m py_compile scripts/capture/capture.py
+          python3 -m py_compile scripts/plot/plot.py
+          echo "Python syntax OK"
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Firmware cross-compilation (self-hosted runner with ModusToolbox)
+  # ---------------------------------------------------------------------------
+  firmware:
+    # Only runs on a self-hosted runner labelled 'mtb'.
+    # Remove the 'if' or change 'runs-on' when a runner is available.
+    runs-on: self-hosted
+    if: ${{ false }}   # disabled until a self-hosted runner is configured
+    timeout-minutes: 30
+    needs: host-tests
+
+    env:
+      TOOLCHAIN: GCC_ARM
+      CONFIG: Debug
+      TARGET: APP_CY8CKIT-062S2-43012
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Verify ModusToolbox
+        run: |
+          TOOLS_DIR=$(find ~/ModusToolbox -maxdepth 1 -name "tools_*" -type d 2>/dev/null | sort | tail -1)
+          if [ -z "$TOOLS_DIR" ]; then
+            echo "::error::ModusToolbox tools not found in ~/ModusToolbox"
+            exit 1
+          fi
+          echo "CY_TOOLS_DIR=$TOOLS_DIR" >> $GITHUB_ENV
+          echo "Found ModusToolbox: $TOOLS_DIR"
+
+      - name: Fetch libraries
+        run: make getlibs CY_TOOLS_PATHS=${{ env.CY_TOOLS_DIR }}
+
+      - name: Build default profile
+        run: |
+          make build \
+            TOOLCHAIN=${{ env.TOOLCHAIN }} \
+            CONFIG=${{ env.CONFIG }} \
+            CY_TOOLS_PATHS=${{ env.CY_TOOLS_DIR }} \
+            -j$(nproc)
+
+      - name: Build experiment profiles
+        run: |
+          for profile in exp1_fast exp1_single exp2_throughput exp3_offline exp4_pec_off; do
+            echo "::group::Building profile: $profile"
+            make build \
+              TOOLCHAIN=${{ env.TOOLCHAIN }} \
+              CONFIG=${{ env.CONFIG }} \
+              CY_TOOLS_PATHS=${{ env.CY_TOOLS_DIR }} \
+              GW_PROFILE=$profile \
+              -j$(nproc)
+            echo "::endgroup::"
+          done
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: firmware-${{ env.CONFIG }}
+          path: |
+            build/${{ env.TARGET }}/${{ env.CONFIG }}/*.elf
+            build/${{ env.TARGET }}/${{ env.CONFIG }}/*.hex
+          retention-days: 7
