@@ -50,7 +50,7 @@ static const device_cfg_t k_devices[] = {
     },                                                                         \
                                                                                \
     .mqtt = {                                                                  \
-        .host           = "192.168.1.2",                                      \
+        .host           = "192.168.1.8",                                      \
         .port           = 1883,                                                \
         .client_id      = "pmbus-gw01",                                        \
         .base_topic     = "pmbus/gw01",                                        \
@@ -72,5 +72,5 @@ static const device_cfg_t k_devices[] = {
                                                                                \
     .devices         = k_devices,                                              \
     .num_devices     = sizeof(k_devices) / sizeof(k_devices[0]),               \
-    .metrics_period_ms = 2000,                                                 \
+    .metrics_period_ms = 10000,         /* 10 s — diagnostics, not real-time */\
 })
