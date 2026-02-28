@@ -160,6 +160,7 @@ void metrics_inc_mqtt_reconnects(void)   { s_counters.mqtt_reconnects++;   }
 void metrics_inc_buffer_enqueued(void)   { s_counters.buffer_enqueued++;   }
 void metrics_inc_buffer_dequeued(void)   { s_counters.buffer_dequeued++;   }
 void metrics_inc_buffer_dropped(void)    { s_counters.buffer_dropped++;    }
+void metrics_inc_queue_drops(void)       { s_counters.queue_drops++;       }
 
 /*******************************************************************************
  * Gauge setters
@@ -334,7 +335,8 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
              "\"mqtt_reconnects\":%u,"
              "\"buffer_enqueued\":%u,"
              "\"buffer_dequeued\":%u,"
-             "\"buffer_dropped\":%u}",
+             "\"buffer_dropped\":%u,"
+             "\"queue_drops\":%u}",
              (unsigned)snap->counters.pmbus_reads_ok,
              (unsigned)snap->counters.pmbus_reads_fail,
              (unsigned)snap->counters.pmbus_retries,
@@ -346,7 +348,8 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
              (unsigned)snap->counters.mqtt_reconnects,
              (unsigned)snap->counters.buffer_enqueued,
              (unsigned)snap->counters.buffer_dequeued,
-             (unsigned)snap->counters.buffer_dropped);
+             (unsigned)snap->counters.buffer_dropped,
+             (unsigned)snap->counters.queue_drops);
 
     /* gauges */
     M_PRINTF(",\"gauges\":{"

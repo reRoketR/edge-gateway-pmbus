@@ -414,7 +414,7 @@ static void poll_telemetry(const device_cfg_t *dev, device_state_t *state)
             printf("[POLL] WARN: telemetry queue full (addr=0x%02X)\n", addr);
             state->last_telem_warn = now_t;
         }
-        metrics_inc_pmbus_reads_fail();  /* count as a lost record */
+        metrics_inc_queue_drops();
     }
 }
 
