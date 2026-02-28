@@ -195,9 +195,14 @@ static bool read_byte_cmd(uint8_t addr, uint8_t cmd, uint8_t *out,
         case PMBUS_ERR_PEC:      metrics_inc_pmbus_pec_fail(); break;
         default: break;
     }
-    if (retries_total != NULL && st != PMBUS_OK)
+    /* pmbus_read_byte() already exhausted g_config.i2c.retries internal
+     * attempts.  Count the actual number of I2C retries, not just 1. */
+    if (retries_total != NULL)
     {
-        (*retries_total)++;
+        *retries_total += g_config.i2c.retries;
+    }
+    for (uint8_t ri = 0; ri < g_config.i2c.retries; ri++)
+    {
         metrics_inc_pmbus_retries();
     }
     return false;
@@ -224,10 +229,14 @@ static bool read_cmd(uint8_t addr, uint8_t cmd, uint16_t *out,
         case PMBUS_ERR_PEC:      metrics_inc_pmbus_pec_fail(); break;
         default: break;
     }
-    /* retries are already done inside pmbus_read_word(); we count them externally */
-    if (retries_total != NULL && st != PMBUS_OK)
+    /* pmbus_read_word() already exhausted g_config.i2c.retries internal
+     * attempts.  Count the actual number of I2C retries, not just 1. */
+    if (retries_total != NULL)
     {
-        (*retries_total)++;
+        *retries_total += g_config.i2c.retries;
+    }
+    for (uint8_t ri = 0; ri < g_config.i2c.retries; ri++)
+    {
         metrics_inc_pmbus_retries();
     }
     return false;
@@ -417,6 +426,7 @@ static void poll_telemetry(const device_cfg_t *dev, device_state_t *state)
         {
             printf("[POLL] WARN: telemetry queue full (addr=0x%02X)\n", addr);
             state->last_telem_warn = now_t;
+            gateway_ipc_post_event(EVT_QUEUE_OVERFLOW, "telemetry_queue");
         }
         metrics_inc_queue_drops();
     }

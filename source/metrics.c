@@ -22,6 +22,7 @@
 #include "metrics.h"
 #include "telemetry.h"
 #include "gateway_config.h"
+#include "gw_util.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -196,10 +197,9 @@ void metrics_snapshot_and_reset(metrics_snapshot_t *snap, uint64_t now_ms)
     {
         window_ms = (uint32_t)(now_ms - s_last_snapshot_ms);
     }
-    else
-    {
-        window_ms = (uint32_t)(now_ms - s_boot_ms);
-    }
+    /* else: first snapshot — window_ms stays 0; counters accumulated since
+     * boot are reported but rates will be zero.  Post-processing scripts
+     * should filter records where window_ms == 0. */
 
     snap->ts_ms     = now_ms;
     snap->window_ms = window_ms;
@@ -281,18 +281,7 @@ static int fmt_us_to_ms_1dp(char *buf, size_t sz, uint32_t us)
     return snprintf(buf, sz, "%u.%u", (unsigned)ms_int, (unsigned)ms_frac);
 }
 
-/**
- * @brief Format uint64_t as decimal string (portable, avoids %llu on MinGW).
- */
-static int fmt_u64(char *buf, size_t sz, uint64_t val)
-{
-    if (val == 0u) return snprintf(buf, sz, "0");
-    char tmp[21];
-    int p = (int)sizeof(tmp) - 1;
-    tmp[p] = '\0';
-    while (val > 0u && p > 0) { p--; tmp[p] = (char)('0' + (int)(val % 10u)); val /= 10u; }
-    return snprintf(buf, sz, "%s", &tmp[p]);
-}
+/* fmt_u64() is now provided by gw_util.h */
 
 int encode_metrics_json(const metrics_snapshot_t *snap,
                         char *out, size_t out_sz)

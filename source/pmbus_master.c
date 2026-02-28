@@ -22,6 +22,7 @@
 
 #include "pmbus_master.h"
 #include "gateway_config.h"
+#include "gateway_ipc.h"
 
 /* PDL I2C driver */
 #include "cy_scb_i2c.h"
@@ -311,10 +312,12 @@ pmbus_status_t pmbus_bus_recovery(void)
     if (sda_val == 0u)
     {
         printf("[PMBUS] Bus recovery FAILED: SDA still low\n");
+        gateway_ipc_post_event(EVT_PMBUS_BUS_RECOVERY_FAIL, "SDA stuck low");
         return PMBUS_ERR_BUS;
     }
 
     printf("[PMBUS] Bus recovery OK\n");
+    gateway_ipc_post_event(EVT_PMBUS_BUS_RECOVERY, NULL);
     return PMBUS_OK;
 }
 
@@ -535,143 +538,6 @@ retry_byte:
 
     return result;
 }
-
-/*******************************************************************************
- * SMBus Read Block
- *
- * DISABLED: This function has a known over-read bug — it requests buf_size+1
- * bytes upfront because the PDL high-level API doesn't support variable-length
- * block reads (byte_count is unknown until the first byte is received).
- * A correct implementation would use the low-level Cy_SCB_I2C API with manual
- * ACK/NAK control.  Since no profile currently uses block reads, the function
- * is compiled out to avoid accidental use.
- ******************************************************************************/
-#if 0  /* DISABLED — over-read bug, see code review */
-pmbus_status_t pmbus_read_block(uint8_t addr_7bit, uint8_t cmd,
-                                uint8_t *buf, uint8_t buf_size,
-                                uint8_t *out_len)
-{
-    if (!pmbus_initialized) return PMBUS_ERR_NOT_INIT;
-    if (buf == NULL || out_len == NULL || buf_size == 0u) return PMBUS_ERR_ARG;
-
-    bool pec = g_config.i2c.pec_enabled;
-    uint8_t max_retries = g_config.i2c.retries;
-    pmbus_status_t result = PMBUS_ERR_BUS;
-
-    /*
-     * SMBus block read: the target sends byte_count first, then data bytes.
-     * Max block size per SMBus spec is 32 bytes + 1 byte_count + optional PEC.
-     * We use a fixed buffer of 34 bytes to accommodate worst case.
-     */
-    uint8_t raw_buf[34] = {0};
-
-    for (uint8_t attempt = 0; attempt <= max_retries; attempt++)
-    {
-        cy_en_scb_i2c_status_t pdl_st;
-
-        /* --- Phase 1: Write command byte (xferPending) --- */
-        uint8_t cmd_buf[1] = { cmd };
-        cy_stc_scb_i2c_master_xfer_config_t wr_cfg = {
-            .slaveAddress = addr_7bit,
-            .buffer       = cmd_buf,
-            .bufferSize   = 1u,
-            .xferPending  = true,
-        };
-
-        pdl_st = Cy_SCB_I2C_MasterWrite(PMBUS_CONTROLLER_HW, &wr_cfg,
-                                        &pmbus_i2c_ctx);
-        if (CY_SCB_I2C_SUCCESS != pdl_st)
-        {
-            result = map_pdl_status(pdl_st);
-            goto block_retry;
-        }
-
-        result = wait_for_completion(pmbus_timeout_ms);
-        if (PMBUS_OK != result) goto block_retry;
-
-        /*
-         * --- Phase 2: Read using low-level API to handle byte_count --- 
-         *
-         * We first read 1 byte to get byte_count, then read the remaining
-         * data bytes. However, since we need to keep the bus held between
-         * reads, we'll use a conservative approach: read up to max expected
-         * bytes (buf_size + 1 for byte_count + 1 for PEC).
-         */
-        {
-            uint8_t max_read = buf_size + 1u;  /* +1 for byte_count */
-            if (pec) max_read += 1u;           /* +1 for PEC */
-            if (max_read > sizeof(raw_buf)) max_read = sizeof(raw_buf);
-
-            cy_stc_scb_i2c_master_xfer_config_t rd_cfg = {
-                .slaveAddress = addr_7bit,
-                .buffer       = raw_buf,
-                .bufferSize   = max_read,
-                .xferPending  = false,
-            };
-
-            pdl_st = Cy_SCB_I2C_MasterRead(PMBUS_CONTROLLER_HW, &rd_cfg,
-                                           &pmbus_i2c_ctx);
-            if (CY_SCB_I2C_SUCCESS != pdl_st)
-            {
-                result = map_pdl_status(pdl_st);
-                goto block_retry;
-            }
-
-            result = wait_for_completion(pmbus_timeout_ms);
-            if (PMBUS_OK != result) goto block_retry;
-        }
-
-        /* Parse: raw_buf[0] = byte_count, raw_buf[1..N] = data */
-        uint8_t byte_count = raw_buf[0];
-        if (byte_count > buf_size)
-        {
-            result = PMBUS_ERR_ARG;
-            goto block_retry;
-        }
-
-        /* Verify PEC if enabled */
-        if (pec)
-        {
-            /* PEC covers: addr+W, cmd, addr+R, byte_count, data[0..N-1] */
-            uint8_t pec_buf[37];  /* 3 header + 1 byte_count + 32 data max + 1 */
-            uint8_t pec_len = 0;
-
-            pec_buf[pec_len++] = (uint8_t)(addr_7bit << 1u) | 0u;
-            pec_buf[pec_len++] = cmd;
-            pec_buf[pec_len++] = (uint8_t)(addr_7bit << 1u) | 1u;
-            pec_buf[pec_len++] = byte_count;
-            memcpy(&pec_buf[pec_len], &raw_buf[1], byte_count);
-            pec_len += byte_count;
-
-            uint8_t computed = pmbus_crc8(pec_buf, pec_len);
-            uint8_t received = raw_buf[1u + byte_count];  /* PEC byte follows data */
-
-            if (computed != received)
-            {
-                result = PMBUS_ERR_PEC;
-                goto block_retry;
-            }
-        }
-
-        /* Copy data to output buffer */
-        memcpy(buf, &raw_buf[1], byte_count);
-        *out_len = byte_count;
-        return PMBUS_OK;
-
-block_retry:
-        if (attempt < max_retries)
-        {
-            if (result == PMBUS_ERR_BUS && g_config.i2c.bus_recovery)
-            {
-                pmbus_bus_recovery();
-            }
-            vTaskDelay(pdMS_TO_TICKS(1));  /* RTOS-friendly delay between retries */
-        }
-    }
-
-    return result;
-}
-#endif /* DISABLED pmbus_read_block */
 
 /*******************************************************************************
  * SMBus Send Byte (no data, just command code)

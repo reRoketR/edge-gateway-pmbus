@@ -14,6 +14,7 @@
 
 #include "events.h"
 #include "gateway_config.h"
+#include "gw_util.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -44,18 +45,7 @@ const char *event_type_str(event_type_t type)
     return "UNKNOWN";
 }
 
-/**
- * @brief Format uint64_t as decimal string (portable, avoids %llu on MinGW).
- */
-static int fmt_u64(char *buf, size_t sz, uint64_t val)
-{
-    if (val == 0u) return snprintf(buf, sz, "0");
-    char tmp[21];
-    int p = (int)sizeof(tmp) - 1;
-    tmp[p] = '\0';
-    while (val > 0u && p > 0) { p--; tmp[p] = (char)('0' + (int)(val % 10u)); val /= 10u; }
-    return snprintf(buf, sz, "%s", &tmp[p]);
-}
+/* fmt_u64() is now provided by gw_util.h */
 
 /*******************************************************************************
  * JSON encoding

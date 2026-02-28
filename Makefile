@@ -192,6 +192,32 @@ CY_GETLIBS_SHARED_NAME=mtb_shared
 CY_COMPILER_GCC_ARM_DIR=
 
 
+################################################################################
+# Host-side unit tests (no ModusToolbox required)
+#
+# Usage: make test            (build & run all host-side tests)
+#        make test CC=gcc-13  (with a specific compiler)
+################################################################################
+TEST_CC ?= gcc
+TEST_CFLAGS := -Wall -Wextra -Werror -Isource -Isource/profiles -Itests/stubs
+
+.PHONY: test
+test:
+	$(TEST_CC) $(TEST_CFLAGS) -o test_buffer_ring \
+		tests/test_buffer_ring.c && ./test_buffer_ring
+	$(TEST_CC) $(TEST_CFLAGS) -o test_pmbus_decode \
+		tests/test_pmbus_decode.c source/pmbus_decode.c -lm \
+		&& ./test_pmbus_decode
+	$(TEST_CC) $(TEST_CFLAGS) -o test_json_encode \
+		tests/test_json_encode.c source/telemetry.c source/events.c \
+		source/metrics.c source/gateway_config.c source/pmbus_decode.c \
+		source/gw_util.c -lm && ./test_json_encode
+	@echo "All host-side tests passed."
+
+# When the goal is only 'test', skip ModusToolbox include entirely
+# so the target works without ModusToolbox installed.
+ifneq ($(MAKECMDGOALS),test)
+
 # Locate ModusToolbox helper tools folders in default installation
 # locations for Windows, Linux, and macOS.
 CY_WIN_HOME=$(subst \,/,$(USERPROFILE))
@@ -216,3 +242,5 @@ endif
 $(info Tools Directory: $(CY_TOOLS_DIR))
 
 include $(CY_TOOLS_DIR)/make/start.mk
+
+endif # ifneq ($(MAKECMDGOALS),test)

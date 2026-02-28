@@ -86,15 +86,6 @@ bool buffer_mgr_init(void);
 bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len);
 
 /**
- * @brief Dequeue the oldest record from the buffer.
- *
- * @param[out] out  Pointer to record to fill
- *
- * @return true if a record was dequeued, false if buffer is empty.
- */
-bool buffer_mgr_get(buffer_record_t *out);
-
-/**
  * @brief Get the current number of records in the buffer.
  *
  * @return Number of buffered records.

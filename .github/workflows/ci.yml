@@ -52,7 +52,7 @@ jobs:
             tests/test_json_encode.c \
             source/telemetry.c source/events.c \
             source/metrics.c source/gateway_config.c \
-            source/pmbus_decode.c \
+            source/pmbus_decode.c source/gw_util.c \
             -Isource -Isource/profiles -Itests/stubs -lm
           ./test_json_encode
 

@@ -69,6 +69,7 @@ COLORS = {
     "vout":   "#e9c46a",
     "iout":   "#f4a261",
     "temp":   "#e63946",
+    "pout":   "#2a9d8f",
 }
 
 
@@ -204,13 +205,20 @@ def plot_errors(df_m: pd.DataFrame, out_dir: str, offline_start, offline_end):
 
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(10, 6))
 
-    ax1.bar(t, fail + pec + nack + tmo, color=COLORS["fail"], alpha=0.7, label="reads_fail+pec+nack+timeout", width=1.8)
+    # Dynamic bar width: 80% of median interval (in seconds), fallback 1.8
+    bar_w = 1.8
+    if len(t) > 1:
+        diffs = t.diff().dropna()
+        if not diffs.empty:
+            bar_w = float(diffs.median()) * 0.8
+
+    ax1.bar(t, fail + pec + nack + tmo, color=COLORS["fail"], alpha=0.7, label="reads_fail+pec+nack+timeout", width=bar_w)
     ax1.set_ylabel("Error count (per window)")
     ax1.set_title("PMBus errors per metrics window")
     ax1.legend(fontsize=8)
     shade_offline(ax1, offline_start, offline_end)
 
-    ax2.bar(t, rty, color=COLORS["retry"], alpha=0.7, label="retries", width=1.8)
+    ax2.bar(t, rty, color=COLORS["retry"], alpha=0.7, label="retries", width=bar_w)
     ax2.set_xlabel("Elapsed time (s)")
     ax2.set_ylabel("Retry count (per window)")
     ax2.set_title("PMBus retries per metrics window")
@@ -269,8 +277,9 @@ def plot_telemetry(df_t: pd.DataFrame, out_dir: str, offline_start, offline_end)
     vout = col("v.vout")
     iout = col("a.iout")
     temp = col("c.temp1")
+    pout = col("w.pout")
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 6), sharex=True)
+    fig, axes = plt.subplots(3, 2, figsize=(12, 9), sharex=True)
 
     def _ax(ax, series, label, ylabel, color):
         ax.plot(t, series, color=color, linewidth=1.2)
@@ -281,9 +290,11 @@ def plot_telemetry(df_t: pd.DataFrame, out_dir: str, offline_start, offline_end)
     _ax(axes[0, 0], vin,  "VIN",   "V",  COLORS["vin"])
     _ax(axes[0, 1], vout, "VOUT",  "V",  COLORS["vout"])
     _ax(axes[1, 0], iout, "IOUT",  "A",  COLORS["iout"])
-    _ax(axes[1, 1], temp, "TEMP1", "°C", COLORS["temp"])
+    _ax(axes[1, 1], temp, "TEMP1", "\u00b0C", COLORS["temp"])
+    _ax(axes[2, 0], pout, "POUT",  "W",  COLORS["pout"])
+    axes[2, 1].axis("off")  # empty cell
 
-    for ax in axes[1, :]:
+    for ax in axes[2, :]:
         ax.set_xlabel("Elapsed time (s)")
 
     fig.suptitle("PMBus telemetry — device 0x58", fontsize=11)
@@ -318,6 +329,10 @@ def main():
 
     df_m = load_jsonl(os.path.join(log_dir, "metrics.jsonl"))
     df_t = load_jsonl(os.path.join(log_dir, "telemetry.jsonl"))
+
+    # Drop the first metrics snapshot whose window_ms == 0 (boot artefact).
+    if not df_m.empty and "window_ms" in df_m.columns:
+        df_m = df_m[pd.to_numeric(df_m["window_ms"], errors="coerce") > 0].reset_index(drop=True)
 
     print(f"[PLOT] Loaded  : {len(df_m)} metrics records, {len(df_t)} telemetry records")
 

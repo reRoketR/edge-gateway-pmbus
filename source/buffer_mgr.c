@@ -142,12 +142,16 @@ bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len
                 s_tail = (s_tail + 1u) % s_capacity;
                 s_count--;
                 metrics_inc_buffer_dropped();
+                taskEXIT_CRITICAL();
+                gateway_ipc_post_event(EVT_BUFFER_OVERFLOW, "drop_oldest");
+                taskENTER_CRITICAL();
             }
             else
             {
                 /* Drop new record */
                 taskEXIT_CRITICAL();
                 metrics_inc_buffer_dropped();
+                gateway_ipc_post_event(EVT_BUFFER_OVERFLOW, "drop_newest");
                 return false;
             }
         }
@@ -170,34 +174,6 @@ bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len
     taskEXIT_CRITICAL();
 
     metrics_inc_buffer_enqueued();
-    return true;
-}
-
-/*******************************************************************************
- * Get
- ******************************************************************************/
-bool buffer_mgr_get(buffer_record_t *out)
-{
-    if (s_ring == NULL || out == NULL)
-    {
-        return false;
-    }
-
-    taskENTER_CRITICAL();
-
-    if (s_count == 0u)
-    {
-        taskEXIT_CRITICAL();
-        return false;
-    }
-
-    memcpy(out, &s_ring[s_tail], sizeof(buffer_record_t));
-    s_tail = (s_tail + 1u) % s_capacity;
-    s_count--;
-
-    taskEXIT_CRITICAL();
-
-    metrics_inc_buffer_dequeued();
     return true;
 }
 

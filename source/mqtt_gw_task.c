@@ -446,9 +446,6 @@ static void process_telemetry_queue(void)
                                            rec.addr_7bit, "telemetry");
         if (topic_len <= 0) continue;
 
-        /* Record timestamp before publish for read-to-publish latency */
-        TickType_t pub_start = xTaskGetTickCount();
-
         if (!publish_json(s_topic_buf, s_json_buf, (size_t)json_len))
         {
             /* Buffer for later */
@@ -470,8 +467,6 @@ static void process_telemetry_queue(void)
                 metrics_record_read_to_publish_us(latency_us);
             }
         }
-
-        (void)pub_start;
     }
 }
 

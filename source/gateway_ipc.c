@@ -9,6 +9,7 @@
 
 #include "gateway_ipc.h"
 #include "wallclock.h"
+#include "metrics.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -118,6 +119,7 @@ void gateway_ipc_post_event(event_type_t type, const char *detail)
     {
         printf("[IPC] WARN: event queue full, dropped %s\n",
                event_type_str(type));
+        metrics_inc_queue_drops();
     }
 }
 

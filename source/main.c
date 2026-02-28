@@ -111,7 +111,8 @@ int main(void)
     if (!gateway_ipc_init())
     {
         printf("[SYS] FATAL: IPC init failed\n");
-        CY_ASSERT(0);
+        CY_ASSERT(0);  /* breakpoint in Debug */
+        for (;;) { __WFI(); }  /* halt in Release */
     }
 
     /* Store-and-forward buffer (RAM ring buffer) */
@@ -119,6 +120,7 @@ int main(void)
     {
         printf("[SYS] FATAL: Buffer manager init failed\n");
         CY_ASSERT(0);
+        for (;;) { __WFI(); }
     }
 
     /* ---- Create gateway tasks (agent.md §6) ---- */
