@@ -147,6 +147,11 @@ LDLIBS=
 # Path to the linker script to use (if empty, use the default linker script).
 LINKER_SCRIPT=
 
+# Directories the build system should ignore (not scan for .c/.h files).
+# .venv contains Python packages (numpy, etc.) with .c files that the
+# ARM cross-compiler cannot compile.
+CY_IGNORE+=.venv logs
+
 # Custom pre-build commands to run.
 PREBUILD=
 
