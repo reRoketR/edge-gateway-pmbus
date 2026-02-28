@@ -29,7 +29,17 @@ Release/
 
 # ---------------------------------------------------------------------------
 # BSP — bsps/ is intentionally tracked (custom board support package)
+# Auto-generated Doxygen HTML docs are excluded (regenerate locally).
 # ---------------------------------------------------------------------------
+bsps/*/docs/html/
+
+# ---------------------------------------------------------------------------
+# ModusToolbox auto-generated project metadata
+# ---------------------------------------------------------------------------
+project_info.json
+
+# Original MTB template README (replaced by project-specific README.md)
+README_original.md
 
 # ---------------------------------------------------------------------------
 # Secrets — local Wi-Fi credentials (never committed)
@@ -52,6 +62,7 @@ makefile.init
 *.code-workspace
 .vscode/launch.json
 .vscode/c_cpp_properties.json
+.vscode/settings.json
 
 # clangd LSP cache
 .cache/
@@ -78,6 +89,7 @@ Backup*/
 # ---------------------------------------------------------------------------
 *.bin
 *.elf
+*.exe
 *.hex
 *.map
 *.lst
@@ -110,6 +122,7 @@ env/
 # Experiment captured data — JSONL logs and generated plots
 # Directories are preserved via .gitkeep; raw data files are excluded.
 # ---------------------------------------------------------------------------
+logs/
 scripts/logs/**/*.jsonl
 scripts/logs/**/*.png
 scripts/logs/**/*.csv
