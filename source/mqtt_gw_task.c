@@ -264,8 +264,16 @@ static bool wifi_connect(void)
     cy_wcm_ip_address_t ip;
     memset(&params, 0, sizeof(params));
 
-    memcpy(params.ap_credentials.SSID, WIFI_SSID, sizeof(WIFI_SSID));
-    memcpy(params.ap_credentials.password, WIFI_PASSWORD, sizeof(WIFI_PASSWORD));
+    /* Bounds-check at compile time (CY_WCM_MAX_SSID_LEN=32, PASSPHRASE=63) */
+    _Static_assert(sizeof(WIFI_SSID) <= sizeof(params.ap_credentials.SSID),
+                   "WIFI_SSID exceeds CY_WCM_MAX_SSID_LEN");
+    _Static_assert(sizeof(WIFI_PASSWORD) <= sizeof(params.ap_credentials.password),
+                   "WIFI_PASSWORD exceeds CY_WCM_MAX_PASSPHRASE_LEN");
+
+    strncpy((char *)params.ap_credentials.SSID, WIFI_SSID,
+            sizeof(params.ap_credentials.SSID) - 1u);
+    strncpy((char *)params.ap_credentials.password, WIFI_PASSWORD,
+            sizeof(params.ap_credentials.password) - 1u);
     params.ap_credentials.security = WIFI_SECURITY;
 
     printf("[MQTT] Wi-Fi connecting to '%s'...\n", WIFI_SSID);
@@ -289,16 +297,6 @@ static bool wifi_connect(void)
             {
                 printf("[MQTT] Wi-Fi connected (IPv6)\n");
             }
-
-            /* Read and report RSSI */
-            int32_t rssi;
-            if (CY_RSLT_SUCCESS == cy_wcm_get_associated_ap_info(
-                    (cy_wcm_associated_ap_info_t[]){{}}) )
-            {
-                /* cy_wcm_get_associated_ap_info is available but RSSI
-                 * retrieval API varies. We'll set it from WCM if available. */
-            }
-            (void)rssi;
 
             return true;
         }
