@@ -58,7 +58,6 @@ static const device_cfg_t k_devices[] = {
         .flush_batch_size = 50,                                                \
         .flush_interval_ms = 200,                                              \
         .drop_oldest      = true,                                              \
-        .persist_seq      = false,                                             \
     },                                                                         \
                                                                                \
     .devices         = k_devices,                                              \

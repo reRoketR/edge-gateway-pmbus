@@ -67,8 +67,8 @@ typedef struct {
         uint16_t flush_batch_size;  /**< Records to flush per tick           */
         uint32_t flush_interval_ms; /**< Flush timer period                  */
         bool     drop_oldest;       /**< true = drop oldest on overflow      */
-        bool     persist_seq;       /**< Persist seq counter across reboot   */
     } buffer;
+    /* NOTE: seq counter always resets to 0 on reboot (not persisted). */
 
     /* ---- Device list ---- */
     const device_cfg_t *devices;    /**< Array of target devices             */

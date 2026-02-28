@@ -61,7 +61,6 @@ static const device_cfg_t k_devices[] = {
         .flush_batch_size = 50,                                                \
         .flush_interval_ms = 200,                                              \
         .drop_oldest      = true,                                              \
-        .persist_seq      = true,       /* Persist seq counter across reboot */\
     },                                                                         \
                                                                                \
     .devices         = k_devices,                                              \
