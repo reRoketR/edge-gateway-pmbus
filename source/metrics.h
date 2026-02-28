@@ -49,6 +49,7 @@ typedef struct {
     uint32_t buffer_dequeued;
     uint32_t buffer_dropped;
     uint32_t queue_drops;           /**< Records lost due to full FreeRTOS queue */
+    uint32_t telemetry_enqueued;    /**< Telemetry records successfully enqueued  */
 } metrics_counters_t;
 
 /*******************************************************************************
@@ -128,6 +129,7 @@ void metrics_inc_buffer_enqueued(void);
 void metrics_inc_buffer_dequeued(void);
 void metrics_inc_buffer_dropped(void);
 void metrics_inc_queue_drops(void);
+void metrics_inc_telemetry_enqueued(void);
 
 /*******************************************************************************
  * Gauge setters (called from various tasks)

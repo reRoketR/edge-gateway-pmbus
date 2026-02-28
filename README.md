@@ -39,6 +39,8 @@ Gateway (SCB3)              Target (SCB0)
 
 ### 2. Flash the Target
 
+From the workspace root (`thesis_proj/`):
+
 ```bash
 cd target_proj
 make build TOOLCHAIN=GCC_ARM CONFIG=Debug
@@ -48,6 +50,8 @@ make program
 Verify on UART: `PMBus slave ready at address 0x58`
 
 ### 3. Flash the Gateway
+
+From the workspace root (`thesis_proj/`):
 
 ```bash
 cd rtos_test
@@ -82,15 +86,19 @@ allow_anonymous true
 
 ### 5. Capture Data
 
+From `rtos_test/`:
+
 ```bash
 pip install -r scripts/requirements.txt
-python scripts/capture/capture.py --broker 192.168.1.2 --duration 60 --out-dir scripts/logs/run1/
+python scripts/capture/capture.py --host 192.168.1.2 --duration 60
 ```
+
+Output: `logs/<timestamp>/` with `telemetry.jsonl`, `status.jsonl`, `metrics.jsonl`, `events.jsonl`
 
 ### 6. Generate Plots
 
 ```bash
-python scripts/plot/plot.py scripts/logs/run1/
+python scripts/plot/plot.py --log-dir logs/<timestamp>
 ```
 
 Output: `latency.png`, `buffer.png`, `errors.png`, `throughput.png`, `telemetry.png`

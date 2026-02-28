@@ -406,7 +406,11 @@ static void poll_telemetry(const device_cfg_t *dev, device_state_t *state)
     log_telemetry_table(&rec);
 
     /* Push to telemetry queue (non-blocking — drop if full) */
-    if (xQueueSend(gateway_ipc_telemetry_queue(), &rec, 0) != pdTRUE)
+    if (xQueueSend(gateway_ipc_telemetry_queue(), &rec, 0) == pdTRUE)
+    {
+        metrics_inc_telemetry_enqueued();
+    }
+    else
     {
         TickType_t now_t = xTaskGetTickCount();
         if ((int32_t)(now_t - state->last_telem_warn) >= (int32_t)WARN_THROTTLE_TICKS)

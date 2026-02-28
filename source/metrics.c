@@ -161,6 +161,7 @@ void metrics_inc_buffer_enqueued(void)   { s_counters.buffer_enqueued++;   }
 void metrics_inc_buffer_dequeued(void)   { s_counters.buffer_dequeued++;   }
 void metrics_inc_buffer_dropped(void)    { s_counters.buffer_dropped++;    }
 void metrics_inc_queue_drops(void)       { s_counters.queue_drops++;       }
+void metrics_inc_telemetry_enqueued(void){ s_counters.telemetry_enqueued++;}
 
 /*******************************************************************************
  * Gauge setters
@@ -235,10 +236,11 @@ void metrics_snapshot_and_reset(metrics_snapshot_t *snap, uint64_t now_ms)
 
     /* Compute rates.
      *
-     * pmbus_reads_ok counts individual PMBus *commands* (6 per telemetry
-     * snapshot when all succeed).  Therefore:
-     *   - telemetry_msgs_per_s ≈ pmbus_reads_ok / TELEM_NUM_COMMANDS / window_s
-     *   - pmbus_cmds_per_s    ≈ (pmbus_reads_ok + pmbus_reads_fail) / window_s
+     * telemetry_enqueued counts actual telemetry records pushed to the
+     * FreeRTOS queue (1 per successful poll cycle, regardless of how many
+     * individual PMBus commands succeeded within that cycle).
+     *
+     * pmbus_cmds_per_s uses the raw per-command counters as before.
      *
      * We multiply by 10000 (not 1000) because the stored value is ×10 to give
      * one decimal of precision without float.
@@ -248,10 +250,9 @@ void metrics_snapshot_and_reset(metrics_snapshot_t *snap, uint64_t now_ms)
         uint32_t total_cmds = snap->counters.pmbus_reads_ok +
                               snap->counters.pmbus_reads_fail;
 
-        /* Telemetry snapshots ≈ ok_commands / commands_per_snapshot */
+        /* Telemetry msgs/s = actually enqueued records / window */
         snap->rates.telemetry_msgs_per_s_x10 =
-            (snap->counters.pmbus_reads_ok * 10000u) /
-            (window_ms * TELEM_NUM_COMMANDS);
+            (snap->counters.telemetry_enqueued * 10000u) / window_ms;
 
         /* PMBus bus commands per second (already per-command counts) */
         snap->rates.pmbus_cmds_per_s_x10 =
@@ -336,7 +337,8 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
              "\"buffer_enqueued\":%u,"
              "\"buffer_dequeued\":%u,"
              "\"buffer_dropped\":%u,"
-             "\"queue_drops\":%u}",
+             "\"queue_drops\":%u,"
+             "\"telemetry_enqueued\":%u}",
              (unsigned)snap->counters.pmbus_reads_ok,
              (unsigned)snap->counters.pmbus_reads_fail,
              (unsigned)snap->counters.pmbus_retries,
@@ -349,7 +351,8 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
              (unsigned)snap->counters.buffer_enqueued,
              (unsigned)snap->counters.buffer_dequeued,
              (unsigned)snap->counters.buffer_dropped,
-             (unsigned)snap->counters.queue_drops);
+             (unsigned)snap->counters.queue_drops,
+             (unsigned)snap->counters.telemetry_enqueued);
 
     /* gauges */
     M_PRINTF(",\"gauges\":{"

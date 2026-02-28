@@ -4,20 +4,20 @@ This document defines the **stable MQTT contract** for the PMBus↔MQTT gateway.
 
 ## 1) Topic scheme
 
-Base topic: `pmbus/<gw_id>`
+Base topic: `pmbus/{gw_id}`
 
 ### 1.1 Telemetry (per device)
-- Topic: `pmbus/<gw_id>/dev/<addr>/telemetry`
-- `<addr>` MUST be a string formatted as `0xNN` (example: `0x58`)
+- Topic: `pmbus/{gw_id}/dev/{addr}/telemetry`
+- `{addr}` MUST be a string formatted as `0xNN` (example: `0x58`)
 
 ### 1.2 Status (per device)
-- Topic: `pmbus/<gw_id>/dev/<addr>/status`
+- Topic: `pmbus/{gw_id}/dev/{addr}/status`
 
 ### 1.3 Gateway metrics
-- Topic: `pmbus/<gw_id>/metrics`
+- Topic: `pmbus/{gw_id}/metrics`
 
 ### 1.4 Gateway events
-- Topic: `pmbus/<gw_id>/events`
+- Topic: `pmbus/{gw_id}/events`
 
 ---
 
@@ -120,7 +120,8 @@ Topic: `.../metrics`
     "buffer_enqueued": 102,
     "buffer_dequeued": 80,
     "buffer_dropped": 0,
-    "queue_drops": 0
+    "queue_drops": 0,
+    "telemetry_enqueued": 98
   },
   "gauges": {
     "buffer_depth_ram": 120,
