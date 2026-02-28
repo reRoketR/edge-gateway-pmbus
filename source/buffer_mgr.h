@@ -102,6 +102,27 @@ bool buffer_mgr_get(buffer_record_t *out);
 uint32_t buffer_mgr_depth(void);
 
 /*******************************************************************************
+ * Peek / Consume (FIFO-safe for flush)
+ ******************************************************************************/
+
+/**
+ * @brief Peek at the oldest RAM record without removing it.
+ *
+ * @param[out] out  Pointer to record to fill
+ * @return true if a record was copied, false if buffer is empty.
+ */
+bool buffer_mgr_peek(buffer_record_t *out);
+
+/**
+ * @brief Consume (remove) the oldest RAM record after a successful publish.
+ *
+ * Must be called only after a successful buffer_mgr_peek().
+ *
+ * @return true if a record was consumed, false if buffer is empty.
+ */
+bool buffer_mgr_consume(void);
+
+/*******************************************************************************
  * Buffer task (Task C)
  ******************************************************************************/
 

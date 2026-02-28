@@ -238,6 +238,30 @@ bool flash_buffer_init(void)
     /* Try to read existing metadata */
     if (meta_read_and_validate())
     {
+        /* Clamp head/tail/count to the configured capacity.
+         * If flash_max_records was reduced between builds, stale metadata
+         * could point beyond the valid range.  Clamping prevents OOB access. */
+        uint16_t cap = FLASH_BUF_MAX_DATA_ROWS;
+        if (g_config.buffer.flash_max_records < cap)
+        {
+            cap = (uint16_t)g_config.buffer.flash_max_records;
+        }
+
+        bool clamped = false;
+        if (s_meta.head >= cap) { s_meta.head = 0u; clamped = true; }
+        if (s_meta.tail >= cap) { s_meta.tail = 0u; clamped = true; }
+        if (s_meta.count > cap) { s_meta.count = cap; clamped = true; }
+
+        if (clamped)
+        {
+            printf("[FLASH] WARNING: clamped metadata to capacity=%u "
+                   "(head=%u tail=%u count=%u)\n",
+                   (unsigned)cap, (unsigned)s_meta.head,
+                   (unsigned)s_meta.tail, (unsigned)s_meta.count);
+            /* Persist the clamped values */
+            (void)meta_write();
+        }
+
         printf("[FLASH] Recovered metadata: head=%u tail=%u count=%u writes=%lu\n",
                (unsigned)s_meta.head, (unsigned)s_meta.tail,
                (unsigned)s_meta.count, (unsigned long)s_meta.total_writes);
@@ -354,8 +378,21 @@ bool flash_buffer_peek(buffer_record_t *out)
     /* Validate */
     if (!record_is_valid(flash_rec))
     {
-        printf("[FLASH] WARNING: Invalid record at tail slot %u, skipping\n",
+        printf("[FLASH] WARNING: Invalid record at tail slot %u, "
+               "discarding to prevent infinite loop\n",
                (unsigned)s_meta.tail);
+
+        /* Auto-advance tail past the corrupted record so we don't get
+         * stuck returning false repeatedly on the same bad slot. */
+        uint16_t capacity = FLASH_BUF_MAX_DATA_ROWS;
+        if (g_config.buffer.flash_max_records < capacity)
+        {
+            capacity = (uint16_t)g_config.buffer.flash_max_records;
+        }
+        s_meta.tail = (s_meta.tail + 1u) % capacity;
+        s_meta.count--;
+        (void)meta_write();  /* Best-effort persist */
+        metrics_inc_buffer_dropped();
         return false;
     }
 

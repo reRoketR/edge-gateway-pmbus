@@ -36,6 +36,10 @@
 #include "cycfg_pins.h"
 #include "cy_syslib.h"
 
+/* FreeRTOS — needed for vTaskDelay (RTOS-friendly wait) */
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -105,7 +109,7 @@ static pmbus_status_t wait_for_completion(uint32_t timeout_ms)
             return PMBUS_OK;
         }
 
-        Cy_SysLib_Delay(1u);
+        vTaskDelay(pdMS_TO_TICKS(1));
         elapsed++;
     }
 
@@ -268,16 +272,25 @@ pmbus_status_t pmbus_bus_recovery(void)
     /*
      * Temporarily reconfigure SCL (P6_0) as GPIO output, toggle 9 times,
      * then restore to I2C function via HSIOM.
+     *
+     * IMPORTANT: The SCB must be disabled before we take over the pins
+     * and re-enabled afterwards, otherwise the peripheral fights with our
+     * GPIO writes and can generate spurious bus errors.
      */
+
+    /* 1. Disable the I2C block so it releases the pins */
+    Cy_SCB_I2C_Disable(PMBUS_CONTROLLER_HW, &pmbus_i2c_ctx);
 
     /* Save current HSIOM setting */
     en_hsiom_sel_t saved_hsiom = Cy_GPIO_GetHSIOM(CYBSP_I2C_SCL_PORT,
                                                    CYBSP_I2C_SCL_PIN);
 
-    /* Switch SCL to GPIO mode */
+    /* Switch SCL to GPIO mode — use open-drain (OD) drive to match I2C
+     * electrical spec.  CY_GPIO_DM_OD_DRIVESLOW can only pull low; the
+     * external pull-up drives the line high. */
     Cy_GPIO_SetHSIOM(CYBSP_I2C_SCL_PORT, CYBSP_I2C_SCL_PIN, HSIOM_SEL_GPIO);
     Cy_GPIO_SetDrivemode(CYBSP_I2C_SCL_PORT, CYBSP_I2C_SCL_PIN,
-                         CY_GPIO_DM_STRONG_IN_OFF);
+                         CY_GPIO_DM_OD_DRIVESLOW);
 
     for (int i = 0; i < 9; i++)
     {
@@ -287,10 +300,11 @@ pmbus_status_t pmbus_bus_recovery(void)
         Cy_SysLib_DelayUs(5);
     }
 
-    /* Restore HSIOM and drive mode */
-    Cy_GPIO_SetDrivemode(CYBSP_I2C_SCL_PORT, CYBSP_I2C_SCL_PIN,
-                         CY_GPIO_DM_OD_DRIVESLOW);
+    /* Restore HSIOM — drive mode stays OD (correct for I2C) */
     Cy_GPIO_SetHSIOM(CYBSP_I2C_SCL_PORT, CYBSP_I2C_SCL_PIN, saved_hsiom);
+
+    /* 2. Re-enable the I2C block */
+    Cy_SCB_I2C_Enable(PMBUS_CONTROLLER_HW);
 
     /* Check if SDA is released (should be high) */
     uint32_t sda_val = Cy_GPIO_Read(CYBSP_I2C_SDA_PORT, CYBSP_I2C_SDA_PIN);
@@ -406,7 +420,7 @@ retry:
             {
                 pmbus_bus_recovery();
             }
-            Cy_SysLib_Delay(1u);  /* Brief delay between retries */
+            vTaskDelay(pdMS_TO_TICKS(1));  /* RTOS-friendly delay between retries */
         }
     }
 
@@ -515,7 +529,7 @@ retry_byte:
             {
                 pmbus_bus_recovery();
             }
-            Cy_SysLib_Delay(1u);
+            vTaskDelay(pdMS_TO_TICKS(1));  /* RTOS-friendly delay between retries */
         }
     }
 
@@ -525,12 +539,14 @@ retry_byte:
 /*******************************************************************************
  * SMBus Read Block
  *
- * Wire protocol:
- *   [S][addr<<1|W][cmd]  [Sr][addr<<1|R][byte_count][data0..dataN-1]  [P]
- *
- * With PEC, the last received byte is the PEC byte and is not part of data.
- * PEC is computed over: [addr<<1|W, cmd, addr<<1|R, byte_count, data0..dataN-1]
+ * DISABLED: This function has a known over-read bug — it requests buf_size+1
+ * bytes upfront because the PDL high-level API doesn't support variable-length
+ * block reads (byte_count is unknown until the first byte is received).
+ * A correct implementation would use the low-level Cy_SCB_I2C API with manual
+ * ACK/NAK control.  Since no profile currently uses block reads, the function
+ * is compiled out to avoid accidental use.
  ******************************************************************************/
+#if 0  /* DISABLED — over-read bug, see code review */
 pmbus_status_t pmbus_read_block(uint8_t addr_7bit, uint8_t cmd,
                                 uint8_t *buf, uint8_t buf_size,
                                 uint8_t *out_len)
@@ -649,12 +665,13 @@ block_retry:
             {
                 pmbus_bus_recovery();
             }
-            Cy_SysLib_Delay(1u);
+            vTaskDelay(pdMS_TO_TICKS(1));  /* RTOS-friendly delay between retries */
         }
     }
 
     return result;
 }
+#endif /* DISABLED pmbus_read_block */
 
 /*******************************************************************************
  * SMBus Send Byte (no data, just command code)
@@ -702,7 +719,7 @@ send_retry:
             {
                 pmbus_bus_recovery();
             }
-            Cy_SysLib_Delay(1u);
+            vTaskDelay(pdMS_TO_TICKS(1));  /* RTOS-friendly delay between retries */
         }
     }
 

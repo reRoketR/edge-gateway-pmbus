@@ -263,34 +263,44 @@ int encode_status_json(const status_record_t *rec,
         return -1;
     }
 
-    int len;
     char ts_buf[24];
-
     fmt_u64(ts_buf, sizeof(ts_buf), rec->ts_ms);
 
-    len = snprintf(out, out_sz,
-        "{\"ts_ms\":%s,\"seq\":%u,"
-        "\"gw_id\":\"%s\",\"addr\":\"0x%02X\",\"label\":\"%s\","
-        "\"status_word\":\"0x%04X\","
-        "\"status_vout\":\"0x%02X\","
-        "\"status_iout\":\"0x%02X\","
-        "\"status_temperature\":\"0x%02X\"}",
-        ts_buf,
-        (unsigned)rec->seq,
-        g_config.gw_id,
-        (unsigned)rec->addr_7bit,
-        rec->label ? rec->label : "?",
-        (unsigned)rec->status_word,
-        (unsigned)rec->status_vout,
-        (unsigned)rec->status_iout,
-        (unsigned)rec->status_temperature);
+    char *pos = out;
+    const char *end = out + out_sz;
+    int avail, w;
 
-    if (len < 0 || (size_t)len >= out_sz)
-    {
-        return -1;
-    }
+    #define S_PRINTF(fmt, ...) do {                                    \
+        avail = (int)(end - pos);                                      \
+        if (avail <= 0) return -1;                                     \
+        w = snprintf(pos, (size_t)avail, fmt, ##__VA_ARGS__);          \
+        if (w < 0 || w >= avail) return -1;                            \
+        pos += w;                                                      \
+    } while(0)
 
-    return len;
+    S_PRINTF("{\"ts_ms\":%s,\"seq\":%u,"
+             "\"gw_id\":\"%s\",\"addr\":\"0x%02X\",\"label\":\"%s\"",
+             ts_buf,
+             (unsigned)rec->seq,
+             g_config.gw_id,
+             (unsigned)rec->addr_7bit,
+             rec->label ? rec->label : "?");
+
+    /* Only emit fields whose data was actually read successfully */
+    if (rec->valid_mask & STATUS_VALID_WORD)
+        S_PRINTF(",\"status_word\":\"0x%04X\"", (unsigned)rec->status_word);
+    if (rec->valid_mask & STATUS_VALID_VOUT)
+        S_PRINTF(",\"status_vout\":\"0x%02X\"", (unsigned)rec->status_vout);
+    if (rec->valid_mask & STATUS_VALID_IOUT)
+        S_PRINTF(",\"status_iout\":\"0x%02X\"", (unsigned)rec->status_iout);
+    if (rec->valid_mask & STATUS_VALID_TEMP)
+        S_PRINTF(",\"status_temperature\":\"0x%02X\"", (unsigned)rec->status_temperature);
+
+    S_PRINTF("}");
+
+    #undef S_PRINTF
+
+    return (int)(pos - out);
 }
 
 /*******************************************************************************

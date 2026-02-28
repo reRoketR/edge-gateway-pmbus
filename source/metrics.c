@@ -23,6 +23,9 @@
 #include "telemetry.h"
 #include "gateway_config.h"
 
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
@@ -199,9 +202,13 @@ void metrics_snapshot_and_reset(metrics_snapshot_t *snap, uint64_t now_ms)
     snap->ts_ms     = now_ms;
     snap->window_ms = window_ms;
 
-    /* Copy and reset counters (atomic-ish: single 32-bit reads on Cortex-M4) */
+    /* --- Critical section: copy + reset counters atomically ---
+     * Without this, a counter increment between the memcpy and memset
+     * would be lost.  The section is short (~dozen word copies). */
+    taskENTER_CRITICAL();
     snap->counters = *(const metrics_counters_t *)&s_counters;
     memset((void *)&s_counters, 0, sizeof(s_counters));
+    taskEXIT_CRITICAL();
 
     /* Copy gauges (not reset) */
     snap->gauges = *(const metrics_gauges_t *)&s_gauges;
@@ -225,15 +232,29 @@ void metrics_snapshot_and_reset(metrics_snapshot_t *snap, uint64_t now_ms)
                       &snap->timing.mqtt_publish_max_us);
     }
 
-    /* Compute rates */
+    /* Compute rates.
+     *
+     * pmbus_reads_ok counts individual PMBus *commands* (6 per telemetry
+     * snapshot when all succeed).  Therefore:
+     *   - telemetry_msgs_per_s ≈ pmbus_reads_ok / TELEM_NUM_COMMANDS / window_s
+     *   - pmbus_cmds_per_s    ≈ (pmbus_reads_ok + pmbus_reads_fail) / window_s
+     *
+     * We multiply by 10000 (not 1000) because the stored value is ×10 to give
+     * one decimal of precision without float.
+     */
     if (window_ms > 0u)
     {
-        /* msgs_per_s × 10 = counters * 10000 / window_ms */
+        uint32_t total_cmds = snap->counters.pmbus_reads_ok +
+                              snap->counters.pmbus_reads_fail;
+
+        /* Telemetry snapshots ≈ ok_commands / commands_per_snapshot */
         snap->rates.telemetry_msgs_per_s_x10 =
-            (snap->counters.pmbus_reads_ok * 10000u) / window_ms;
+            (snap->counters.pmbus_reads_ok * 10000u) /
+            (window_ms * TELEM_NUM_COMMANDS);
+
+        /* PMBus bus commands per second (already per-command counts) */
         snap->rates.pmbus_cmds_per_s_x10 =
-            ((snap->counters.pmbus_reads_ok + snap->counters.pmbus_reads_fail) *
-             TELEM_NUM_COMMANDS * 10000u) / window_ms;
+            (total_cmds * 10000u) / window_ms;
     }
     else
     {

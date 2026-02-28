@@ -236,7 +236,16 @@ static bool read_cmd(uint8_t addr, uint8_t cmd, uint16_t *out,
 /*******************************************************************************
  * Pretty-print one telemetry record as an ASCII table row.
  * Header is printed once every TELEM_TABLE_HEADER_ROWS rows.
+ *
+ * Gated behind GW_DEBUG_LOG_TELEM so experiment/production profiles can
+ * suppress the high-bandwidth UART output.  Define GW_DEBUG_LOG_TELEM=1
+ * in the Makefile (DEFINES+=) or in a profile header to enable.
  ******************************************************************************/
+#ifndef GW_DEBUG_LOG_TELEM
+#define GW_DEBUG_LOG_TELEM  0
+#endif
+
+#if GW_DEBUG_LOG_TELEM
 #define TELEM_TABLE_HEADER_ROWS  20u
 
 static void log_telemetry_table(const telemetry_record_t *r)
@@ -276,6 +285,12 @@ static void log_telemetry_table(const telemetry_record_t *r)
            vin_s, vout_s, iin_s, iout_s, temp_s, pout_s,
            (unsigned)r->read_ms, (unsigned)r->retries);
 }
+#else
+static inline void log_telemetry_table(const telemetry_record_t *r)
+{
+    (void)r;  /* Telemetry table logging disabled */
+}
+#endif /* GW_DEBUG_LOG_TELEM */
 
 static void poll_telemetry(const device_cfg_t *dev, device_state_t *state)
 {

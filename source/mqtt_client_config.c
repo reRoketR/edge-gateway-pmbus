@@ -74,7 +74,11 @@ cy_awsport_ssl_credentials_t *security_info = NULL;
 #endif /* MQTT_SECURE_CONNECTION */
 
 #if ENABLE_LWT_MESSAGE
-/* Last Will and Testament (LWT) message structure. */
+/* Last Will and Testament (LWT) message structure.
+ * NOTE: topic/payload use compile-time strings. At runtime,
+ * mqtt_gw_task overrides broker host/port from g_config, but LWT
+ * topic uses the same base topic. If profiles change base_topic,
+ * update MQTT_BASE_TOPIC accordingly (or build LWT topic at runtime). */
 static cy_mqtt_publish_info_t will_msg_info =
 {
     .qos = CY_MQTT_QOS1,

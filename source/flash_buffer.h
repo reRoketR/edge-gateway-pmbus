@@ -106,8 +106,8 @@ typedef struct __attribute__((packed)) {
     uint16_t count;              /**< Number of valid records                */
     uint16_t version;            /**< Metadata format version (1)            */
     uint32_t total_writes;       /**< Cumulative write counter (wear metric) */
-    uint32_t crc32;              /**< CRC32 of bytes 0..19                   */
-    uint8_t  _pad[FLASH_BUF_ROW_SIZE - 24]; /**< Pad to 512 bytes           */
+    uint32_t crc32;              /**< CRC32 of bytes 0..15                   */
+    uint8_t  _pad[FLASH_BUF_ROW_SIZE - 20]; /**< Pad to 512 bytes           */
 } flash_meta_row_t;
 
 _Static_assert(sizeof(flash_meta_row_t) == FLASH_BUF_ROW_SIZE,

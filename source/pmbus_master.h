@@ -108,21 +108,14 @@ pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd, uint8_t *out_byte
 /**
  * @brief SMBus Read Block — reads a variable-length block from a command.
  *
- * Protocol on the wire:
- *   [S][addr+W][cmd][Sr][addr+R][byte_count][data0..dataN-1][P]
- *   (with optional PEC byte appended if pec_enabled)
- *
- * @param[in]  addr_7bit  7-bit target address
- * @param[in]  cmd        PMBus command code
- * @param[out] buf        Buffer to store received data (excluding byte_count)
- * @param[in]  buf_size   Max bytes to read
- * @param[out] out_len    Actual bytes received (from byte_count field)
- *
- * @return PMBUS_OK on success, error code otherwise.
+ * @note DISABLED: Known over-read bug — see pmbus_master.c for details.
+ *       The function is compiled out (#if 0) in the implementation.
  */
+#if 0
 pmbus_status_t pmbus_read_block(uint8_t addr_7bit, uint8_t cmd,
                                 uint8_t *buf, uint8_t buf_size,
                                 uint8_t *out_len);
+#endif
 
 /**
  * @brief SMBus Send Byte — writes a single command byte (no data).

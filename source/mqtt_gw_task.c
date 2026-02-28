@@ -49,6 +49,7 @@
 #include "events.h"
 #include "metrics.h"
 #include "buffer_mgr.h"
+#include "flash_buffer.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -104,11 +105,21 @@ static void mqtt_event_cb(cy_mqtt_t handle, cy_mqtt_event_t event,
 static void process_telemetry_queue(void);
 static void process_status_queue(void);
 static void process_event_queue(void);
+static void flush_buffered_records(void);
 static void publish_metrics_if_due(void);
-static bool publish_json(const char *topic, const char *payload,
-                         size_t payload_len);
+static bool publish_json_qos(const char *topic, const char *payload,
+                             size_t payload_len, uint8_t qos);
+static inline bool publish_json(const char *topic, const char *payload,
+                                size_t payload_len)
+{
+    return publish_json_qos(topic, payload, payload_len,
+                            g_config.mqtt.qos_data);
+}
 static void backoff_reset(void);
 static void backoff_wait(void);
+
+/** Volatile flag set from callback context, handled in main task loop. */
+static volatile bool s_disconnect_pending = false;
 
 /*******************************************************************************
  * Task entry point
@@ -180,6 +191,15 @@ void mqtt_gw_task(void *pvParameters)
     /* ---- Main loop ---- */
     for (;;)
     {
+        /* Check for disconnect signalled by callback */
+        if (s_disconnect_pending)
+        {
+            s_disconnect_pending = false;
+            printf("[MQTT] Disconnected (callback)\n");
+            gateway_ipc_set_mqtt_online(false);
+            gateway_ipc_post_event(EVT_MQTT_DISCONNECTED, "broker_disconnect");
+        }
+
         /* Check if we're still connected */
         if (!gateway_ipc_is_mqtt_online())
         {
@@ -219,6 +239,9 @@ void mqtt_gw_task(void *pvParameters)
         process_telemetry_queue();
         process_status_queue();
         process_event_queue();
+
+        /* Flush buffered records (all MQTT publishing in one task) */
+        flush_buffered_records();
 
         /* Metrics */
         publish_metrics_if_due();
@@ -328,6 +351,8 @@ static bool mqtt_init_and_create(void)
     {
         printf("[MQTT] ERROR: cy_mqtt_create failed (0x%lX)\n",
                (unsigned long)res);
+        vPortFree(s_mqtt_net_buf);
+        s_mqtt_net_buf = NULL;
         return false;
     }
 
@@ -338,6 +363,9 @@ static bool mqtt_init_and_create(void)
     {
         printf("[MQTT] ERROR: register callback failed (0x%lX)\n",
                (unsigned long)res);
+        (void)cy_mqtt_delete(mqtt_connection);
+        vPortFree(s_mqtt_net_buf);
+        s_mqtt_net_buf = NULL;
         return false;
     }
 
@@ -370,6 +398,7 @@ static bool mqtt_broker_connect(void)
 /*******************************************************************************
  * MQTT event callback (called from MQTT library context)
  ******************************************************************************/
+
 static void mqtt_event_cb(cy_mqtt_t handle, cy_mqtt_event_t event,
                           void *user_data)
 {
@@ -379,9 +408,9 @@ static void mqtt_event_cb(cy_mqtt_t handle, cy_mqtt_event_t event,
     switch (event.type)
     {
         case CY_MQTT_EVENT_TYPE_DISCONNECT:
-            printf("[MQTT] Disconnected (callback)\n");
-            gateway_ipc_set_mqtt_online(false);
-            gateway_ipc_post_event(EVT_MQTT_DISCONNECTED, "broker_disconnect");
+            /* Only touch volatile flag — no FreeRTOS API / printf here.
+             * The main task loop will post the event and update IPC. */
+            s_disconnect_pending = true;
             break;
 
         case CY_MQTT_EVENT_TYPE_SUBSCRIPTION_MESSAGE_RECEIVE:
@@ -490,6 +519,56 @@ static void process_event_queue(void)
 }
 
 /*******************************************************************************
+ * Buffer flush — all MQTT publishing happens here (single publisher)
+ *
+ * Uses peek/consume pattern to preserve FIFO ordering.
+ * Flash records are flushed first (oldest data), then RAM records.
+ ******************************************************************************/
+static void flush_buffered_records(void)
+{
+    if (!g_config.buffer.enabled)
+    {
+        return;
+    }
+
+    const bool flash_enabled = (g_config.buffer.flash_max_records > 0u);
+    uint16_t flushed = 0u;
+    buffer_record_t rec;
+
+    /* Phase 1: Flush flash records first (oldest data) */
+    if (flash_enabled)
+    {
+        while (flushed < g_config.buffer.flush_batch_size &&
+               flash_buffer_peek(&rec))
+        {
+            if (!publish_json(rec.topic, rec.payload, rec.payload_len))
+            {
+                break;  /* Stop flushing on first failure */
+            }
+            flash_buffer_consume();
+            flushed++;
+        }
+    }
+
+    /* Phase 2: Flush RAM records (peek + consume = no FIFO breakage) */
+    while (flushed < g_config.buffer.flush_batch_size &&
+           buffer_mgr_peek(&rec))
+    {
+        if (!publish_json(rec.topic, rec.payload, rec.payload_len))
+        {
+            break;  /* Stop flushing on first failure */
+        }
+        buffer_mgr_consume();
+        flushed++;
+    }
+
+    if (flushed > 0u)
+    {
+        printf("[MQTT] Flushed %u buffered records\n", (unsigned)flushed);
+    }
+}
+
+/*******************************************************************************
  * Metrics publishing
  ******************************************************************************/
 static void publish_metrics_if_due(void)
@@ -505,7 +584,14 @@ static void publish_metrics_if_due(void)
 
     /* Update gauges before snapshot */
     metrics_set_buffer_depth_ram(buffer_mgr_depth());
-    metrics_set_buffer_depth_flash(0u);  /* MVP: no flash buffer */
+    if (g_config.buffer.flash_max_records > 0u)
+    {
+        metrics_set_buffer_depth_flash(flash_buffer_depth());
+    }
+    else
+    {
+        metrics_set_buffer_depth_flash(0u);
+    }
 
     /* Try to get Wi-Fi RSSI */
     {
@@ -530,7 +616,8 @@ static void publish_metrics_if_due(void)
     int topic_len = build_metrics_topic(s_topic_buf, TOPIC_BUF_SIZE);
     if (topic_len <= 0) return;
 
-    if (!publish_json(s_topic_buf, s_metrics_json_buf, (size_t)json_len))
+    if (!publish_json_qos(s_topic_buf, s_metrics_json_buf, (size_t)json_len,
+                          g_config.mqtt.qos_metrics))
     {
         /* Don't buffer metrics — they're stale if delayed */
         printf("[MQTT] WARN: metrics publish failed (not buffered)\n");
@@ -540,11 +627,11 @@ static void publish_metrics_if_due(void)
 /*******************************************************************************
  * Publish helper
  ******************************************************************************/
-static bool publish_json(const char *topic, const char *payload,
-                         size_t payload_len)
+static bool publish_json_qos(const char *topic, const char *payload,
+                             size_t payload_len, uint8_t qos)
 {
     cy_mqtt_publish_info_t pub = {
-        .qos         = (cy_mqtt_qos_t)g_config.mqtt.qos,
+        .qos         = (cy_mqtt_qos_t)qos,
         .retain      = false,
         .dup         = false,
         .topic       = topic,

@@ -30,10 +30,6 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-/* For MQTT publish during flush */
-#include "cy_mqtt_api.h"
-#include "mqtt_client_config.h"
-
 #include <stdio.h>
 #include <string.h>
 
@@ -120,7 +116,11 @@ bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len
     {
         taskEXIT_CRITICAL();
 
-        /* RAM full — try to spill to flash if enabled */
+        /* RAM full — try to spill to flash if enabled.
+         * NOTE: flash_buffer_put() blocks ~16ms but is called outside
+         * the critical section.  This is acceptable because buffer_mgr_put
+         * is called from mqtt_gw_task (medium priority) and the flash write
+         * does not hold any mutex needed by other tasks. */
         if (g_config.buffer.flash_max_records > 0u)
         {
             bool spilled = flash_buffer_put(topic, payload, payload_len);
@@ -202,6 +202,57 @@ bool buffer_mgr_get(buffer_record_t *out)
 }
 
 /*******************************************************************************
+ * Peek (read without removing — preserves FIFO ordering)
+ ******************************************************************************/
+bool buffer_mgr_peek(buffer_record_t *out)
+{
+    if (s_ring == NULL || out == NULL)
+    {
+        return false;
+    }
+
+    taskENTER_CRITICAL();
+
+    if (s_count == 0u)
+    {
+        taskEXIT_CRITICAL();
+        return false;
+    }
+
+    memcpy(out, &s_ring[s_tail], sizeof(buffer_record_t));
+
+    taskEXIT_CRITICAL();
+    return true;
+}
+
+/*******************************************************************************
+ * Consume (remove the record previously returned by peek)
+ ******************************************************************************/
+bool buffer_mgr_consume(void)
+{
+    if (s_ring == NULL)
+    {
+        return false;
+    }
+
+    taskENTER_CRITICAL();
+
+    if (s_count == 0u)
+    {
+        taskEXIT_CRITICAL();
+        return false;
+    }
+
+    s_tail = (s_tail + 1u) % s_capacity;
+    s_count--;
+
+    taskEXIT_CRITICAL();
+
+    metrics_inc_buffer_dequeued();
+    return true;
+}
+
+/*******************************************************************************
  * Depth
  ******************************************************************************/
 uint32_t buffer_mgr_depth(void)
@@ -214,10 +265,15 @@ uint32_t buffer_mgr_depth(void)
 
 /*******************************************************************************
  * Buffer flush task (Task C)
+ *
+ * This task no longer publishes to MQTT directly (P0 fix: all cy_mqtt_publish
+ * calls are serialised through mqtt_gw_task).  Instead, it:
+ *   - Updates buffer depth gauges periodically
+ *   - Could be extended for flash spill management in the future
+ *
+ * The actual flush (peek → publish → consume) is done inside mqtt_gw_task
+ * after draining the telemetry/status/event queues.
  ******************************************************************************/
-
-/* External MQTT connection handle (defined in mqtt_client_config.c or mqtt_task) */
-extern cy_mqtt_t mqtt_connection;
 
 void buffer_task(void *pvParameters)
 {
@@ -233,96 +289,15 @@ void buffer_task(void *pvParameters)
 
     const bool flash_enabled = (g_config.buffer.flash_max_records > 0u);
 
-    buffer_record_t rec;
-
     for (;;)
     {
         vTaskDelay(pdMS_TO_TICKS(g_config.buffer.flush_interval_ms));
 
-        /* Only flush when MQTT is online */
-        if (!gateway_ipc_is_mqtt_online())
-        {
-            /* Update gauges */
-            metrics_set_buffer_depth_ram(buffer_mgr_depth());
-            if (flash_enabled)
-            {
-                metrics_set_buffer_depth_flash(flash_buffer_depth());
-            }
-            continue;
-        }
-
-        uint16_t flushed = 0u;
-
-        /* ---- Phase 1: Flush flash records first (oldest data) ---- */
-        if (flash_enabled)
-        {
-            while (flushed < g_config.buffer.flush_batch_size &&
-                   flash_buffer_peek(&rec))
-            {
-                cy_mqtt_publish_info_t pub = {
-                    .qos         = (cy_mqtt_qos_t)g_config.mqtt.qos,
-                    .retain      = false,
-                    .dup         = false,
-                    .topic       = rec.topic,
-                    .topic_len   = (uint16_t)strlen(rec.topic),
-                    .payload     = rec.payload,
-                    .payload_len = rec.payload_len,
-                };
-
-                cy_rslt_t res = cy_mqtt_publish(mqtt_connection, &pub);
-                if (res != CY_RSLT_SUCCESS)
-                {
-                    metrics_inc_mqtt_pub_fail();
-                    break;  /* Stop flushing on first failure */
-                }
-                else
-                {
-                    flash_buffer_consume();
-                    metrics_inc_mqtt_pub_ok();
-                    flushed++;
-                }
-            }
-        }
-
-        /* ---- Phase 2: Flush RAM records ---- */
-        while (flushed < g_config.buffer.flush_batch_size &&
-               buffer_mgr_get(&rec))
-        {
-            cy_mqtt_publish_info_t pub = {
-                .qos         = (cy_mqtt_qos_t)g_config.mqtt.qos,
-                .retain      = false,
-                .dup         = false,
-                .topic       = rec.topic,
-                .topic_len   = (uint16_t)strlen(rec.topic),
-                .payload     = rec.payload,
-                .payload_len = rec.payload_len,
-            };
-
-            cy_rslt_t res = cy_mqtt_publish(mqtt_connection, &pub);
-            if (res != CY_RSLT_SUCCESS)
-            {
-                /* Put it back (best-effort; may fail if full) */
-                buffer_mgr_put(rec.topic, rec.payload, rec.payload_len);
-                metrics_inc_mqtt_pub_fail();
-                break;  /* Stop flushing on first failure */
-            }
-            else
-            {
-                metrics_inc_mqtt_pub_ok();
-                flushed++;
-            }
-        }
-
-        /* Update gauges */
+        /* Update gauges for metrics reporting */
         metrics_set_buffer_depth_ram(buffer_mgr_depth());
         if (flash_enabled)
         {
             metrics_set_buffer_depth_flash(flash_buffer_depth());
-        }
-
-        if (flushed > 0u)
-        {
-            printf("[BUF] Flushed %u buffered records\n", (unsigned)flushed);
         }
     }
 }

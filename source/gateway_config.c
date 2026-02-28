@@ -63,12 +63,13 @@ void config_print_boot_banner(void)
     const config_t *c = &g_config;
 
     printf("\n");
-    printf("[SYS] profile=%s  pec=%d  mqtt=%s:%u  qos=%u\n",
+    printf("[SYS] profile=%s  pec=%d  mqtt=%s:%u  qos_data=%u  qos_metrics=%u\n",
            g_profile_name,
            (int)c->i2c.pec_enabled,
            c->mqtt.host,
            (unsigned)c->mqtt.port,
-           (unsigned)c->mqtt.qos);
+           (unsigned)c->mqtt.qos_data,
+           (unsigned)c->mqtt.qos_metrics);
 
     printf("[SYS] i2c: speed=%lu  timeout=%lums  retries=%u  recovery=%d\n",
            (unsigned long)c->i2c.speed_hz,
