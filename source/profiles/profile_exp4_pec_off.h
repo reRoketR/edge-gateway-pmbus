@@ -7,7 +7,9 @@
  *
  *              Changes vs default:
  *                - pec_enabled: true → false
- *                - metrics_period_ms: 2000 → 1000 (finer granularity)
+ *                - poll_period_ms: 2000 → 200
+ *                - 2 devices (psu_a + psu_b) vs 1 in default
+ *                - metrics_period_ms: 10000 → 1000 (finer granularity)
  *
  * Related Document: agent.md §9 — Exp4
  *

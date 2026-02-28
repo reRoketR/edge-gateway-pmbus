@@ -8,8 +8,7 @@
  *              Changes vs default:
  *                - poll_period_ms:   2000 → 50  (20 msgs/s target)
  *                - status_period_ms: 10000 → 5000
- *                - metrics_period_ms: 2000 → 1000 (fine granularity)
- *                - 1 device only (isolate publish bottleneck)
+ *                - metrics_period_ms: 10000 → 1000 (fine granularity)
  *
  * Related Document: agent.md §9 — Exp2, docs/experiments/exp2_throughput.md
  *

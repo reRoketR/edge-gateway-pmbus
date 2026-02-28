@@ -1,13 +1,14 @@
 /*******************************************************************************
  * File Name:   profile_exp1_single.h
  *
- * Description: Experiment 1 variant — single target only.
- *              Compare with profile_default (2 targets) to measure the
- *              latency impact of polling multiple devices per cycle.
+ * Description: Experiment 1 variant — single target at 200 ms.
+ *              Compare with profile_exp1_fast (2 targets @ 100 ms) to measure
+ *              the latency impact of polling multiple devices per cycle.
  *
  *              Changes vs default:
- *                - Only 1 device (psu_a @ 0x58)
- *                - metrics_period_ms: 2000 → 1000
+ *                - poll_period_ms:   2000 → 200
+ *                - status_period_ms: 10000 → 1000
+ *                - metrics_period_ms: 10000 → 1000
  *
  * Related Document: agent.md §9 — Exp1
  *
