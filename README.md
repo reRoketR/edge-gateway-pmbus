@@ -71,10 +71,10 @@ Verify on UART:
 ### 4. Start the MQTT Broker
 
 ```bash
-mosquitto -c mosquitto_dev.conf
+mosquitto -c scripts/mqtt_broker/mosquitto.conf
 ```
 
-Where `mosquitto_dev.conf` contains:
+Or with a minimal local config:
 ```
 listener 1883 0.0.0.0
 allow_anonymous true
