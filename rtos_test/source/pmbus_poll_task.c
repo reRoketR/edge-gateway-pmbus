@@ -179,7 +179,18 @@ void pmbus_poll_task(void *pvParameters)
 static bool read_byte_cmd(uint8_t addr, uint8_t cmd, uint8_t *out,
                           uint8_t *retries_total)
 {
-    pmbus_status_t st = pmbus_read_byte(addr, cmd, out);
+    uint8_t retries_used = 0;
+    pmbus_status_t st = pmbus_read_byte(addr, cmd, out, &retries_used);
+
+    /* Always account for actual retries consumed inside the driver */
+    if (retries_total != NULL)
+    {
+        *retries_total += retries_used;
+    }
+    for (uint8_t ri = 0; ri < retries_used; ri++)
+    {
+        metrics_inc_pmbus_retries();
+    }
 
     if (st == PMBUS_OK)
     {
@@ -195,16 +206,6 @@ static bool read_byte_cmd(uint8_t addr, uint8_t cmd, uint8_t *out,
         case PMBUS_ERR_PEC:      metrics_inc_pmbus_pec_fail(); break;
         default: break;
     }
-    /* pmbus_read_byte() already exhausted g_config.i2c.retries internal
-     * attempts.  Count the actual number of I2C retries, not just 1. */
-    if (retries_total != NULL)
-    {
-        *retries_total += g_config.i2c.retries;
-    }
-    for (uint8_t ri = 0; ri < g_config.i2c.retries; ri++)
-    {
-        metrics_inc_pmbus_retries();
-    }
     return false;
 }
 
@@ -212,7 +213,18 @@ static bool read_byte_cmd(uint8_t addr, uint8_t cmd, uint8_t *out,
 static bool read_cmd(uint8_t addr, uint8_t cmd, uint16_t *out,
                      uint8_t *retries_total)
 {
-    pmbus_status_t st = pmbus_read_word(addr, cmd, out);
+    uint8_t retries_used = 0;
+    pmbus_status_t st = pmbus_read_word(addr, cmd, out, &retries_used);
+
+    /* Always account for actual retries consumed inside the driver */
+    if (retries_total != NULL)
+    {
+        *retries_total += retries_used;
+    }
+    for (uint8_t ri = 0; ri < retries_used; ri++)
+    {
+        metrics_inc_pmbus_retries();
+    }
 
     if (st == PMBUS_OK)
     {
@@ -228,16 +240,6 @@ static bool read_cmd(uint8_t addr, uint8_t cmd, uint16_t *out,
         case PMBUS_ERR_NACK:     metrics_inc_pmbus_nack();     break;
         case PMBUS_ERR_PEC:      metrics_inc_pmbus_pec_fail(); break;
         default: break;
-    }
-    /* pmbus_read_word() already exhausted g_config.i2c.retries internal
-     * attempts.  Count the actual number of I2C retries, not just 1. */
-    if (retries_total != NULL)
-    {
-        *retries_total += g_config.i2c.retries;
-    }
-    for (uint8_t ri = 0; ri < g_config.i2c.retries; ri++)
-    {
-        metrics_inc_pmbus_retries();
     }
     return false;
 }
@@ -503,7 +505,7 @@ static void read_vout_mode(const device_cfg_t *dev, device_state_t *state)
 {
     uint8_t raw;
     pmbus_status_t st = pmbus_read_byte(dev->addr_7bit,
-                                        PMBUS_CMD_VOUT_MODE, &raw);
+                                        PMBUS_CMD_VOUT_MODE, &raw, NULL);
     if (st == PMBUS_OK)
     {
         state->vout_exponent = pmbus_vout_mode_exponent(raw);

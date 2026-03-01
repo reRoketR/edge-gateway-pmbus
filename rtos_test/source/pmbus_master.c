@@ -31,6 +31,7 @@
 
 /* Device Configurator generated: PMBUS_CONTROLLER on SCB3 */
 #include "cycfg_peripherals.h"
+#include "cycfg_clocks.h"      /* PMBUS_CONTROLLER_CLK_HW / _NUM */
 
 /* For GPIO bus-recovery */
 #include "cy_gpio.h"
@@ -217,9 +218,12 @@ pmbus_status_t pmbus_init(void)
             divider_val -= 1u;  /* divider register is (N-1) */
         }
 
-        Cy_SysClk_PeriphDisableDivider(CY_SYSCLK_DIV_8_BIT, 1u);
-        Cy_SysClk_PeriphSetDivider(CY_SYSCLK_DIV_8_BIT, 1u, divider_val);
-        Cy_SysClk_PeriphEnableDivider(CY_SYSCLK_DIV_8_BIT, 1u);
+        Cy_SysClk_PeriphDisableDivider(PMBUS_CONTROLLER_CLK_HW,
+                                        PMBUS_CONTROLLER_CLK_NUM);
+        Cy_SysClk_PeriphSetDivider(PMBUS_CONTROLLER_CLK_HW,
+                                   PMBUS_CONTROLLER_CLK_NUM, divider_val);
+        Cy_SysClk_PeriphEnableDivider(PMBUS_CONTROLLER_CLK_HW,
+                                      PMBUS_CONTROLLER_CLK_NUM);
 
         uint32_t actual_scb_clk = peri_clk_hz / (divider_val + 1u);
         uint32_t actual_rate = Cy_SCB_I2C_SetDataRate(PMBUS_CONTROLLER_HW,
@@ -332,7 +336,8 @@ pmbus_status_t pmbus_bus_recovery(void)
  *
  * PEC is computed over: [addr<<1|W, cmd, addr<<1|R, data_low, data_high]
  ******************************************************************************/
-pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd, uint16_t *out_word)
+pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd,
+                              uint16_t *out_word, uint8_t *out_retries)
 {
     if (!pmbus_initialized) return PMBUS_ERR_NOT_INIT;
     if (out_word == NULL)   return PMBUS_ERR_ARG;
@@ -413,6 +418,7 @@ pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd, uint16_t *out_wor
 
         /* Success — assemble word (little-endian: low byte first) */
         *out_word = (uint16_t)rd_buf[0] | ((uint16_t)rd_buf[1] << 8u);
+        if (out_retries != NULL) { *out_retries = attempt; }
         return PMBUS_OK;
 
 retry:
@@ -427,6 +433,7 @@ retry:
         }
     }
 
+    if (out_retries != NULL) { *out_retries = max_retries; }
     return result;
 }
 
@@ -443,7 +450,8 @@ retry:
  *
  * Used for single-byte PMBus commands such as VOUT_MODE (0x20).
  ******************************************************************************/
-pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd, uint8_t *out_byte)
+pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd,
+                              uint8_t *out_byte, uint8_t *out_retries)
 {
     if (!pmbus_initialized) return PMBUS_ERR_NOT_INIT;
     if (out_byte == NULL)   return PMBUS_ERR_ARG;
@@ -523,6 +531,7 @@ pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd, uint8_t *out_byte
 
         /* Success */
         *out_byte = rd_buf[0];
+        if (out_retries != NULL) { *out_retries = attempt; }
         return PMBUS_OK;
 
 retry_byte:
@@ -536,6 +545,7 @@ retry_byte:
         }
     }
 
+    if (out_retries != NULL) { *out_retries = max_retries; }
     return result;
 }
 

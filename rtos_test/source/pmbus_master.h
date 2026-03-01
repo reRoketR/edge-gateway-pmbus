@@ -79,14 +79,17 @@ void pmbus_deinit(void);
  *   [S][addr+W][cmd][Sr][addr+R][low][high][P]
  *   (with optional PEC byte appended if pec_enabled)
  *
- * @param[in]  addr_7bit  7-bit target address
- * @param[in]  cmd        PMBus command code
- * @param[out] out_word   Pointer to store the 16-bit result (little-endian)
+ * @param[in]  addr_7bit    7-bit target address
+ * @param[in]  cmd          PMBus command code
+ * @param[out] out_word     Pointer to store the 16-bit result (little-endian)
+ * @param[out] out_retries  (optional, may be NULL) Actual retries consumed
+ *                          (0 = succeeded on first attempt).
  *
  * @return PMBUS_OK on success, error code otherwise.
  *         Retries and timeout are applied per g_config.i2c settings.
  */
-pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd, uint16_t *out_word);
+pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd,
+                              uint16_t *out_word, uint8_t *out_retries);
 
 /**
  * @brief SMBus Read Byte — reads a single data byte from a command.
@@ -97,13 +100,16 @@ pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd, uint16_t *out_wor
  *
  * Used for single-byte PMBus commands such as VOUT_MODE (0x20).
  *
- * @param[in]  addr_7bit  7-bit target address
- * @param[in]  cmd        PMBus command code
- * @param[out] out_byte   Pointer to store the 8-bit result
+ * @param[in]  addr_7bit    7-bit target address
+ * @param[in]  cmd          PMBus command code
+ * @param[out] out_byte     Pointer to store the 8-bit result
+ * @param[out] out_retries  (optional, may be NULL) Actual retries consumed
+ *                          (0 = succeeded on first attempt).
  *
  * @return PMBUS_OK on success, error code otherwise.
  */
-pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd, uint8_t *out_byte);
+pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd,
+                              uint8_t *out_byte, uint8_t *out_retries);
 
 /**
  * @brief SMBus Send Byte — writes a single command byte (no data).

@@ -264,21 +264,21 @@ fail:
  ******************************************************************************/
 static bool wifi_connect(void)
 {
-    cy_wcm_connect_params_t params;
+    cy_wcm_connect_params_t conn_params;
     cy_wcm_ip_address_t ip;
-    memset(&params, 0, sizeof(params));
+    memset(&conn_params, 0, sizeof(conn_params));
 
     /* Bounds-check at compile time (CY_WCM_MAX_SSID_LEN=32, PASSPHRASE=63) */
-    _Static_assert(sizeof(WIFI_SSID) <= sizeof(params.ap_credentials.SSID),
+    _Static_assert(sizeof(WIFI_SSID) <= sizeof(conn_params.ap_credentials.SSID),
                    "WIFI_SSID exceeds CY_WCM_MAX_SSID_LEN");
-    _Static_assert(sizeof(WIFI_PASSWORD) <= sizeof(params.ap_credentials.password),
+    _Static_assert(sizeof(WIFI_PASSWORD) <= sizeof(conn_params.ap_credentials.password),
                    "WIFI_PASSWORD exceeds CY_WCM_MAX_PASSPHRASE_LEN");
 
-    strncpy((char *)params.ap_credentials.SSID, WIFI_SSID,
-            sizeof(params.ap_credentials.SSID) - 1u);
-    strncpy((char *)params.ap_credentials.password, WIFI_PASSWORD,
-            sizeof(params.ap_credentials.password) - 1u);
-    params.ap_credentials.security = WIFI_SECURITY;
+    strncpy((char *)conn_params.ap_credentials.SSID, WIFI_SSID,
+            sizeof(conn_params.ap_credentials.SSID) - 1u);
+    strncpy((char *)conn_params.ap_credentials.password, WIFI_PASSWORD,
+            sizeof(conn_params.ap_credentials.password) - 1u);
+    conn_params.ap_credentials.security = WIFI_SECURITY;
 
     printf("[MQTT] Wi-Fi connecting to '%s'...\n", WIFI_SSID);
 
@@ -289,7 +289,7 @@ static bool wifi_connect(void)
 
     for (uint32_t retry = 0; retry < tries_per_attempt; retry++)
     {
-        cy_rslt_t res = cy_wcm_connect_ap(&params, &ip);
+        cy_rslt_t res = cy_wcm_connect_ap(&conn_params, &ip);
         if (res == CY_RSLT_SUCCESS)
         {
             if (ip.version == CY_WCM_IP_VER_V4)
