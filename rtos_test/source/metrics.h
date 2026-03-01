@@ -112,9 +112,16 @@ void metrics_init(void);
 /*******************************************************************************
  * Counter increment functions (called from various tasks)
  *
- * Single-writer assumption: each counter is only incremented by one task.
- * If multiple tasks need to increment the same counter, use atomic operations.
- ******************************************************************************/
+ * Most counters follow a single-writer pattern (one task per counter),
+ * so bare ++ is safe on Cortex-M4 without additional synchronisation.
+ *
+ * Exception: `metrics_inc_queue_drops()` may be called from both
+ * pmbus_poll_task and mqtt_gw_task, so it uses a critical section.
+ *
+ * The snapshot/reset path (`metrics_snapshot_and_reset`) already uses a
+ * critical section for the copy + clear, so no counter update is lost
+ * across a window boundary.
+ *****************************************************************************/
 
 void metrics_inc_pmbus_reads_ok(void);
 void metrics_inc_pmbus_reads_fail(void);

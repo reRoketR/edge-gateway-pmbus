@@ -140,7 +140,24 @@ Before each experiment run:
 
 ---
 
-## 7 Derived Metrics (Post-Processing)
+## 7 Counter Accuracy
+
+Delta counters in the metrics module use bare `++` increments (no mutex).
+This is safe because each counter is written by exactly one FreeRTOS task — 
+except `queue_drops`, which may be incremented from both `pmbus_poll_task`
+and `mqtt_gw_task` and is therefore wrapped in `taskENTER_CRITICAL()`.
+
+The snapshot/reset path (`metrics_snapshot_and_reset`) copies and zeroes all
+counters inside a critical section, so no increment is lost across a window
+boundary.
+
+Conclusion: counters are **exact** under normal load.  Under extreme
+preemption pressure a bare `++` could theoretically tear on a non-Cortex-M
+core, but on Cortex-M4 a 32-bit aligned store is atomic, so this is safe.
+
+---
+
+## 8 Derived Metrics (Post-Processing)
 
 The following are computed from raw JSONL during analysis:
 

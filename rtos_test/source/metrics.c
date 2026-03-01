@@ -161,7 +161,9 @@ void metrics_inc_mqtt_reconnects(void)   { s_counters.mqtt_reconnects++;   }
 void metrics_inc_buffer_enqueued(void)   { s_counters.buffer_enqueued++;   }
 void metrics_inc_buffer_dequeued(void)   { s_counters.buffer_dequeued++;   }
 void metrics_inc_buffer_dropped(void)    { s_counters.buffer_dropped++;    }
-void metrics_inc_queue_drops(void)       { s_counters.queue_drops++;       }
+void metrics_inc_queue_drops(void)       { taskENTER_CRITICAL();
+                                           s_counters.queue_drops++;
+                                           taskEXIT_CRITICAL(); }
 void metrics_inc_telemetry_enqueued(void){ s_counters.telemetry_enqueued++;}
 
 /*******************************************************************************

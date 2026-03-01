@@ -60,6 +60,7 @@ Topic: `.../telemetry`
 ```json
 {
   "ts_ms": 1730000000000,
+  "time_synced": true,
   "seq": 12345,
   "gw_id": "gw01",
   "addr": "0x58",
@@ -76,6 +77,7 @@ Topic: `.../telemetry`
 ```
 
 Field rules:
+- `time_synced` — always present. `true` once SNTP has obtained a valid epoch; `false` when `ts_ms` is an uptime-ms fallback.
 - Units are SI base units: V, A, °C, W.
 - `read_ms` = PMBus snapshot duration only (first PMBus command start → last PMBus response received). Excludes MQTT publish.
 - `retries` = total retries used across all PMBus commands in this snapshot.
@@ -88,6 +90,7 @@ Topic: `.../status`
 ```json
 {
   "ts_ms": 1730000000000,
+  "time_synced": true,
   "seq": 12345,
   "gw_id": "gw01",
   "addr": "0x58",
@@ -155,7 +158,7 @@ Rules:
 Topic: `.../events`
 
 ```json
-{ "ts_ms": 1730000000000, "type": "MQTT_DISCONNECTED", "detail": "wifi_lost" }
+{ "ts_ms": 1730000000000, "time_synced": true, "type": "MQTT_DISCONNECTED", "detail": "wifi_lost" }
 ```
 
 Event types (MVP):
@@ -172,7 +175,8 @@ Event types (MVP):
 
 `ts_ms` is **Unix epoch milliseconds (UTC)**, synchronised via SNTP (lwIP)
 after the first Wi-Fi connection.  NTP servers: `pool.ntp.org`,
-`time.google.com`.  Re-sync interval: 1 hour.
+`time.google.com`.  Re-sync interval: configured via `SNTP_UPDATE_DELAY`
+in `lwipopts.h` (default 3 600 000 ms = 1 hour).
 
 If NTP is unreachable at boot, `ts_ms` falls back to
 milliseconds-since-FreeRTOS-start until the first successful sync.

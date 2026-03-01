@@ -27,8 +27,9 @@
  *   - Direct pointer reads (flash is memory-mapped)
  *
  * Constraints:
- *   - Flash writes block ~16–20 ms. Only called from buffer_task (Task C)
- *     which runs at low priority.
+ *   - Flash writes block ~16–20 ms.  Normally called from buffer_task
+ *     (Task C, low priority), but may also be called from mqtt_gw_task
+ *     (Task B, prio 3) via buffer_mgr_put() when RAM is full (spill path).
  *   - Interrupts must remain enabled during flash writes (PDL requirement).
  *   - Em_EEPROM region is in a separate flash sector, avoiding Read-while-
  *     Write violations with application code in main flash.
