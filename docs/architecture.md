@@ -53,7 +53,7 @@ source/
 ├── pmbus_decode.c/.h      Linear11 / Linear16 decode to milli-units
 ├── pmbus_poll_task.c/.h   Task A — timer-driven PMBus polling
 ├── mqtt_gw_task.c/.h      Task B — Wi-Fi + MQTT connect, queue drain, publish
-├── buffer_mgr.c/.h        Task C — RAM ring buffer, flush to MQTT
+├── buffer_mgr.c/.h        Task C — RAM ring buffer housekeeping + flash spill
 ├── telemetry.c/.h         TelemetryRecord / StatusRecord structs + JSON encode
 ├── metrics.c/.h           Delta counters, gauges, latency ring, p95, JSON encode
 ├── events.c/.h            Event types + JSON encode
@@ -158,6 +158,11 @@ PMBus Target            Gateway MCU                           MQTT Broker
             │  RAM ring    │         ▼
             │  (256 recs)  │      Broker
             └──────┬───────┘
+                   │ RAM full?
+                   │ YES → flash_buffer_put()
+                   │        (spill to Em_EEPROM,
+                   │         called in mqtt_gw_task)
+                   │
                    │  MQTT back online
                    ▼
             mqtt_gw_task drains via
@@ -234,9 +239,10 @@ make build GW_PROFILE=exp4_pec_off
 
 At boot, `config_print_boot_banner()` logs all active parameters:
 ```
-[SYS] profile=default  pec=1  mqtt=192.168.1.2:1883  qos=1
+[SYS] profile=default  pec=1  mqtt=192.168.1.2:1883  qos_data=1  qos_metrics=0
 [SYS] i2c: speed=100000  timeout=20ms  retries=2  recovery=0
-[SYS] buffer: enabled=1  ram=256  flash=0  batch=50  flush=200ms
+[SYS] buffer: enabled=1  ram=256  flash=0  batch=50  flush=200ms  drop_oldest=1
+[SYS] metrics_period=2000ms
 [SYS] devices: 1
 [SYS]   [0] 0x58 "psu_a"  poll=2000ms  status=10000ms
 ```

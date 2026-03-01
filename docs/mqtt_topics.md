@@ -102,6 +102,10 @@ Topic: `.../status`
 }
 ```
 
+Field rules:
+- `time_synced` — always present (see §4.1).
+- `status_*` fields are hex-encoded register values; width matches the underlying PMBus register.
+
 ### 4.3 Metrics payload
 
 Topic: `.../metrics`
@@ -158,10 +162,16 @@ Rules:
 Topic: `.../events`
 
 ```json
-{ "ts_ms": 1730000000000, "time_synced": true, "type": "MQTT_DISCONNECTED", "detail": "wifi_lost" }
+{
+  "ts_ms": 1730000000000,
+  "time_synced": true,
+  "type": "MQTT_DISCONNECTED",
+  "detail": "wifi_lost"
+}
 ```
 
 Event types (MVP):
+- `time_synced` — always present (see §4.1).
 - `MQTT_CONNECTED`, `MQTT_DISCONNECTED`
 - `PMBUS_DEVICE_OFFLINE`, `PMBUS_DEVICE_ONLINE` (include addr in detail or add field)
 - `PMBUS_BUS_RECOVERY`, `PMBUS_BUS_RECOVERY_FAILED`
