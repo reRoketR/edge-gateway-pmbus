@@ -31,6 +31,7 @@
 #include "metrics.h"
 #include "gateway_config.h"
 #include "gateway_ipc.h"
+#include "wallclock.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -387,6 +388,7 @@ static void poll_telemetry(const device_cfg_t *dev, device_state_t *state)
 
     /* Fill metadata */
     rec.ts_ms    = gateway_ipc_now_ms();
+    rec.time_synced = wallclock_is_synced();
     rec.seq      = gateway_ipc_next_seq();
     rec.addr_7bit = addr;
     rec.label    = dev->label;
@@ -482,6 +484,7 @@ static void poll_status(const device_cfg_t *dev, device_state_t *state)
 
     /* Fill metadata */
     rec.ts_ms     = gateway_ipc_now_ms();
+    rec.time_synced = wallclock_is_synced();
     rec.seq       = gateway_ipc_next_seq();
     rec.addr_7bit = addr;
     rec.label     = dev->label;

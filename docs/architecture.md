@@ -84,11 +84,11 @@ Single-file firmware (`main.c`) that uses the `mtb-pmbus` middleware to act as a
 │  │ pmbus_poll_task  │  │ mqtt_gw_task    │  │ buffer   │ │
 │  │                 │  │                 │  │ (prio 2) │ │
 │  │ • PMBus init    │  │ • Wi-Fi connect │  │          │ │
-│  │ • Poll devices  │  │ • MQTT connect  │  │ • Flush  │ │
-│  │ • Decode L11/16 │  │ • Drain queues  │  │   ring   │ │
-│  │ • Push to queue │  │ • Publish JSON  │  │   buffer │ │
-│  │ • Update metrics│  │ • Buffer on fail│  │   to     │ │
-│  │ • Emit events   │  │ • Pub metrics   │  │   MQTT   │ │
+│  │ • Poll devices  │  │ • MQTT connect  │  │ • Buffer │ │
+│  │ • Decode L11/16 │  │ • Drain queues  │  │   depth  │ │
+│  │ • Push to queue │  │ • Publish JSON  │  │   gauge  │ │
+│  │ • Update metrics│  │ • Flush buffer  │  │   update │ │
+│  │ • Emit events   │  │ • Pub metrics   │  │          │ │
 │  └───────┬─────────┘  └───────┬─────────┘  └────┬─────┘ │
 │          │                    │                  │       │
 │          ▼                    ▼                  ▼       │
@@ -110,7 +110,7 @@ Single-file firmware (`main.c`) that uses the `mtb-pmbus` middleware to act as a
 |------|------|----------|-------|----------------|
 | A | `pmbus_poll_task` | 4 (highest) | 1024 words | PMBus polling, decode, enqueue telemetry/status |
 | B | `mqtt_gw_task` | 3 | 3072 words | Wi-Fi, MQTT, publish, metrics, reconnect |
-| C | `buffer_task` | 2 | 512 words | Drain RAM ring buffer → MQTT when online |
+| C | `buffer_task` | 2 | 512 words | Buffer housekeeping — gauge metric updates (does NOT publish) |
 | — | `blinky_task` | 1 (lowest) | 256 words | Heartbeat LED toggle |
 
 ---
@@ -160,8 +160,9 @@ PMBus Target            Gateway MCU                           MQTT Broker
             └──────┬───────┘
                    │  MQTT back online
                    ▼
-            buffer_task drains
-            flush_batch_size per tick
+            mqtt_gw_task drains via
+            flush_buffered_records()
+            (peek → publish → consume)
                    │
                    ▼
             cy_mqtt_publish()

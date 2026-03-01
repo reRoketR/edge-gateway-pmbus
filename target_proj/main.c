@@ -199,6 +199,24 @@ static void update_simulated_registers(mtb_pmbus_stc_t *inst)
 }
 
 /*******************************************************************************
+* ISR-deferred flags for pmbus callbacks (printf is NOT ISR-safe)
+*
+* The PMBus middleware invokes callbacks from I2C ISR context.  Instead of
+* calling printf (which uses the UART SCB and may block), we set lightweight
+* volatile flags here and print the deferred messages from the main loop.
+*******************************************************************************/
+
+/** Bitmask of pending error events (ISR → main loop). */
+static volatile uint32_t g_pending_error_events = 0u;
+/** Command code associated with the most recent error (best-effort). */
+static volatile uint8_t  g_error_cmd_code       = 0u;
+
+/** Bitmask of pending general events. */
+#define GEN_EVT_QUICK_WR  (1u << 0)
+#define GEN_EVT_QUICK_RD  (1u << 1)
+static volatile uint32_t g_pending_gen_events    = 0u;
+
+/*******************************************************************************
 * PMBus Callbacks
 *******************************************************************************/
 
@@ -231,11 +249,11 @@ static bool cmd_telemetry_callback(mtb_pmbus_cmd_events_t event,
 }
 
 /**
- * @brief General PMBus event callback for Quick Commands.
+ * @brief General PMBus event callback for Quick Commands (ISR context).
  *
  * @details
- * Handles Quick Command read and write events.  On a write Quick Command
- * the user LED is toggled for visual feedback.
+ * Sets a flag for the main loop to print.  Cy_GPIO_Inv is ISR-safe
+ * (single register write) so LED toggle is done directly.
  *
  * @param[in] event  The general PMBus event type.
  */
@@ -243,23 +261,22 @@ static void pmbus_gen_callback(mtb_pmbus_events_t event)
 {
     if (event == MTB_PMBUS_QUICK_CMD_WR_EVENT)
     {
-        printf("[TARGET] Quick Command (Write)\r\n");
+        g_pending_gen_events |= GEN_EVT_QUICK_WR;
         Cy_GPIO_Inv(CYBSP_USER_LED_PORT, CYBSP_USER_LED_PIN);
     }
     else if (event == MTB_PMBUS_QUICK_CMD_RD_EVENT)
     {
-        printf("[TARGET] Quick Command (Read)\r\n");
+        g_pending_gen_events |= GEN_EVT_QUICK_RD;
     }
 }
 
 /**
- * @brief PMBus error callback — logs communication errors over UART.
+ * @brief PMBus error callback — ISR-safe (flag-based, no printf).
  *
  * @details
- * Called by the middleware when the target detects an error condition:
- * - Unsupported command received
- * - PEC (CRC-8) mismatch on incoming data
- * - I²C bus error
+ * Called by the middleware from I2C ISR context when the target detects
+ * an error condition.  Stores the event bitmask and command code in
+ * volatile variables for deferred printing in the main loop.
  *
  * @param[in] events      Bitmask of error flags (MTB_PMBUS_ERR_*).
  * @param[in] cmd_code    The PMBus command code that triggered the error.
@@ -269,18 +286,8 @@ static void pmbus_error_callback(uint32_t events, uint8_t cmd_code, bool cmd_is_
 {
     (void)cmd_is_ext;
 
-    if (events & MTB_PMBUS_ERR_UNSUPPORTED_CMD)
-    {
-        printf("[TARGET] ERR: unsupported cmd 0x%02X\r\n", cmd_code);
-    }
-    if (events & MTB_PMBUS_ERR_CORRUPTED_DATA)
-    {
-        printf("[TARGET] ERR: PEC mismatch cmd 0x%02X\r\n", cmd_code);
-    }
-    if (events & MTB_PMBUS_ERR_BUS_ERROR)
-    {
-        printf("[TARGET] ERR: bus error cmd 0x%02X\r\n", cmd_code);
-    }
+    g_pending_error_events |= events;
+    g_error_cmd_code        = cmd_code;
 }
 
 /*******************************************************************************
@@ -658,6 +665,33 @@ int main(void)
         {
             timer_interrupt_flag = false;
             Cy_GPIO_Inv(CYBSP_USER_LED_PORT, CYBSP_USER_LED_PIN);
+        }
+
+        /* ---- Deferred prints from ISR callbacks ---- */
+        {
+            uint32_t errs = g_pending_error_events;
+            if (errs != 0u)
+            {
+                uint8_t cmd = g_error_cmd_code;
+                g_pending_error_events = 0u;
+
+                if (errs & MTB_PMBUS_ERR_UNSUPPORTED_CMD)
+                    printf("[TARGET] ERR: unsupported cmd 0x%02X\r\n", cmd);
+                if (errs & MTB_PMBUS_ERR_CORRUPTED_DATA)
+                    printf("[TARGET] ERR: PEC mismatch cmd 0x%02X\r\n", cmd);
+                if (errs & MTB_PMBUS_ERR_BUS_ERROR)
+                    printf("[TARGET] ERR: bus error cmd 0x%02X\r\n", cmd);
+            }
+
+            uint32_t gen = g_pending_gen_events;
+            if (gen != 0u)
+            {
+                g_pending_gen_events = 0u;
+                if (gen & GEN_EVT_QUICK_WR)
+                    printf("[TARGET] Quick Command (Write)\r\n");
+                if (gen & GEN_EVT_QUICK_RD)
+                    printf("[TARGET] Quick Command (Read)\r\n");
+            }
         }
 
         uint32_t now = s_tick_counter;

@@ -67,6 +67,7 @@ static void test_telemetry_json(void)
 
     telemetry_record_t rec = {0};
     rec.ts_ms     = 1730000000000ULL;
+    rec.time_synced = true;
     rec.seq       = 12345;
     rec.addr_7bit = 0x58;
     rec.label     = "psu_a";
@@ -95,6 +96,7 @@ static void test_telemetry_json(void)
 
     /* Verify key fields present */
     TEST_ASSERT_TRUE(json_contains(buf, "\"ts_ms\":1730000000000"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"time_synced\":true"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"seq\":12345"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"gw_id\":\"gw01\""));
     TEST_ASSERT_TRUE(json_contains(buf, "\"addr\":\"0x58\""));
@@ -130,6 +132,7 @@ static void test_telemetry_partial(void)
 
     telemetry_record_t rec = {0};
     rec.ts_ms      = 1000;
+    rec.time_synced = false;
     rec.seq        = 1;
     rec.addr_7bit  = 0x59;
     rec.label      = "psu_b";
@@ -185,6 +188,7 @@ static void test_status_json(void)
 
     status_record_t rec = {0};
     rec.ts_ms       = 1730000000000ULL;
+    rec.time_synced = true;
     rec.seq         = 999;
     rec.addr_7bit   = 0x58;
     rec.label       = "psu_a";
@@ -216,6 +220,7 @@ static void test_event_json(void)
 
     event_record_t evt = {0};
     evt.ts_ms = 1730000000000ULL;
+    evt.time_synced = true;
     evt.type  = EVT_MQTT_DISCONNECTED;
     strncpy(evt.detail, "wifi_lost", sizeof(evt.detail));
 
@@ -226,6 +231,7 @@ static void test_event_json(void)
     printf("  JSON (%d bytes): %s\n", len, buf);
 
     TEST_ASSERT_TRUE(json_contains(buf, "\"type\":\"MQTT_DISCONNECTED\""));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"time_synced\":true"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"detail\":\"wifi_lost\""));
 }
 

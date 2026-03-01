@@ -339,8 +339,7 @@ static bool mqtt_init_and_create(void)
     }
 
     /* Override broker address/port from the active profile (gateway_config).
-     * broker_info is initialised from MQTT_BROKER_ADDRESS at compile time;
-     * overriding here ensures profile_default.h is the single source of truth. */
+     * g_config is the single source of truth for connection parameters. */
     broker_info.hostname     = g_config.mqtt.host;
     broker_info.hostname_len = (uint16_t)strlen(g_config.mqtt.host);
     broker_info.port         = (uint16_t)g_config.mqtt.port;
@@ -385,6 +384,22 @@ static bool mqtt_broker_connect(void)
 
     connection_info.client_id     = g_config.mqtt.client_id;
     connection_info.client_id_len = (uint16_t)strlen(g_config.mqtt.client_id);
+
+    /* Build LWT topic and payload from g_config so they always match the
+     * active profile (single source of truth). */
+#if ENABLE_LWT_MESSAGE
+    {
+        char lwt_topic[96];
+        char lwt_payload[128];
+        snprintf(lwt_topic, sizeof(lwt_topic),
+                 "%s/events", g_config.mqtt.base_topic);
+        snprintf(lwt_payload, sizeof(lwt_payload),
+                 "{\"type\":\"GATEWAY_UNEXPECTED_DISCONNECT\","
+                 "\"detail\":\"lwt\",\"gw_id\":\"%s\"}",
+                 g_config.gw_id);
+        mqtt_config_set_lwt(lwt_topic, lwt_payload);
+    }
+#endif
 
     cy_rslt_t res = cy_mqtt_connect(mqtt_connection, &connection_info);
     if (res == CY_RSLT_SUCCESS)

@@ -5,7 +5,7 @@
  *
  * @details
  * Events are one-shot notifications about state changes, published to:
- * `pmbus/<gw_id>/events`
+ * `pmbus/gw01/events` (topic built from `g_config.mqtt.base_topic`)
  *
  * Event types (MVP):
  *   - MQTT_CONNECTED / MQTT_DISCONNECTED
@@ -23,6 +23,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <stddef.h>
 
 /*******************************************************************************
@@ -47,7 +48,10 @@ typedef enum {
 #define EVT_DETAIL_MAX  48u
 
 typedef struct {
-    uint64_t     ts_ms;                     /**< Monotonic timestamp (ms)   */
+    uint64_t     ts_ms;                     /**< Wall-clock (epoch ms UTC
+                                                 after SNTP; uptime-ms
+                                                 before sync)               */
+    bool         time_synced;               /**< true once SNTP has synced  */
     event_type_t type;                      /**< Event type enum            */
     char         detail[EVT_DETAIL_MAX];    /**< Human-readable detail      */
 } event_record_t;

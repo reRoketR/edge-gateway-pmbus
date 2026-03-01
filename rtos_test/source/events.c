@@ -61,8 +61,9 @@ int encode_event_json(const event_record_t *evt, char *out, size_t out_sz)
     fmt_u64(ts_buf, sizeof(ts_buf), evt->ts_ms);
 
     int len = snprintf(out, out_sz,
-        "{\"ts_ms\":%s,\"type\":\"%s\",\"detail\":\"%s\"}",
+        "{\"ts_ms\":%s,\"time_synced\":%s,\"type\":\"%s\",\"detail\":\"%s\"}",
         ts_buf,
+        evt->time_synced ? "true" : "false",
         event_type_str(evt->type),
         evt->detail);
 

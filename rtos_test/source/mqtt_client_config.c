@@ -4,9 +4,14 @@
 * Description: MQTT client configuration structures for PMBus-MQTT Gateway.
 *              Based on Infineon Wi-Fi MQTT Client example (CE229889).
 *
+*              Broker host, port, client ID, LWT topic/payload are all set
+*              at runtime from g_config by mqtt_gw_task.c before connect.
+*              This file initialises the structures to safe defaults.
+*
 *******************************************************************************/
 
 #include <stdio.h>
+#include <string.h>
 #include "mqtt_client_config.h"
 #include "cy_mqtt_api.h"
 
@@ -14,12 +19,14 @@
 * Global Variables
 *******************************************************************************/
 
-/* MQTT Broker/Server details */
+/* MQTT Broker/Server details.
+ * hostname and port are overridden from g_config by mqtt_gw_task.c
+ * in mqtt_init_and_create() before cy_mqtt_create() is called. */
 cy_mqtt_broker_info_t broker_info =
 {
-    .hostname = MQTT_BROKER_ADDRESS,
-    .hostname_len = sizeof(MQTT_BROKER_ADDRESS) - 1,
-    .port = MQTT_PORT
+    .hostname = "",
+    .hostname_len = 0,
+    .port = 0
 };
 
 #if (MQTT_SECURE_CONNECTION)
@@ -75,23 +82,44 @@ cy_awsport_ssl_credentials_t *security_info = NULL;
 
 #if ENABLE_LWT_MESSAGE
 /* Last Will and Testament (LWT) message structure.
- * NOTE: topic/payload use compile-time strings. At runtime,
- * mqtt_gw_task overrides broker host/port from g_config, but LWT
- * topic uses the same base topic. If profiles change base_topic,
- * update MQTT_BASE_TOPIC accordingly (or build LWT topic at runtime). */
+ * Topic and payload are built at runtime from g_config by mqtt_gw_task.c
+ * (mqtt_init_and_create → setup_lwt).  The static buffers below are
+ * populated before cy_mqtt_connect() is called. */
+static char lwt_topic_buf[96];
+static char lwt_payload_buf[128];
+
 static cy_mqtt_publish_info_t will_msg_info =
 {
     .qos = CY_MQTT_QOS1,
-    .topic = MQTT_WILL_TOPIC_NAME,
-    .topic_len = (uint16_t)(sizeof(MQTT_WILL_TOPIC_NAME) - 1),
-    .payload = MQTT_WILL_MESSAGE,
-    .payload_len = (size_t)(sizeof(MQTT_WILL_MESSAGE) - 1),
+    .topic = lwt_topic_buf,
+    .topic_len = 0,
+    .payload = lwt_payload_buf,
+    .payload_len = 0,
     .retain = false,
     .dup = false
 };
+
+void mqtt_config_set_lwt(const char *topic, const char *payload)
+{
+    if (topic != NULL)
+    {
+        strncpy(lwt_topic_buf, topic, sizeof(lwt_topic_buf) - 1u);
+        lwt_topic_buf[sizeof(lwt_topic_buf) - 1u] = '\0';
+        will_msg_info.topic_len = (uint16_t)strlen(lwt_topic_buf);
+    }
+    if (payload != NULL)
+    {
+        strncpy(lwt_payload_buf, payload, sizeof(lwt_payload_buf) - 1u);
+        lwt_payload_buf[sizeof(lwt_payload_buf) - 1u] = '\0';
+        will_msg_info.payload_len = strlen(lwt_payload_buf);
+    }
+}
 #endif /* ENABLE_LWT_MESSAGE */
 
-/* MQTT connection information structure */
+/* MQTT connection information structure.
+ * client_id is overridden from g_config by mqtt_gw_task.c in
+ * mqtt_broker_connect().  LWT will_info is populated via
+ * mqtt_config_set_lwt() before connect. */
 cy_mqtt_connect_info_t connection_info =
 {
     .client_id = NULL,
@@ -108,8 +136,3 @@ cy_mqtt_connect_info_t connection_info =
     .will_info = NULL
 #endif
 };
-
-/* Check for a valid QoS setting */
-#if ((MQTT_MESSAGES_QOS != 0) && (MQTT_MESSAGES_QOS != 1) && (MQTT_MESSAGES_QOS != 2))
-    #error "Invalid QoS setting! MQTT_MESSAGES_QOS must be either 0 or 1 or 2."
-#endif

@@ -8,7 +8,8 @@
  *   - FreeRTOS queues for telemetry, status, and event records
  *   - MQTT online/offline state flag (atomic read from any task)
  *   - Global monotonic sequence counter
- *   - Timestamp helper (ms since boot via FreeRTOS tick)
+ *   - Wall-clock timestamp helper (Unix epoch ms after SNTP sync,
+ *     ms-since-boot before sync — see wallclock.h)
  *
  * All queues use fixed-size items so no heap allocation is needed at runtime.
  * Queue depths are compile-time constants.
@@ -94,11 +95,16 @@ uint32_t gateway_ipc_next_seq(void);
  ******************************************************************************/
 
 /**
- * @brief Get a monotonic timestamp in milliseconds (from FreeRTOS tick).
+ * @brief Get current wall-clock timestamp in milliseconds.
  *
- * Suitable for ts_ms fields. Resolution = 1 / configTICK_RATE_HZ.
+ * Delegates to wallclock_now_ms():
+ *   - After SNTP sync: Unix epoch milliseconds (UTC).
+ *   - Before sync: milliseconds since FreeRTOS scheduler start.
  *
- * @return Milliseconds since scheduler start.
+ * Suitable for ts_ms fields in telemetry/status/event records.
+ *
+ * @return Milliseconds (epoch or uptime — call wallclock_is_synced()
+ *         to distinguish).
  */
 uint64_t gateway_ipc_now_ms(void);
 

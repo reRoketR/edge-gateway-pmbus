@@ -1,8 +1,14 @@
 /******************************************************************************
 * File Name:   mqtt_client_config.h
 *
-* Description: MQTT client configuration for PMBus-MQTT Gateway.
-*              Configures broker connection, topics, and security.
+* Description: MQTT transport-level configuration for the Infineon MQTT library.
+*
+*              Broker host, port, client ID, base topic, QoS, and LWT content
+*              are all determined at runtime from g_config (see gateway_config.h
+*              and the active profile header in source/profiles/).
+*
+*              This file contains ONLY library-level transport parameters:
+*              buffer sizes, keepalive, TLS placeholders, retry limits.
 *
 *******************************************************************************/
 
@@ -12,51 +18,13 @@
 #include "cy_mqtt_api.h"
 
 /*******************************************************************************
-* Macros
+* Transport parameters (library-level, not application-level)
 ********************************************************************************/
-
-/***************** MQTT CLIENT CONNECTION CONFIGURATION MACROS *****************/
-
-/* MQTT Broker/Server address and port. */
-#define MQTT_BROKER_ADDRESS               "192.168.1.8"
-#define MQTT_PORT                         1883
 
 /* Set this macro to 1 if a secure (TLS) connection to the MQTT Broker is
  * required to be established, else 0.
  */
 #define MQTT_SECURE_CONNECTION            (0)
-
-/* Configure the user credentials to be sent as part of MQTT CONNECT packet */
-#define MQTT_USERNAME                     ""
-#define MQTT_PASSWORD                     ""
-
-/********************* MQTT MESSAGE CONFIGURATION MACROS **********************/
-
-/* Base topic for PMBus gateway messages.
- * Full topics are constructed at runtime:
- *   pmbus/<gw_id>/dev/<addr>/telemetry
- *   pmbus/<gw_id>/dev/<addr>/status
- *   pmbus/<gw_id>/metrics
- *   pmbus/<gw_id>/events
- */
-#define MQTT_BASE_TOPIC                   "pmbus/gw01"
-
-/* Default QoS for MQTT publish and subscribe.
- * Valid choices are 0, 1, and 2.
- */
-#define MQTT_MESSAGES_QOS                 (1)
-
-/* Last Will and Testament (LWT) configuration. */
-#define ENABLE_LWT_MESSAGE                (1)
-#if ENABLE_LWT_MESSAGE
-    #define MQTT_WILL_TOPIC_NAME          MQTT_BASE_TOPIC "/events"
-    #define MQTT_WILL_MESSAGE             ("{\"type\":\"GATEWAY_UNEXPECTED_DISCONNECT\",\"detail\":\"lwt\"}")
-#endif
-
-/******************* OTHER MQTT CLIENT CONFIGURATION MACROS *******************/
-
-/* A unique client identifier for every MQTT connection. */
-#define MQTT_CLIENT_IDENTIFIER            "pmbus-gw01"
 
 /* The timeout in milliseconds for MQTT operations. */
 #define MQTT_TIMEOUT_MS                   (5000)
@@ -70,9 +38,6 @@
 /* The longest client identifier that an MQTT server must accept. */
 #define MQTT_CLIENT_IDENTIFIER_MAX_LEN    (23)
 
-/* SNI Host Name (used for TLS only). */
-#define MQTT_SNI_HOSTNAME                 (MQTT_BROKER_ADDRESS)
-
 /* Network buffer size for MQTT send and receive operations. */
 #define MQTT_NETWORK_BUFFER_SIZE          (2 * CY_MQTT_MIN_NETWORK_BUFFER_SIZE)
 
@@ -81,6 +46,11 @@
 
 /* MQTT re-connection time interval in milliseconds. */
 #define MQTT_CONN_RETRY_INTERVAL_MS       (2000)
+
+/* Enable Last Will and Testament (LWT).
+ * The LWT topic and payload are built at runtime from g_config
+ * (see mqtt_gw_task.c → mqtt_init_and_create). */
+#define ENABLE_LWT_MESSAGE                (1)
 
 /**************** MQTT CLIENT CERTIFICATE CONFIGURATION MACROS ****************/
 
@@ -106,5 +76,18 @@
 extern cy_mqtt_broker_info_t broker_info;
 extern cy_awsport_ssl_credentials_t  *security_info;
 extern cy_mqtt_connect_info_t connection_info;
+
+#if ENABLE_LWT_MESSAGE
+/**
+ * @brief Set LWT topic and payload at runtime from g_config.
+ *
+ * Must be called before cy_mqtt_connect() so the broker receives the
+ * correct will message.  Called from mqtt_gw_task.c.
+ *
+ * @param[in] topic    LWT topic string (e.g. "pmbus/gw01/events")
+ * @param[in] payload  LWT JSON payload
+ */
+void mqtt_config_set_lwt(const char *topic, const char *payload);
+#endif
 
 #endif /* MQTT_CLIENT_CONFIG_H_ */

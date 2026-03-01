@@ -107,6 +107,7 @@ void gateway_ipc_post_event(event_type_t type, const char *detail)
     memset(&evt, 0, sizeof(evt));
 
     evt.ts_ms = gateway_ipc_now_ms();
+    evt.time_synced = wallclock_is_synced();
     evt.type  = type;
 
     if (detail != NULL)

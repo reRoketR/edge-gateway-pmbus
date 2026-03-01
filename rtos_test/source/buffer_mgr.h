@@ -118,10 +118,11 @@ bool buffer_mgr_consume(void);
  ******************************************************************************/
 
 /**
- * @brief FreeRTOS task that flushes buffered records to MQTT.
+ * @brief FreeRTOS housekeeping task for the offline buffer.
  *
- * When MQTT is online, dequeues up to flush_batch_size records per tick
- * and publishes them. Runs at low-medium priority.
+ * Periodically updates `buffer_depth_ram` / `buffer_depth_flash` gauge
+ * metrics.  Does NOT call cy_mqtt_publish() — all publish operations are
+ * serialised through mqtt_gw_task (see flush_buffered_records()).
  *
  * @param[in] pvParameters  Unused
  */

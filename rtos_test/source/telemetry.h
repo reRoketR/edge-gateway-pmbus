@@ -49,7 +49,9 @@
 
 typedef struct {
     /* --- Metadata --- */
-    uint64_t    ts_ms;              /**< Monotonic timestamp (ms since boot)    */
+    uint64_t    ts_ms;              /**< Wall-clock timestamp (epoch ms UTC
+                                         after SNTP; uptime-ms before sync)    */
+    bool        time_synced;        /**< true once SNTP has synchronised        */
     uint32_t    seq;                /**< Global sequence number                 */
     uint8_t     addr_7bit;          /**< 7-bit PMBus address                    */
     const char *label;              /**< Device label from config               */
@@ -91,7 +93,8 @@ typedef struct {
  * Status record (status registers snapshot)
  ******************************************************************************/
 typedef struct {
-    uint64_t    ts_ms;
+    uint64_t    ts_ms;              /**< Wall-clock (same semantics as above)   */
+    bool        time_synced;        /**< true once SNTP has synchronised        */
     uint32_t    seq;
     uint8_t     addr_7bit;
     const char *label;
