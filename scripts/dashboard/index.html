@@ -1,0 +1,1048 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PMBus Gateway — Live Dashboard</title>
+
+  <!-- Chart.js v4 + Luxon (time adapter) + Streaming plugin + Paho MQTT -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-streaming@2.0.0/dist/chartjs-plugin-streaming.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
+
+  <style>
+    /* ── Reset & Tokens ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --border:    #30363d;
+      --accent:    #58a6ff;
+      --green:     #3fb950;
+      --red:       #f85149;
+      --orange:    #f0883e;
+      --yellow:    #e3b341;
+      --teal:      #2ea043;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+      --radius:    8px;
+      --font:      'Segoe UI', system-ui, sans-serif;
+
+      --c-p95:     #f85149;
+      --c-avg:     #58a6ff;
+      --c-max:     #f0883e;
+      --c-msgs:    #3fb950;
+      --c-cmds:    #2ea043;
+      --c-buf:     #58a6ff;
+      --c-fail:    #f85149;
+      --c-retry:   #f0883e;
+      --c-vin:     #79c0ff;
+      --c-vout:    #e3b341;
+      --c-iout:    #f0883e;
+      --c-temp:    #f85149;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────────── */
+    .app {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      height: 100vh;
+      gap: 0;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 18px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .title svg { flex-shrink: 0; }
+
+    .conn-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      flex: 1;
+    }
+    .conn-row label { color: var(--muted); font-size: 11px; }
+    .conn-row input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 4px 8px;
+      font-size: 12px;
+      width: 130px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .conn-row input:focus { border-color: var(--accent); }
+    .conn-row input.narrow { width: 64px; }
+    .conn-row input.xnarrow { width: 52px; }
+
+    .tls-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      color: var(--muted);
+      user-select: none;
+    }
+    .tls-toggle input[type=checkbox] {
+      accent-color: var(--green);
+      width: 13px; height: 13px;
+      cursor: pointer;
+    }
+    .tls-toggle.active { color: var(--green); }
+
+    .btn {
+      padding: 5px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, border-color .15s, opacity .15s;
+    }
+    #btn-connect   { background: var(--accent); color: #fff; border-color: var(--accent); }
+    #btn-connect:hover { opacity: .85; }
+    #btn-connect:disabled { opacity: .45; cursor: default; }
+    #btn-disconnect { background: none; color: var(--red); border-color: var(--red); }
+    #btn-disconnect:hover { background: rgba(248,81,73,.12); }
+    #btn-disconnect:disabled { opacity: .35; cursor: default; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      white-space: nowrap;
+    }
+    .badge .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: background .3s;
+    }
+    .badge.connected .dot    { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .badge.disconnected .dot { background: var(--red); }
+    .badge.connecting .dot   { background: var(--yellow); animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* ── Stats bar ──────────────────────────────────────────────────── */
+    .stats-bar {
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 0;
+      overflow-x: auto;
+    }
+    .stat {
+      padding: 6px 16px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      min-width: 90px;
+      flex-shrink: 0;
+    }
+    .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .stat-value { font-size: 16px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+    .stat-value.green { color: var(--green); }
+    .stat-value.red   { color: var(--red); }
+    .stat-value.orange{ color: var(--orange); }
+
+    /* ── Main grid ──────────────────────────────────────────────────── */
+    .main {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-rows: 1fr 1fr 1fr;
+      gap: 10px;
+      padding: 10px;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 0;
+    }
+    .card-header {
+      padding: 8px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .card-tag {
+      font-size: 10px;
+      padding: 1px 7px;
+      border-radius: 10px;
+      background: rgba(88,166,255,.12);
+      color: var(--accent);
+      letter-spacing: 0;
+      font-weight: 500;
+    }
+    .card-body {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      padding: 6px;
+      min-height: 0;
+    }
+    canvas { width: 100% !important; height: 100% !important; }
+
+    /* Telemetry card — 2×2 sub-grid */
+    .card.telem { grid-column: 1 / 3; grid-row: 3 / 4; }
+    .card.telem .card-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 4px;
+      padding: 6px;
+    }
+    .sub-chart { position: relative; min-height: 0; }
+
+    /* Events card */
+    .card.events { grid-column: 3; grid-row: 1 / 4; display: flex; flex-direction: column; }
+    .events-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .event-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 5px 8px;
+      font-size: 11px;
+    }
+    .event-type { font-weight: 700; color: var(--orange); }
+    .event-detail { color: var(--muted); }
+    .event-ts { font-size: 10px; color: var(--muted); margin-top: 1px; }
+
+    /* ── Device tab strip ───────────────────────────────────────────── */
+    .dev-tabs {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+      flex-wrap: wrap;
+      flex: 1;
+      min-width: 0;
+    }
+    .dev-tab {
+      padding: 2px 10px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--muted);
+      cursor: pointer;
+      letter-spacing: .04em;
+      transition: background .15s, color .15s, border-color .15s;
+      white-space: nowrap;
+    }
+    .dev-tab:hover { background: rgba(88,166,255,.1); color: var(--accent); border-color: var(--accent); }
+    .dev-tab.active { background: rgba(88,166,255,.18); color: var(--accent); border-color: var(--accent); }
+    .dev-tab-placeholder { color: var(--muted); font-size: 10px; font-weight: 400; font-style: italic; letter-spacing: 0; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* No-data overlay */
+    .no-data {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 11px;
+      pointer-events: none;
+    }
+
+    /* ── Status row (below telemetry tabs) ───────────────────────────── */
+    .status-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      padding: 4px 12px;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      flex-shrink: 0;
+      min-height: 26px;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 1px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      font-family: monospace;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--muted);
+    }
+    .status-badge.fault { border-color: var(--red); color: var(--red); background: rgba(248,81,73,.08); }
+    .status-badge.ok    { border-color: var(--green); color: var(--green); background: rgba(63,185,80,.07); }
+    .status-label { color: var(--muted); font-size: 9px; font-weight: 400; letter-spacing: .04em; }
+
+    /* ── Library-failure warning banner ─────────────────────────────── */
+    .lib-warn {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      background: var(--red);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 7px 16px;
+      text-align: center;
+      z-index: 9999;
+      display: none;
+    }
+    .lib-warn a { color: #fff; }
+  </style>
+</head>
+<body>
+<div class="lib-warn" id="lib-warn">
+  ⚠ One or more chart/MQTT libraries failed to load from CDN. Check your internet connection or
+  <a href="https://github.com/your-repo/wiki/offline-setup" target="_blank">vendor the libs locally</a>.
+</div>
+<div class="app">
+
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <header>
+    <div class="title">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+      PMBus Gateway
+    </div>
+    <div class="conn-row">
+      <label>Host</label>
+      <input id="inp-host" value="192.168.1.2" placeholder="broker host" />
+      <label>WS Port</label>
+      <input id="inp-port" class="narrow" value="9001" placeholder="9001" />
+      <label>GW&nbsp;ID</label>
+      <input id="inp-gw" class="xnarrow" value="gw01" placeholder="gw01" />
+      <label>WS&nbsp;Path</label>
+      <input id="inp-path" class="xnarrow" value="/mqtt" placeholder="/mqtt" style="width:60px;" />
+      <label>History&nbsp;(s)</label>
+      <input id="inp-history" class="xnarrow" value="120" placeholder="120" />
+      <label class="tls-toggle" id="tls-label"><input type="checkbox" id="inp-tls" />TLS</label>
+      <button class="btn" id="btn-connect">Connect</button>
+      <button class="btn" id="btn-disconnect" disabled>Disconnect</button>
+      <span class="badge disconnected" id="badge">
+        <span class="dot"></span>
+        <span id="badge-text">Disconnected</span>
+      </span>
+    </div>
+  </header>
+
+  <!-- ── Stats bar ──────────────────────────────────────────────────── -->
+  <div class="stats-bar">
+    <div class="stat"><span class="stat-label">Telemetry</span><span class="stat-value" id="s-telem">0</span></div>
+    <div class="stat"><span class="stat-label">Status</span><span class="stat-value" id="s-status">0</span></div>
+    <div class="stat"><span class="stat-label">Metrics</span><span class="stat-value" id="s-metrics">0</span></div>
+    <div class="stat"><span class="stat-label">Events</span><span class="stat-value" id="s-events">0</span></div>
+    <div class="stat"><span class="stat-label">Uptime (s)</span><span class="stat-value" id="s-uptime">—</span></div>
+    <div class="stat"><span class="stat-label">MQTT Reconn.</span><span class="stat-value orange" id="s-reconn">—</span></div>
+    <div class="stat"><span class="stat-label">Buf RAM</span><span class="stat-value" id="s-buf">—</span></div>
+    <div class="stat"><span class="stat-label">Wi-Fi RSSI</span><span class="stat-value" id="s-rssi">—</span></div>
+    <div class="stat"><span class="stat-label">Poll (ms)</span><span class="stat-value" id="s-pmbus-avg">—</span></div>
+    <div class="stat"><span class="stat-label">Pub (ms)</span><span class="stat-value" id="s-mqtt-avg">—</span></div>
+  </div>
+
+  <!-- ── Charts + Events ────────────────────────────────────────────── -->
+  <div class="main">
+
+    <!-- Row 1 Col 1: Latency -->
+    <div class="card">
+      <div class="card-header">End-to-End Latency<span class="card-tag">metrics</span></div>
+      <div class="card-body">
+        <canvas id="c-latency"></canvas>
+        <div class="no-data" id="nd-latency">Waiting for data…</div>
+      </div>
+    </div>
+
+    <!-- Row 1 Col 2: Throughput -->
+    <div class="card">
+      <div class="card-header">Throughput<span class="card-tag">metrics</span></div>
+      <div class="card-body">
+        <canvas id="c-throughput"></canvas>
+        <div class="no-data" id="nd-throughput">Waiting for data…</div>
+      </div>
+    </div>
+
+    <!-- Col 3 Row 1–3: Events (spans full height) -->
+    <div class="card events">
+      <div class="card-header">Event Log<span class="card-tag">events</span></div>
+      <div class="events-list" id="event-list">
+        <div data-placeholder style="color:var(--muted);font-size:11px;padding:6px;">No events yet.</div>
+      </div>
+    </div>
+
+    <!-- Row 2 Col 1: Buffer depth -->
+    <div class="card">
+      <div class="card-header">Buffer Depth (RAM)<span class="card-tag">metrics</span></div>
+      <div class="card-body">
+        <canvas id="c-buffer"></canvas>
+        <div class="no-data" id="nd-buffer">Waiting for data…</div>
+      </div>
+    </div>
+
+    <!-- Row 2 Col 2: Errors -->
+    <div class="card">
+      <div class="card-header">PMBus Errors &amp; Retries<span class="card-tag">metrics</span></div>
+      <div class="card-body">
+        <canvas id="c-errors"></canvas>
+        <div class="no-data" id="nd-errors">Waiting for data…</div>
+      </div>
+    </div>
+
+    <!-- Row 3 Col 1–2: Telemetry 2×2 -->
+    <div class="card telem">
+      <div class="card-header" style="gap:8px;">
+        <span style="white-space:nowrap;">Device Telemetry</span>
+        <div class="dev-tabs" id="dev-tabs">
+          <span class="dev-tab-placeholder">No devices seen yet</span>
+        </div>
+        <span class="card-tag">telemetry</span>
+      </div>
+      <!-- Status badges for active device -->
+      <div class="status-row" id="status-row">
+        <span class="status-label">STATUS</span>
+        <span class="status-badge" id="sb-word">WORD —</span>
+        <span class="status-badge" id="sb-vout">VOUT —</span>
+        <span class="status-badge" id="sb-iout">IOUT —</span>
+        <span class="status-badge" id="sb-temp">TEMP —</span>
+      </div>
+      <div class="card-body">
+        <div class="sub-chart"><canvas id="c-vin"></canvas></div>
+        <div class="sub-chart"><canvas id="c-vout"></canvas></div>
+        <div class="sub-chart"><canvas id="c-iout"></canvas></div>
+        <div class="sub-chart"><canvas id="c-temp"></canvas></div>
+      </div>
+    </div>
+
+  </div><!-- .main -->
+</div><!-- .app -->
+
+<script>
+// ── Helpers ───────────────────────────────────────────────────────────
+function now() { return Date.now(); }
+function toNum(v, fallback = NaN) {
+  const n = parseFloat(v);
+  return isNaN(n) ? fallback : n;
+}
+
+// ── State ─────────────────────────────────────────────────────────────
+let counts = { telemetry: 0, status: 0, metrics: 0, events: 0 };
+let client = null;
+
+// ── Auto-reconnect ────────────────────────────────────────────────────
+let _reconnectTimer = null;
+let _reconnectDelay = 1000;   // ms, doubles each attempt, caps at 30s
+const RECONNECT_MAX = 30000;
+
+function _scheduleReconnect() {
+  clearTimeout(_reconnectTimer);
+  setBadge('connecting', `Reconnecting in ${Math.round(_reconnectDelay/1000)}s…`);
+  _reconnectTimer = setTimeout(() => {
+    if (client && !client.isConnected()) {
+      setBadge('connecting', 'Reconnecting…');
+      _doConnect();
+    }
+  }, _reconnectDelay);
+  _reconnectDelay = Math.min(_reconnectDelay * 2, RECONNECT_MAX);
+}
+
+// ── Session reset ─────────────────────────────────────────────────────
+function resetSession() {
+  // Clear chart datasets
+  allCharts.forEach(ch => {
+    ch.data.datasets.forEach(ds => { ds.data = []; });
+    ch.update('none');
+  });
+  // Restore no-data overlays
+  ['latency','throughput','buffer','errors'].forEach(id => {
+    const el = document.getElementById('nd-' + id);
+    if (el) el.style.display = '';
+  });
+  // Clear device state
+  Object.keys(deviceData).forEach(k => delete deviceData[k]);
+  activeAddr = null;
+  renderDeviceTabs();
+  // Reset status badges
+  ['sb-word','sb-vout','sb-iout','sb-temp'].forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = ['WORD','VOUT','IOUT','TEMP'][i] + ' —'; el.className = 'status-badge'; }
+  });
+  // Reset counters
+  counts = { telemetry: 0, status: 0, metrics: 0, events: 0 };
+  ['s-telem','s-status','s-metrics','s-events'].forEach(id => stat(id, 0));
+  ['s-uptime','s-reconn','s-buf','s-rssi','s-pmbus-avg','s-mqtt-avg'].forEach(id => stat(id, '—'));
+  // Reset event log
+  const list = document.getElementById('event-list');
+  list.innerHTML = '<div data-placeholder style="color:var(--muted);font-size:11px;padding:6px;">No events yet.</div>';
+}
+
+// ── Per-device telemetry history ──────────────────────────────────────
+// deviceData[addr] = { vin:[], vout:[], iout:[], temp:[], status:{} }
+const deviceData = {};
+let activeAddr   = null;
+
+function ensureDevice(addr) {
+  if (deviceData[addr]) return;
+  deviceData[addr] = { vin: [], vout: [], iout: [], temp: [], status: {} };
+  renderDeviceTabs();
+  if (!activeAddr) switchDevice(addr);   // auto-select first device
+}
+
+function renderDeviceTabs() {
+  const bar  = document.getElementById('dev-tabs');
+  const addrs = Object.keys(deviceData);
+  if (addrs.length === 0) {
+    bar.innerHTML = '<span class="dev-tab-placeholder">No devices seen yet</span>';
+    return;
+  }
+  bar.innerHTML = '';
+  addrs.forEach(addr => {
+    const t = document.createElement('button');
+    t.className  = 'dev-tab' + (addr === activeAddr ? ' active' : '');
+    t.textContent = addr;
+    t.onclick = () => switchDevice(addr);
+    bar.appendChild(t);
+  });
+}
+
+function switchDevice(addr) {
+  if (!deviceData[addr]) return;
+  activeAddr = addr;
+  renderDeviceTabs();
+
+  // Replay this device's history into the 4 sub-charts
+  const cutoff = now() - DURATION_MS();
+  const d = deviceData[addr];
+  [cVin, cVout, cIout, cTemp].forEach((ch, i) => {
+    const key = ['vin','vout','iout','temp'][i];
+    ch.data.datasets[0].data = d[key].filter(p => p.x >= cutoff);
+    ch.update('none');
+  });
+
+  // Fix #2: always refresh status badges for the newly selected device
+  updateStatusRow(addr);
+}
+
+// ── Chart factory ─────────────────────────────────────────────────────
+const DURATION_MS = () => (parseInt(document.getElementById('inp-history').value, 10) || 120) * 1000;
+const DELAY_MS    = 0;
+
+const commonScales = () => ({
+  x: {
+    type: 'realtime',
+    realtime: {
+      duration: DURATION_MS(),
+      delay: DELAY_MS,
+      ttl: undefined,
+    },
+    ticks: { color: '#8b949e', font: { size: 10 }, maxRotation: 0 },
+    grid: { color: '#21262d' },
+  }
+});
+const yScale = (label, opts = {}) => ({
+  ticks: { color: '#8b949e', font: { size: 10 }, ...opts },
+  grid: { color: '#21262d' },
+  title: { display: !!label, text: label, color: '#8b949e', font: { size: 10 } },
+  ...opts,
+});
+
+function makeChart(id, datasets, yLabel, opts = {}) {
+  const ctx = document.getElementById(id).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#8b949e', font: { size: 10 }, boxWidth: 10, padding: 8 } },
+        streaming: { frameRate: 10 },
+      },
+      scales: {
+        ...commonScales(),
+        y: yScale(yLabel, opts.y || {}),
+      },
+    },
+  });
+}
+
+function ds(label, color, fill = false) {
+  return {
+    label, borderColor: color, backgroundColor: color + '33',
+    borderWidth: 1.5, pointRadius: 0, fill,
+    data: [],
+  };
+}
+
+// ── Build all charts ──────────────────────────────────────────────────
+
+// Latency
+const cLatency = makeChart('c-latency',
+  [ds('p95', '#f85149'), ds('avg', '#58a6ff'), ds('max', '#f0883e')],
+  'ms');
+
+// Throughput
+const cThroughput = makeChart('c-throughput',
+  [ds('msgs/s', '#3fb950'), ds('cmds/s', '#58a6ff')],
+  'per second');
+
+// Buffer
+const cBuffer = makeChart('c-buffer',
+  [ds('RAM records', '#58a6ff', true)],
+  'records', { y: { beginAtZero: true } });
+
+// Errors (bar)
+const cErrors = (() => {
+  const ctx = document.getElementById('c-errors').getContext('2d');
+  return new Chart(ctx, {
+    type: 'bar',
+    data: {
+      datasets: [
+        { label: 'fail+pec+nack+timeout', backgroundColor: '#f8514988', borderColor:'#f85149', borderWidth:1, data: [], barPercentage: 0.8 },
+        { label: 'retries',               backgroundColor: '#f0883e88', borderColor:'#f0883e', borderWidth:1, data: [], barPercentage: 0.8 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#8b949e', font: { size: 10 }, boxWidth: 10, padding: 6 } },
+        streaming: { frameRate: 10 },
+      },
+      scales: {
+        ...commonScales(),
+        y: { ...yScale('count/window'), beginAtZero: true, stacked: false },
+      },
+    },
+  });
+})();
+
+// Telemetry sub-charts
+function makeSubChart(id, label, color, yUnit) {
+  const ctx = document.getElementById(id).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: { datasets: [{ label: `${label} (${yUnit})`, borderColor: color, borderWidth: 1.5, pointRadius: 0, data: [] }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: {
+        legend: { labels: { color: '#8b949e', font: { size: 9 }, boxWidth: 8, padding: 4 } },
+        streaming: { frameRate: 8 },
+      },
+      scales: {
+        x: { type: 'realtime', realtime: { duration: DURATION_MS(), delay: DELAY_MS }, ticks: { color: '#8b949e', font: { size: 9 }, maxTicksLimit: 4 }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#8b949e', font: { size: 9 } }, grid: { color: '#21262d' } },
+      },
+    },
+  });
+}
+const cVin  = makeSubChart('c-vin',  'VIN',   '#79c0ff', 'V');
+const cVout = makeSubChart('c-vout', 'VOUT',  '#e3b341', 'V');
+const cIout = makeSubChart('c-iout', 'IOUT',  '#f0883e', 'A');
+const cTemp = makeSubChart('c-temp', 'TEMP1', '#f85149', '°C');
+
+const allCharts = [cLatency, cThroughput, cBuffer, cErrors, cVin, cVout, cIout, cTemp];
+
+// ── No-data overlays ─────────────────────────────────────────────────
+function hideNoData(id) {
+  const el = document.getElementById('nd-' + id);
+  if (el) el.style.display = 'none';
+}
+
+// ── Push data to chart ────────────────────────────────────────────────
+function push(chart, dsIdx, value, timestamp) {
+  chart.data.datasets[dsIdx].data.push({ x: timestamp || now(), y: value });
+}
+
+// ── Stats bar helpers ─────────────────────────────────────────────────
+function stat(id, val, cls = '') {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = val;
+  el.className = 'stat-value' + (cls ? ' ' + cls : '');
+}
+
+// ── Handle metrics message ────────────────────────────────────────────
+function handleMetrics(obj) {
+  const t = now();
+  const tm = obj.timing_ms || {};
+  const p95 = toNum(tm.read_to_publish_p95);
+  const avg = toNum(tm.read_to_publish_avg);
+  const mx  = toNum(tm.read_to_publish_max);
+
+  if (!isNaN(p95)) {
+    push(cLatency, 0, p95);
+    push(cLatency, 1, avg);
+    push(cLatency, 2, mx);
+    hideNoData('latency');
+  }
+
+  const rates = obj.rates || {};
+  const msgs = toNum(rates.telemetry_msgs_per_s);
+  const cmds = toNum(rates.pmbus_cmds_per_s);
+  if (!isNaN(msgs)) {
+    push(cThroughput, 0, msgs);
+    push(cThroughput, 1, cmds);
+    hideNoData('throughput');
+  }
+
+  const gauges = obj.gauges || {};
+  const buf = toNum(gauges.buffer_depth_ram);
+  if (!isNaN(buf)) {
+    push(cBuffer, 0, buf);
+    hideNoData('buffer');
+  }
+
+  const cd = obj.counters_delta || {};
+  const fail = toNum(cd.pmbus_reads_fail, 0) + toNum(cd.pmbus_crc_pec_fail, 0)
+             + toNum(cd.pmbus_nack, 0)        + toNum(cd.pmbus_timeouts, 0);
+  const rty  = toNum(cd.pmbus_retries, 0);
+  cErrors.data.datasets[0].data.push({ x: t, y: fail });
+  cErrors.data.datasets[1].data.push({ x: t, y: rty });
+  hideNoData('errors');
+
+  // Stats bar
+  const uptime = toNum(gauges.uptime_s);
+  if (!isNaN(uptime)) stat('s-uptime', uptime);
+  const reconn = toNum(cd.mqtt_reconnects);
+  if (!isNaN(reconn)) stat('s-reconn', reconn, reconn > 0 ? 'orange' : '');
+  if (!isNaN(buf)) stat('s-buf', buf);
+  const rssi = toNum(gauges.wifi_rssi_dbm);
+  if (!isNaN(rssi)) stat('s-rssi', rssi + ' dBm', rssi < -75 ? 'red' : '');
+  const pmbusAvg = toNum(tm.pmbus_txn_avg);
+  if (!isNaN(pmbusAvg)) stat('s-pmbus-avg', pmbusAvg.toFixed(1));
+  const mqttAvg = toNum(tm.mqtt_publish_avg);
+  if (!isNaN(mqttAvg)) stat('s-mqtt-avg', mqttAvg.toFixed(1));
+}
+
+// ── Handle telemetry message ──────────────────────────────────────────
+function handleTelemetry(obj) {
+  const addr = obj.addr || 'unknown';
+  ensureDevice(addr);
+
+  const v = obj.v || {};
+  const a = obj.a || {};
+  const c = obj.c || {};
+  const ts = (obj.ts_ms && typeof obj.ts_ms === 'number') ? obj.ts_ms : now();
+
+  const vin  = toNum(v.vin);
+  const vout = toNum(v.vout);
+  const iout = toNum(a.iout);
+  const temp = toNum(c.temp1);
+
+  // Always store in device history buffer
+  const d = deviceData[addr];
+  if (!isNaN(vin))  d.vin.push({ x: ts, y: vin });
+  if (!isNaN(vout)) d.vout.push({ x: ts, y: vout });
+  if (!isNaN(iout)) d.iout.push({ x: ts, y: iout });
+  if (!isNaN(temp)) d.temp.push({ x: ts, y: temp });
+
+  // Prune old entries (keep 2× window to survive tab switches)
+  const maxAge = DURATION_MS() * 2;
+  const cutoff = ts - maxAge;
+  ['vin','vout','iout','temp'].forEach(k => {
+    while (d[k].length && d[k][0].x < cutoff) d[k].shift();
+  });
+
+  // Push to live charts only for the active device
+  if (addr === activeAddr) {
+    if (!isNaN(vin))  push(cVin,  0, vin, ts);
+    if (!isNaN(vout)) push(cVout, 0, vout, ts);
+    if (!isNaN(iout)) push(cIout, 0, iout, ts);
+    if (!isNaN(temp)) push(cTemp, 0, temp, ts);
+  }
+}
+
+// ── Handle event message ──────────────────────────────────────────────
+function handleEvent(obj, raw) {
+  const list = document.getElementById('event-list');
+  // Clear placeholder on first real event
+  const ph = list.querySelector('[data-placeholder]');
+  if (ph) ph.remove();
+
+  const item = document.createElement('div');
+  item.className = 'event-item';
+
+  // Row 1: type + detail (safe textContent, no innerHTML)
+  const row1 = document.createElement('div');
+  const typeSpan = document.createElement('span');
+  typeSpan.className = 'event-type';
+  typeSpan.textContent = obj.type || 'UNKNOWN';
+  row1.appendChild(typeSpan);
+  if (obj.detail) {
+    const detailSpan = document.createElement('span');
+    detailSpan.className = 'event-detail';
+    detailSpan.textContent = ' — ' + obj.detail;
+    row1.appendChild(detailSpan);
+  }
+  item.appendChild(row1);
+
+  // Row 2: timestamp
+  const tsDiv = document.createElement('div');
+  tsDiv.className = 'event-ts';
+  tsDiv.textContent = obj.ts_ms ? new Date(obj.ts_ms).toISOString().replace('T', ' ').slice(0, 22) : '—';
+  item.appendChild(tsDiv);
+
+  list.prepend(item);
+
+  // Keep max 30
+  while (list.children.length > 30) list.removeChild(list.lastChild);
+}
+
+// ── Badge ─────────────────────────────────────────────────────────────
+function setBadge(state, text) {
+  const b = document.getElementById('badge');
+  b.className = 'badge ' + state;
+  document.getElementById('badge-text').textContent = text;
+}
+
+// ── MQTT Connect ──────────────────────────────────────────────────────
+let _connectGw = '+';
+
+function connect() {
+  const host = document.getElementById('inp-host').value.trim();
+  const port  = parseInt(document.getElementById('inp-port').value, 10);
+  _connectGw  = document.getElementById('inp-gw').value.trim() || '+';
+
+  if (!host || !port) { alert('Enter a valid host and port.'); return; }
+
+  // Full session reset each time connect is pressed
+  resetSession();
+  _reconnectDelay = 1000;
+  clearTimeout(_reconnectTimer);
+
+  document.getElementById('btn-connect').disabled    = true;
+  document.getElementById('btn-disconnect').disabled = false;
+  setBadge('connecting', 'Connecting…');
+
+  const wsPath = document.getElementById('inp-path').value.trim() || '/mqtt';
+  client = new Paho.Client(host, port, wsPath, 'pmbus-dash-' + Math.random().toString(36).slice(2, 8));
+
+  client.onConnectionLost = (resp) => {
+    if (resp.errorCode !== 0) {
+      console.warn('[MQTT] Lost:', resp.errorMessage);
+      // Auto-reconnect only if user hasn't manually disconnected
+      if (document.getElementById('btn-disconnect').disabled === false) {
+        _scheduleReconnect();
+        return;
+      }
+    }
+    setBadge('disconnected', 'Disconnected');
+    document.getElementById('btn-connect').disabled    = false;
+    document.getElementById('btn-disconnect').disabled = true;
+  };
+
+  client.onMessageArrived = (msg) => {
+    const topic   = msg.destinationName;
+    const payload = msg.payloadString;
+    let obj;
+    try { obj = JSON.parse(payload); } catch { return; }
+
+    // Match by last topic segment to avoid false positives
+    const lastSeg = topic.split('/').pop();
+    if (lastSeg === 'telemetry')      { counts.telemetry++; stat('s-telem', counts.telemetry); handleTelemetry(obj); }
+    else if (lastSeg === 'status')    { counts.status++;    stat('s-status', counts.status);   handleStatus(obj); }
+    else if (lastSeg === 'metrics')   { counts.metrics++;   stat('s-metrics', counts.metrics); handleMetrics(obj); }
+    else if (lastSeg === 'events')    { counts.events++;    stat('s-events', counts.events);   handleEvent(obj, payload); }
+  };
+
+  _doConnect();
+}
+
+function _doConnect() {
+  if (!client) return;
+  const useSSL = document.getElementById('inp-tls').checked;
+  client.connect({
+    useSSL,
+    keepAliveInterval: 20,
+    onSuccess: () => {
+      _reconnectDelay = 1000;  // reset backoff on success
+      setBadge('connected', 'Connected');
+      const subs = [
+        `pmbus/${_connectGw}/dev/+/telemetry`,
+        `pmbus/${_connectGw}/dev/+/status`,
+        `pmbus/${_connectGw}/metrics`,
+        `pmbus/${_connectGw}/events`,
+      ];
+      subs.forEach(t => client.subscribe(t, { qos: 0 }));
+      console.log('[MQTT] Connected, subscribed:', subs);
+    },
+    onFailure: (err) => {
+      console.error('[MQTT] Connect failed:', err);
+      if (document.getElementById('btn-disconnect').disabled === false) {
+        _scheduleReconnect();
+      } else {
+        setBadge('disconnected', 'Failed: ' + err.errorMessage);
+        document.getElementById('btn-connect').disabled    = false;
+        document.getElementById('btn-disconnect').disabled = true;
+      }
+    },
+  });
+}
+
+function disconnect() {
+  clearTimeout(_reconnectTimer);
+  // Signal: manual disconnect — prevent auto-reconnect
+  document.getElementById('btn-disconnect').disabled = true;
+  if (client && client.isConnected()) client.disconnect();
+  setBadge('disconnected', 'Disconnected');
+  document.getElementById('btn-connect').disabled    = false;
+}
+
+// ── Update chart durations when history changes ───────────────────────
+document.getElementById('inp-history').addEventListener('change', () => {
+  const d = DURATION_MS();
+  allCharts.forEach(ch => {
+    if (ch.options.scales.x?.realtime) ch.options.scales.x.realtime.duration = d;
+    ch.update('none');
+  });
+});
+
+document.getElementById('btn-connect').addEventListener('click', connect);
+document.getElementById('btn-disconnect').addEventListener('click', disconnect);
+
+// ── Handle status message ─────────────────────────────────────────────
+function handleStatus(obj) {
+  const addr = obj.addr || 'unknown';
+  ensureDevice(addr);
+  // Store on device
+  deviceData[addr].status = {
+    word: obj.status_word,
+    vout: obj.status_vout,
+    iout: obj.status_iout,
+    temp: obj.status_temperature,
+  };
+  // Reflect immediately if this is the active device
+  if (addr === activeAddr) updateStatusRow(addr);
+}
+
+function updateStatusRow(addr) {
+  if (!deviceData[addr]) return;
+  const s = deviceData[addr].status;
+  function setBadgeVal(id, label, hexStr) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const val = hexStr != null ? hexStr : '—';
+    el.textContent = label + ' ' + val;
+    // Non-zero status word = fault; 0x0000 = ok
+    const num = parseInt(hexStr, 16);
+    el.className = 'status-badge' + (hexStr == null ? '' : num !== 0 ? ' fault' : ' ok');
+  }
+  setBadgeVal('sb-word', 'WORD', s.word);
+  setBadgeVal('sb-vout', 'VOUT', s.vout);
+  setBadgeVal('sb-iout', 'IOUT', s.iout);
+  setBadgeVal('sb-temp', 'TEMP', s.temp);
+}
+
+// ── Periodic stale-history pruner ─────────────────────────────────────
+// Runs every 60s; prunes ALL devices regardless of active message flow
+setInterval(() => {
+  const cutoff = now() - DURATION_MS() * 2;
+  let tabsDirty = false;
+  Object.entries(deviceData).forEach(([addr, d]) => {
+    ['vin','vout','iout','temp'].forEach(k => {
+      while (d[k].length && d[k][0].x < cutoff) d[k].shift();
+    });
+    // Fix #3: remove device entry if all sample arrays are empty (stale device)
+    const isEmpty = ['vin','vout','iout','temp'].every(k => d[k].length === 0);
+    if (isEmpty) {
+      delete deviceData[addr];
+      if (activeAddr === addr) activeAddr = null;
+      tabsDirty = true;
+    }
+  });
+  if (tabsDirty) {
+    // Switch to first remaining device, or clear if none left
+    const remaining = Object.keys(deviceData);
+    if (remaining.length) switchDevice(remaining[0]);
+    else renderDeviceTabs();
+  }
+}, 60_000);
+
+// ── CDN library load check ────────────────────────────────────────────
+// Fix #1: check EARLY (inline, synchronous) before chart instantiation crashes.
+// This block runs before makeChart() is called below.
+// If a library is missing the banner is shown and chart init is skipped.
+(function earlyLibCheck() {
+  const missing = [];
+  if (typeof Chart  === 'undefined') missing.push('Chart.js');
+  if (typeof Paho   === 'undefined') missing.push('Paho MQTT');
+  if (typeof luxon  === 'undefined') missing.push('Luxon');
+  if (!missing.length) return;
+  const el = document.getElementById('lib-warn');
+  if (el) {
+    el.textContent = '\u26a0 ' + missing.join(', ') + ' failed to load from CDN. '
+      + 'Check internet access or vendor the libraries locally alongside index.html.';
+    el.style.display = 'block';
+  }
+  // Disable Connect button so user knows the dashboard is non-functional
+  const btn = document.getElementById('btn-connect');
+  if (btn) { btn.disabled = true; btn.title = 'Libraries missing — cannot connect'; }
+  throw new Error('[Dashboard] Aborting: missing CDN libraries: ' + missing.join(', '));
+})();
+</script>
+</body>
+</html>

@@ -141,6 +141,37 @@ python scripts/plot/plot.py --log-dir logs/<timestamp>
 
 Output: `latency.png`, `buffer.png`, `errors.png`, `throughput.png`, `telemetry.png`
 
+### 8. Run Live Dashboard Locally
+
+The dashboard is a static web app in `scripts/dashboard/index.html`.
+
+```bash
+cd scripts/dashboard
+python -m http.server 8080
+```
+
+Open in browser:
+
+```text
+http://localhost:8080
+```
+
+In the dashboard UI set:
+- Host: your broker host (for example `192.168.1.2`)
+- WS Port: your broker WebSocket port (for example `9001`)
+- WS Path: broker WebSocket path (typically `/mqtt`)
+- GW ID: gateway id (default `gw01`)
+- TLS: OFF for local `ws://`, ON only when broker is configured for `wss://`
+
+Then click **Connect** and verify live updates in charts and event log.
+
+Troubleshooting:
+- If the page loads but no data appears, verify broker WebSocket listener and topic path.
+- If browser reports mixed-content or secure WebSocket errors, use matching protocol:
+  - local HTTP page -> `ws://`
+  - HTTPS page (GitHub Pages/Vercel/Netlify) -> `wss://`
+- If connected but empty charts, check gateway topic prefix and GW ID match.
+
 ---
 
 ## Profile System
