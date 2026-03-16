@@ -53,7 +53,7 @@
 #define OFFLINE_FAIL_THRESHOLD    3u
 
 /** Offline backoff multiplier: poll period × this when device is offline */
-#define OFFLINE_BACKOFF_MULT      10u
+#define OFFLINE_BACKOFF_MULT      3u
 
 /** Max VOUT_MODE retry interval (ticks). Retry every ~5 seconds, not every poll */
 #define VOUT_MODE_RETRY_TICKS     pdMS_TO_TICKS(5000u)
@@ -322,6 +322,7 @@ static void poll_telemetry(const device_cfg_t *dev, device_state_t *state)
     }
 
     TickType_t t_start = xTaskGetTickCount();
+    rec.read_start_ms = gateway_ipc_monotonic_ms();
     uint8_t total_retries = 0u;
     uint16_t raw;
     bool any_ok = false;

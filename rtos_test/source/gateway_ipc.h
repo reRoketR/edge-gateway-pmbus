@@ -91,6 +91,20 @@ bool gateway_ipc_is_mqtt_online(void);
 uint32_t gateway_ipc_next_seq(void);
 
 /*******************************************************************************
+ * Monotonic time helper
+ ******************************************************************************/
+
+/**
+ * @brief Get monotonic uptime in milliseconds from the FreeRTOS tick.
+ *
+ * Suitable for latency and metrics-window calculations. Unlike
+ * `gateway_ipc_now_ms()`, this value is not shifted by SNTP synchronisation.
+ *
+ * @return Milliseconds since scheduler start.
+ */
+uint32_t gateway_ipc_monotonic_ms(void);
+
+/*******************************************************************************
  * Timestamp helper
  ******************************************************************************/
 

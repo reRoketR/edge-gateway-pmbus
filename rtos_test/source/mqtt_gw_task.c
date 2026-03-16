@@ -474,13 +474,10 @@ static void process_telemetry_queue(void)
                 printf("[MQTT] First publish OK: %s\n", s_topic_buf);
                 s_first_pub = true;
             }
-            /* Record read-to-publish latency (from record ts to publish done) */
-            uint64_t now = gateway_ipc_now_ms();
-            if (now > rec.ts_ms)
-            {
-                uint32_t latency_us = (uint32_t)(now - rec.ts_ms) * 1000u;
-                metrics_record_read_to_publish_us(latency_us);
-            }
+            /* Record read-to-publish latency (PMBus read start -> publish done) */
+            uint32_t now_ms = gateway_ipc_monotonic_ms();
+            uint32_t latency_ms = now_ms - rec.read_start_ms;
+            metrics_record_read_to_publish_us(latency_ms * 1000u);
         }
     }
 }
@@ -616,7 +613,9 @@ static void publish_metrics_if_due(void)
     }
 
     metrics_snapshot_t snap;
-    metrics_snapshot_and_reset(&snap, gateway_ipc_now_ms());
+    metrics_snapshot_and_reset(&snap,
+                               gateway_ipc_now_ms(),
+                               gateway_ipc_monotonic_ms());
 
     int json_len = encode_metrics_json(&snap, s_metrics_json_buf, METRICS_JSON_BUF_SIZE);
     if (json_len <= 0)

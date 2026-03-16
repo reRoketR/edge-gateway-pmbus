@@ -21,15 +21,15 @@ static const device_cfg_t k_devices[] = {
     {
         .addr_7bit       = 0x58,
         .label           = "psu_a",
-        .poll_period_ms  = 2000,
+        .poll_period_ms  = 500,
         .status_period_ms = 10000,
     },
-    // {
-        // .addr_7bit       = 0x59,
-        // .label           = "psu_b",
-        // .poll_period_ms  = 2000,
-        // .status_period_ms = 10000,
-    // },
+    {
+        .addr_7bit       = 0x59,
+        .label           = "psu_b",
+        .poll_period_ms  = 500,
+        .status_period_ms = 10000,
+    },
 };
 
 /*******************************************************************************
@@ -50,7 +50,7 @@ static const device_cfg_t k_devices[] = {
     },                                                                         \
                                                                                \
     .mqtt = {                                                                  \
-        .host           = "192.168.1.8",                                      \
+        .host           = "172.20.10.3",                                      \
         .port           = 1883,                                                \
         .client_id      = "pmbus-gw01",                                        \
         .base_topic     = "pmbus/gw01",                                        \

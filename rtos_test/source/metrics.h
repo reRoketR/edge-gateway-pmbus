@@ -30,7 +30,7 @@
  ******************************************************************************/
 
 /** Ring buffer size for latency samples (agent.md recommends 200) */
-#define METRICS_LATENCY_RING_SIZE   200u
+#define METRICS_LATENCY_RING_SIZE   50u
 
 /*******************************************************************************
  * Delta counters (reset after each metrics publish)
@@ -180,10 +180,14 @@ void metrics_record_mqtt_publish_us(uint32_t latency_us);
  * delta counters are reset to zero. Ring buffers are NOT cleared (they
  * continue to accumulate for the next window).
  *
- * @param[out] snap  Pointer to snapshot struct to fill
- * @param[in]  now_ms  Current monotonic time in ms (for ts_ms and uptime)
+ * @param[out] snap             Pointer to snapshot struct to fill
+ * @param[in]  ts_ms            Current wall-clock timestamp for JSON `ts_ms`
+ * @param[in]  now_monotonic_ms Current monotonic time in ms for `window_ms`
+ *                              and uptime calculations
  */
-void metrics_snapshot_and_reset(metrics_snapshot_t *snap, uint64_t now_ms);
+void metrics_snapshot_and_reset(metrics_snapshot_t *snap,
+                                uint64_t ts_ms,
+                                uint64_t now_monotonic_ms);
 
 /*******************************************************************************
  * JSON encoding

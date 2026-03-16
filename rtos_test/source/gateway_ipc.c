@@ -10,6 +10,7 @@
 #include "gateway_ipc.h"
 #include "wallclock.h"
 #include "metrics.h"
+#include "task.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -88,6 +89,14 @@ uint32_t gateway_ipc_next_seq(void)
     uint32_t seq = s_seq_counter++;
     taskEXIT_CRITICAL();
     return seq;
+}
+
+/*******************************************************************************
+ * Monotonic time
+ ******************************************************************************/
+uint32_t gateway_ipc_monotonic_ms(void)
+{
+    return (uint32_t)xTaskGetTickCount() * (uint32_t)portTICK_PERIOD_MS;
 }
 
 /*******************************************************************************

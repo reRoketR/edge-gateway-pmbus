@@ -51,6 +51,8 @@ typedef struct {
     /* --- Metadata --- */
     uint64_t    ts_ms;              /**< Wall-clock timestamp (epoch ms UTC
                                          after SNTP; uptime-ms before sync)    */
+    uint32_t    read_start_ms;      /**< Monotonic read-start time in ms;
+                                         internal only, not serialized         */
     bool        time_synced;        /**< true once SNTP has synchronised        */
     uint32_t    seq;                /**< Global sequence number                 */
     uint8_t     addr_7bit;          /**< 7-bit PMBus address                    */

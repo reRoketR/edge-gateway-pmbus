@@ -321,7 +321,7 @@ static void test_metrics_json(void)
 
     /* Take snapshot at t=2000 ms */
     metrics_snapshot_t snap;
-    metrics_snapshot_and_reset(&snap, 2000);
+    metrics_snapshot_and_reset(&snap, 2000, 2000);
 
     TEST_ASSERT_MSG(snap.counters.pmbus_reads_ok == 100,
                     "reads_ok=%u", (unsigned)snap.counters.pmbus_reads_ok);
@@ -365,7 +365,7 @@ static void test_metrics_json(void)
 
     /* Verify counters were reset */
     metrics_snapshot_t snap2;
-    metrics_snapshot_and_reset(&snap2, 4000);
+    metrics_snapshot_and_reset(&snap2, 4000, 4000);
     TEST_ASSERT_MSG(snap2.counters.pmbus_reads_ok == 0,
                     "after reset reads_ok=%u", (unsigned)snap2.counters.pmbus_reads_ok);
     TEST_ASSERT_MSG(snap2.window_ms == 2000,

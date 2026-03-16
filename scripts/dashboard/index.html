@@ -1,51 +1,62 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PMBus Gateway — Live Dashboard</title>
 
-  <!-- Chart.js v4 + Luxon (time adapter) + Streaming plugin + Paho MQTT -->
+  <!-- Chart.js v4 + Luxon (time adapter) + Streaming plugin + Zoom plugin + Paho MQTT -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-streaming@2.0.0/dist/chartjs-plugin-streaming.min.js"></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/chartjs-plugin-streaming@2.0.0/dist/chartjs-plugin-streaming.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
 
   <style>
     /* ── Reset & Tokens ──────────────────────────────────────────────── */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --bg:        #0d1117;
-      --surface:   #161b22;
-      --border:    #30363d;
-      --accent:    #58a6ff;
-      --green:     #3fb950;
-      --red:       #f85149;
-      --orange:    #f0883e;
-      --yellow:    #e3b341;
-      --teal:      #2ea043;
-      --text:      #e6edf3;
-      --muted:     #8b949e;
-      --radius:    8px;
-      --font:      'Segoe UI', system-ui, sans-serif;
-
-      --c-p95:     #f85149;
-      --c-avg:     #58a6ff;
-      --c-max:     #f0883e;
-      --c-msgs:    #3fb950;
-      --c-cmds:    #2ea043;
-      --c-buf:     #58a6ff;
-      --c-fail:    #f85149;
-      --c-retry:   #f0883e;
-      --c-vin:     #79c0ff;
-      --c-vout:    #e3b341;
-      --c-iout:    #f0883e;
-      --c-temp:    #f85149;
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
     }
 
-    html, body {
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --red: #f85149;
+      --orange: #f0883e;
+      --yellow: #e3b341;
+      --teal: #2ea043;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --radius: 8px;
+      --font: 'Segoe UI', system-ui, sans-serif;
+
+      --c-p95: #f85149;
+      --c-avg: #58a6ff;
+      --c-max: #f0883e;
+      --c-msgs: #3fb950;
+      --c-cmds: #2ea043;
+      --c-buf: #58a6ff;
+      --c-fail: #f85149;
+      --c-retry: #f0883e;
+      --c-vin: #79c0ff;
+      --c-vout: #e3b341;
+      --c-iout: #f0883e;
+      --c-temp: #f85149;
+    }
+
+    html,
+    body {
       height: 100%;
       background: var(--bg);
       color: var(--text);
@@ -71,6 +82,7 @@
       gap: 16px;
       flex-wrap: wrap;
     }
+
     .title {
       font-size: 15px;
       font-weight: 600;
@@ -80,7 +92,10 @@
       align-items: center;
       gap: 8px;
     }
-    .title svg { flex-shrink: 0; }
+
+    .title svg {
+      flex-shrink: 0;
+    }
 
     .conn-row {
       display: flex;
@@ -89,7 +104,12 @@
       flex-wrap: wrap;
       flex: 1;
     }
-    .conn-row label { color: var(--muted); font-size: 11px; }
+
+    .conn-row label {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
     .conn-row input {
       background: var(--bg);
       border: 1px solid var(--border);
@@ -101,9 +121,18 @@
       outline: none;
       transition: border-color .2s;
     }
-    .conn-row input:focus { border-color: var(--accent); }
-    .conn-row input.narrow { width: 64px; }
-    .conn-row input.xnarrow { width: 52px; }
+
+    .conn-row input:focus {
+      border-color: var(--accent);
+    }
+
+    .conn-row input.narrow {
+      width: 64px;
+    }
+
+    .conn-row input.xnarrow {
+      width: 52px;
+    }
 
     .tls-toggle {
       display: inline-flex;
@@ -114,12 +143,17 @@
       color: var(--muted);
       user-select: none;
     }
+
     .tls-toggle input[type=checkbox] {
       accent-color: var(--green);
-      width: 13px; height: 13px;
+      width: 13px;
+      height: 13px;
       cursor: pointer;
     }
-    .tls-toggle.active { color: var(--green); }
+
+    .tls-toggle.active {
+      color: var(--green);
+    }
 
     .btn {
       padding: 5px 14px;
@@ -130,12 +164,36 @@
       cursor: pointer;
       transition: background .15s, border-color .15s, opacity .15s;
     }
-    #btn-connect   { background: var(--accent); color: #fff; border-color: var(--accent); }
-    #btn-connect:hover { opacity: .85; }
-    #btn-connect:disabled { opacity: .45; cursor: default; }
-    #btn-disconnect { background: none; color: var(--red); border-color: var(--red); }
-    #btn-disconnect:hover { background: rgba(248,81,73,.12); }
-    #btn-disconnect:disabled { opacity: .35; cursor: default; }
+
+    #btn-connect {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    #btn-connect:hover {
+      opacity: .85;
+    }
+
+    #btn-connect:disabled {
+      opacity: .45;
+      cursor: default;
+    }
+
+    #btn-disconnect {
+      background: none;
+      color: var(--red);
+      border-color: var(--red);
+    }
+
+    #btn-disconnect:hover {
+      background: rgba(248, 81, 73, .12);
+    }
+
+    #btn-disconnect:disabled {
+      opacity: .35;
+      cursor: default;
+    }
 
     .badge {
       display: inline-flex;
@@ -149,16 +207,40 @@
       background: var(--bg);
       white-space: nowrap;
     }
+
     .badge .dot {
-      width: 7px; height: 7px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: var(--muted);
       transition: background .3s;
     }
-    .badge.connected .dot    { background: var(--green); box-shadow: 0 0 6px var(--green); }
-    .badge.disconnected .dot { background: var(--red); }
-    .badge.connecting .dot   { background: var(--yellow); animation: pulse 1s infinite; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    .badge.connected .dot {
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+    }
+
+    .badge.disconnected .dot {
+      background: var(--red);
+    }
+
+    .badge.connecting .dot {
+      background: var(--yellow);
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: .3
+      }
+    }
 
     /* ── Stats bar ──────────────────────────────────────────────────── */
     .stats-bar {
@@ -168,6 +250,7 @@
       gap: 0;
       overflow-x: auto;
     }
+
     .stat {
       padding: 6px 16px;
       border-right: 1px solid var(--border);
@@ -177,17 +260,38 @@
       min-width: 90px;
       flex-shrink: 0;
     }
-    .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-    .stat-value { font-size: 16px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
-    .stat-value.green { color: var(--green); }
-    .stat-value.red   { color: var(--red); }
-    .stat-value.orange{ color: var(--orange); }
+
+    .stat-label {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .stat-value {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-value.green {
+      color: var(--green);
+    }
+
+    .stat-value.red {
+      color: var(--red);
+    }
+
+    .stat-value.orange {
+      color: var(--orange);
+    }
 
     /* ── Main grid ──────────────────────────────────────────────────── */
     .main {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
-      grid-template-rows: 1fr 1fr 1fr;
+      grid-template-rows: 1fr 1fr 1fr 1fr;
       gap: 10px;
       padding: 10px;
       overflow: hidden;
@@ -203,6 +307,7 @@
       overflow: hidden;
       min-height: 0;
     }
+
     .card-header {
       padding: 8px 12px;
       font-size: 11px;
@@ -216,15 +321,83 @@
       justify-content: space-between;
       flex-shrink: 0;
     }
+
     .card-tag {
       font-size: 10px;
       padding: 1px 7px;
       border-radius: 10px;
-      background: rgba(88,166,255,.12);
+      background: rgba(88, 166, 255, .12);
       color: var(--accent);
       letter-spacing: 0;
       font-weight: 500;
     }
+
+    /* ── Card action buttons (expand / reset-zoom) ─────────────────── */
+    .card-actions {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
+    .icon-btn {
+      background: none;
+      border: 1px solid transparent;
+      color: var(--muted);
+      border-radius: 5px;
+      cursor: pointer;
+      padding: 2px 5px;
+      font-size: 13px;
+      line-height: 1;
+      transition: color .15s, border-color .15s, background .15s;
+    }
+
+    .icon-btn:hover {
+      color: var(--accent);
+      border-color: var(--border);
+      background: rgba(88, 166, 255, .08);
+    }
+
+    .icon-btn[title]:hover::after {
+      content: attr(title);
+      position: absolute;
+      background: #222;
+      color: #eee;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      white-space: nowrap;
+      pointer-events: none;
+      margin-top: 18px;
+      margin-left: -20px;
+    }
+
+    /* Fullscreen card overlay */
+    .card.fullscreen {
+      position: fixed !important;
+      inset: 0 !important;
+      z-index: 1000;
+      border-radius: 0 !important;
+      grid-column: unset !important;
+      grid-row: unset !important;
+    }
+
+    .card.fullscreen .card-body {
+      padding: 12px;
+    }
+
+    /* Hint: scroll-to-zoom, drag-to-pan */
+    .zoom-hint {
+      position: absolute;
+      bottom: 4px;
+      right: 8px;
+      font-size: 9px;
+      color: var(--muted);
+      opacity: .5;
+      pointer-events: none;
+    }
+
     .card-body {
       flex: 1;
       overflow: hidden;
@@ -232,10 +405,18 @@
       padding: 6px;
       min-height: 0;
     }
-    canvas { width: 100% !important; height: 100% !important; }
+
+    canvas {
+      width: 100% !important;
+      height: 100% !important;
+    }
 
     /* Telemetry card — 2×2 sub-grid */
-    .card.telem { grid-column: 1 / 3; grid-row: 3 / 4; }
+    .card.telem {
+      grid-column: 1 / 3;
+      grid-row: 3 / 5;
+    }
+
     .card.telem .card-body {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -243,10 +424,20 @@
       gap: 4px;
       padding: 6px;
     }
-    .sub-chart { position: relative; min-height: 0; }
+
+    .sub-chart {
+      position: relative;
+      min-height: 0;
+    }
 
     /* Events card */
-    .card.events { grid-column: 3; grid-row: 1 / 4; display: flex; flex-direction: column; }
+    .card.events {
+      grid-column: 3;
+      grid-row: 1 / 3;
+      display: flex;
+      flex-direction: column;
+    }
+
     .events-list {
       flex: 1;
       overflow-y: auto;
@@ -255,6 +446,7 @@
       flex-direction: column;
       gap: 4px;
     }
+
     .event-item {
       background: var(--bg);
       border: 1px solid var(--border);
@@ -262,9 +454,21 @@
       padding: 5px 8px;
       font-size: 11px;
     }
-    .event-type { font-weight: 700; color: var(--orange); }
-    .event-detail { color: var(--muted); }
-    .event-ts { font-size: 10px; color: var(--muted); margin-top: 1px; }
+
+    .event-type {
+      font-weight: 700;
+      color: var(--orange);
+    }
+
+    .event-detail {
+      color: var(--muted);
+    }
+
+    .event-ts {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 1px;
+    }
 
     /* ── Device tab strip ───────────────────────────────────────────── */
     .dev-tabs {
@@ -275,6 +479,7 @@
       flex: 1;
       min-width: 0;
     }
+
     .dev-tab {
       padding: 2px 10px;
       border-radius: 10px;
@@ -288,14 +493,41 @@
       transition: background .15s, color .15s, border-color .15s;
       white-space: nowrap;
     }
-    .dev-tab:hover { background: rgba(88,166,255,.1); color: var(--accent); border-color: var(--accent); }
-    .dev-tab.active { background: rgba(88,166,255,.18); color: var(--accent); border-color: var(--accent); }
-    .dev-tab-placeholder { color: var(--muted); font-size: 10px; font-weight: 400; font-style: italic; letter-spacing: 0; }
+
+    .dev-tab:hover {
+      background: rgba(88, 166, 255, .1);
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .dev-tab.active {
+      background: rgba(88, 166, 255, .18);
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .dev-tab-placeholder {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 400;
+      font-style: italic;
+      letter-spacing: 0;
+    }
 
     /* Scrollbar */
-    ::-webkit-scrollbar { width: 5px; height: 5px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
 
     /* No-data overlay */
     .no-data {
@@ -320,6 +552,7 @@
       flex-shrink: 0;
       min-height: 26px;
     }
+
     .status-badge {
       display: inline-flex;
       align-items: center;
@@ -333,14 +566,32 @@
       background: var(--bg);
       color: var(--muted);
     }
-    .status-badge.fault { border-color: var(--red); color: var(--red); background: rgba(248,81,73,.08); }
-    .status-badge.ok    { border-color: var(--green); color: var(--green); background: rgba(63,185,80,.07); }
-    .status-label { color: var(--muted); font-size: 9px; font-weight: 400; letter-spacing: .04em; }
+
+    .status-badge.fault {
+      border-color: var(--red);
+      color: var(--red);
+      background: rgba(248, 81, 73, .08);
+    }
+
+    .status-badge.ok {
+      border-color: var(--green);
+      color: var(--green);
+      background: rgba(63, 185, 80, .07);
+    }
+
+    .status-label {
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 400;
+      letter-spacing: .04em;
+    }
 
     /* ── Library-failure warning banner ─────────────────────────────── */
     .lib-warn {
       position: fixed;
-      top: 0; left: 0; right: 0;
+      top: 0;
+      left: 0;
+      right: 0;
       background: var(--red);
       color: #fff;
       font-size: 12px;
@@ -350,699 +601,1233 @@
       z-index: 9999;
       display: none;
     }
-    .lib-warn a { color: #fff; }
+
+    .lib-warn a {
+      color: #fff;
+    }
+
+    /* ── Custom HTML Tooltip (driven by onHover) ───────────── */
+    #custom-tooltip {
+      position: fixed;
+      pointer-events: none;
+      background: rgba(13, 17, 23, 0.95);
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 11px;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      color: #8b949e;
+      z-index: 9999;
+      display: none;
+      white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+
+    #custom-tooltip .ct-time {
+      color: #e6edf3;
+      font-size: 10px;
+      margin-bottom: 5px;
+      font-weight: 600;
+    }
+
+    #custom-tooltip .ct-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 3px;
+    }
+
+    #custom-tooltip .ct-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    #custom-tooltip .ct-val {
+      color: #e6edf3;
+      font-weight: 700;
+    }
+
+    #custom-tooltip .ct-lbl {
+      color: #8b949e;
+      font-size: 10px;
+    }
+
+    /* ── Command Panel ──────────────────────────────────────── */
+    .cmd-card { grid-column: 3; grid-row: 3 / 5; }
+    .cmd-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+    .cmd-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; }
+    .cmd-form .field { display: flex; flex-direction: column; gap: 2px; }
+    .cmd-form .field label { color: var(--muted); font-size: 10px; }
+    .cmd-form .field input,
+    .cmd-form .field select {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+      color: var(--text); padding: 4px 6px; font-size: 11px; font-family: var(--font);
+    }
+    .cmd-form .field select { min-width: 160px; }
+    .cmd-form .field input { width: 70px; }
+    .cmd-send {
+      background: var(--accent); color: #fff; border: none; border-radius: 4px;
+      padding: 5px 14px; font-size: 11px; font-weight: 600; cursor: pointer;
+      align-self: flex-end;
+    }
+    .cmd-send:hover { filter: brightness(1.15); }
+    .cmd-send:disabled { opacity: .5; cursor: default; }
+    .cmd-log {
+      flex: 1; overflow-y: auto; max-height: 200px; min-height: 60px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+      padding: 6px; font-size: 10px; font-family: 'Consolas', 'Courier New', monospace;
+      color: var(--muted);
+    }
+    .cmd-log-entry { padding: 3px 0; border-bottom: 1px solid #21262d; }
+    .cmd-log-entry:last-child { border-bottom: none; }
+    .cmd-log-entry .cmd-dir { font-weight: 700; }
+    .cmd-log-entry .cmd-dir.sent { color: var(--accent); }
+    .cmd-log-entry .cmd-dir.recv { color: var(--green); }
+    .cmd-log-entry .cmd-dir.timeout { color: var(--orange); }
+    .cmd-log-entry .cmd-ts { color: #484f58; margin-left: 6px; }
+
+    /* ── Alarm Thresholds ───────────────────────────────────── */
+    @keyframes alarm-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(248,81,73,0); }
+      50% { box-shadow: 0 0 8px 2px rgba(248,81,73,0.5); }
+    }
+    .sub-chart.alarm-active {
+      border: 1px solid var(--red);
+      animation: alarm-pulse 1.2s ease-in-out infinite;
+      border-radius: var(--radius);
+    }
+    .alarm-icon {
+      display: none; color: var(--red); font-size: 14px;
+      margin-left: 4px; vertical-align: middle;
+    }
+    .sub-chart.alarm-active .alarm-icon { display: inline; }
+    .threshold-cfg {
+      display: none; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 10px; position: absolute;
+      right: 8px; top: 32px; z-index: 100; min-width: 240px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    }
+    .threshold-cfg.open { display: block; }
+    .threshold-cfg h4 { color: var(--text); font-size: 11px; margin-bottom: 8px; }
+    .threshold-row {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 6px; font-size: 11px; color: var(--muted);
+    }
+    .threshold-row label { min-width: 50px; }
+    .threshold-row input {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+      color: var(--text); padding: 3px 5px; font-size: 11px; width: 60px;
+      font-family: var(--font);
+    }
+
+    /* ── Export Button ──────────────────────────────────────── */
+    .export-btn {
+      background: none; border: 1px solid var(--border); border-radius: 4px;
+      color: var(--muted); cursor: pointer; font-size: 11px;
+      padding: 2px 6px; line-height: 1;
+    }
+    .export-btn:hover { color: var(--text); border-color: var(--muted); }
   </style>
 </head>
+
 <body>
-<div class="lib-warn" id="lib-warn">
-  ⚠ One or more chart/MQTT libraries failed to load from CDN. Check your internet connection or
-  <a href="https://github.com/your-repo/wiki/offline-setup" target="_blank">vendor the libs locally</a>.
-</div>
-<div class="app">
+  <div id="custom-tooltip"></div>
+  <div class="app">
 
-  <!-- ── Header ─────────────────────────────────────────────────────── -->
-  <header>
-    <div class="title">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
-        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-      </svg>
-      PMBus Gateway
-    </div>
-    <div class="conn-row">
-      <label>Host</label>
-      <input id="inp-host" value="192.168.1.2" placeholder="broker host" />
-      <label>WS Port</label>
-      <input id="inp-port" class="narrow" value="9001" placeholder="9001" />
-      <label>GW&nbsp;ID</label>
-      <input id="inp-gw" class="xnarrow" value="gw01" placeholder="gw01" />
-      <label>WS&nbsp;Path</label>
-      <input id="inp-path" class="xnarrow" value="/mqtt" placeholder="/mqtt" style="width:60px;" />
-      <label>History&nbsp;(s)</label>
-      <input id="inp-history" class="xnarrow" value="120" placeholder="120" />
-      <label class="tls-toggle" id="tls-label"><input type="checkbox" id="inp-tls" />TLS</label>
-      <button class="btn" id="btn-connect">Connect</button>
-      <button class="btn" id="btn-disconnect" disabled>Disconnect</button>
-      <span class="badge disconnected" id="badge">
-        <span class="dot"></span>
-        <span id="badge-text">Disconnected</span>
-      </span>
-    </div>
-  </header>
-
-  <!-- ── Stats bar ──────────────────────────────────────────────────── -->
-  <div class="stats-bar">
-    <div class="stat"><span class="stat-label">Telemetry</span><span class="stat-value" id="s-telem">0</span></div>
-    <div class="stat"><span class="stat-label">Status</span><span class="stat-value" id="s-status">0</span></div>
-    <div class="stat"><span class="stat-label">Metrics</span><span class="stat-value" id="s-metrics">0</span></div>
-    <div class="stat"><span class="stat-label">Events</span><span class="stat-value" id="s-events">0</span></div>
-    <div class="stat"><span class="stat-label">Uptime (s)</span><span class="stat-value" id="s-uptime">—</span></div>
-    <div class="stat"><span class="stat-label">MQTT Reconn.</span><span class="stat-value orange" id="s-reconn">—</span></div>
-    <div class="stat"><span class="stat-label">Buf RAM</span><span class="stat-value" id="s-buf">—</span></div>
-    <div class="stat"><span class="stat-label">Wi-Fi RSSI</span><span class="stat-value" id="s-rssi">—</span></div>
-    <div class="stat"><span class="stat-label">Poll (ms)</span><span class="stat-value" id="s-pmbus-avg">—</span></div>
-    <div class="stat"><span class="stat-label">Pub (ms)</span><span class="stat-value" id="s-mqtt-avg">—</span></div>
-  </div>
-
-  <!-- ── Charts + Events ────────────────────────────────────────────── -->
-  <div class="main">
-
-    <!-- Row 1 Col 1: Latency -->
-    <div class="card">
-      <div class="card-header">End-to-End Latency<span class="card-tag">metrics</span></div>
-      <div class="card-body">
-        <canvas id="c-latency"></canvas>
-        <div class="no-data" id="nd-latency">Waiting for data…</div>
+    <!-- ── Header ─────────────────────────────────────────────────────── -->
+    <header>
+      <div class="title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+        </svg>
+        PMBus Gateway
       </div>
-    </div>
-
-    <!-- Row 1 Col 2: Throughput -->
-    <div class="card">
-      <div class="card-header">Throughput<span class="card-tag">metrics</span></div>
-      <div class="card-body">
-        <canvas id="c-throughput"></canvas>
-        <div class="no-data" id="nd-throughput">Waiting for data…</div>
+      <div class="conn-row">
+        <label>Host</label>
+        <input id="inp-host" value="127.0.0.1" placeholder="broker host" />
+        <label>WS Port</label>
+        <input id="inp-port" class="narrow" value="9001" placeholder="9001" />
+        <label>GW&nbsp;ID</label>
+        <input id="inp-gw" class="xnarrow" value="gw01" placeholder="gw01" />
+        <label>WS&nbsp;Path</label>
+        <input id="inp-path" class="xnarrow" value="/mqtt" placeholder="/mqtt" style="width:60px;" />
+        <label>History&nbsp;(s)</label>
+        <input id="inp-history" class="xnarrow" value="120" placeholder="120" />
+        <label class="tls-toggle" id="tls-label"><input type="checkbox" id="inp-tls" />TLS</label>
+        <button class="btn" id="btn-connect">Connect</button>
+        <button class="btn" id="btn-disconnect" disabled>Disconnect</button>
+        <span class="badge disconnected" id="badge">
+          <span class="dot"></span>
+          <span id="badge-text">Disconnected</span>
+        </span>
       </div>
-    </div>
+    </header>
 
-    <!-- Col 3 Row 1–3: Events (spans full height) -->
-    <div class="card events">
-      <div class="card-header">Event Log<span class="card-tag">events</span></div>
-      <div class="events-list" id="event-list">
-        <div data-placeholder style="color:var(--muted);font-size:11px;padding:6px;">No events yet.</div>
+    <!-- ── Stats bar ──────────────────────────────────────────────────── -->
+    <div class="stats-bar">
+      <div class="stat"><span class="stat-label">Telemetry</span><span class="stat-value" id="s-telem">0</span></div>
+      <div class="stat"><span class="stat-label">Status</span><span class="stat-value" id="s-status">0</span></div>
+      <div class="stat"><span class="stat-label">Metrics</span><span class="stat-value" id="s-metrics">0</span></div>
+      <div class="stat"><span class="stat-label">Events</span><span class="stat-value" id="s-events">0</span></div>
+      <div class="stat"><span class="stat-label">Uptime (s)</span><span class="stat-value" id="s-uptime">—</span></div>
+      <div class="stat"><span class="stat-label">MQTT Reconn.</span><span class="stat-value orange"
+          id="s-reconn">—</span></div>
+      <div class="stat"><span class="stat-label">Buf RAM</span><span class="stat-value" id="s-buf">—</span></div>
+      <div class="stat"><span class="stat-label">Wi-Fi RSSI</span><span class="stat-value" id="s-rssi">—</span></div>
+      <div class="stat"><span class="stat-label">Poll (ms)</span><span class="stat-value" id="s-pmbus-avg">—</span>
       </div>
+      <div class="stat"><span class="stat-label">Pub (ms)</span><span class="stat-value" id="s-mqtt-avg">—</span></div>
     </div>
 
-    <!-- Row 2 Col 1: Buffer depth -->
-    <div class="card">
-      <div class="card-header">Buffer Depth (RAM)<span class="card-tag">metrics</span></div>
-      <div class="card-body">
-        <canvas id="c-buffer"></canvas>
-        <div class="no-data" id="nd-buffer">Waiting for data…</div>
-      </div>
-    </div>
+    <!-- ── Charts + Events ────────────────────────────────────────────── -->
+    <div class="main">
 
-    <!-- Row 2 Col 2: Errors -->
-    <div class="card">
-      <div class="card-header">PMBus Errors &amp; Retries<span class="card-tag">metrics</span></div>
-      <div class="card-body">
-        <canvas id="c-errors"></canvas>
-        <div class="no-data" id="nd-errors">Waiting for data…</div>
-      </div>
-    </div>
-
-    <!-- Row 3 Col 1–2: Telemetry 2×2 -->
-    <div class="card telem">
-      <div class="card-header" style="gap:8px;">
-        <span style="white-space:nowrap;">Device Telemetry</span>
-        <div class="dev-tabs" id="dev-tabs">
-          <span class="dev-tab-placeholder">No devices seen yet</span>
+      <!-- Row 1 Col 1: Latency -->
+      <div class="card">
+        <div class="card-header">End-to-End Latency
+          <span class="card-tag">metrics</span>
+          <div class="card-actions">
+            <button class="export-btn" title="Export CSV" onclick="exportCSV(cLatency,'latency')">&#x2B73; CSV</button>
+            <button class="icon-btn" title="Reset zoom" onclick="resetZoom(cLatency)">&#x2B1C;</button>
+            <button class="icon-btn" title="Expand" onclick="toggleFullscreen(this.closest('.card'))">&#x26F6;</button>
+          </div>
         </div>
-        <span class="card-tag">telemetry</span>
+        <div class="card-body">
+          <canvas id="c-latency"></canvas>
+          <div class="no-data" id="nd-latency">Waiting for data…</div>
+          <span class="zoom-hint">scroll = zoom · drag = pan · dbl-click = reset</span>
+        </div>
       </div>
-      <!-- Status badges for active device -->
-      <div class="status-row" id="status-row">
-        <span class="status-label">STATUS</span>
-        <span class="status-badge" id="sb-word">WORD —</span>
-        <span class="status-badge" id="sb-vout">VOUT —</span>
-        <span class="status-badge" id="sb-iout">IOUT —</span>
-        <span class="status-badge" id="sb-temp">TEMP —</span>
+
+      <!-- Row 1 Col 2: Throughput -->
+      <div class="card">
+        <div class="card-header">Throughput
+          <span class="card-tag">metrics</span>
+          <div class="card-actions">
+            <button class="export-btn" title="Export CSV" onclick="exportCSV(cThroughput,'throughput')">&#x2B73; CSV</button>
+            <button class="icon-btn" title="Reset zoom" onclick="resetZoom(cThroughput)">&#x2B1C;</button>
+            <button class="icon-btn" title="Expand" onclick="toggleFullscreen(this.closest('.card'))">&#x26F6;</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <canvas id="c-throughput"></canvas>
+          <div class="no-data" id="nd-throughput">Waiting for data…</div>
+          <span class="zoom-hint">scroll = zoom · drag = pan · dbl-click = reset</span>
+        </div>
       </div>
-      <div class="card-body">
-        <div class="sub-chart"><canvas id="c-vin"></canvas></div>
-        <div class="sub-chart"><canvas id="c-vout"></canvas></div>
-        <div class="sub-chart"><canvas id="c-iout"></canvas></div>
-        <div class="sub-chart"><canvas id="c-temp"></canvas></div>
+
+      <!-- Col 3 Row 1–3: Events (spans full height) -->
+      <div class="card events">
+        <div class="card-header">Event Log<span class="card-tag">events</span></div>
+        <div class="events-list" id="event-list">
+          <div data-placeholder style="color:var(--muted);font-size:11px;padding:6px;">No events yet.</div>
+        </div>
       </div>
-    </div>
 
-  </div><!-- .main -->
-</div><!-- .app -->
+      <!-- Col 3 Row 2: Command Panel -->
+      <div class="card cmd-card">
+        <div class="card-header">Command Panel<span class="card-tag">cmd</span></div>
+        <div class="cmd-body">
+          <div class="cmd-form">
+            <div class="field">
+              <label>Device Addr</label>
+              <input id="cmd-addr" value="0x58" placeholder="0x58" />
+            </div>
+            <div class="field">
+              <label>Command</label>
+              <select id="cmd-select">
+                <option value="0x03" data-fmt="none">CLEAR_FAULTS (0x03)</option>
+                <option value="0x88" data-fmt="lin11">READ_VIN (0x88)</option>
+                <option value="0x8B" data-fmt="lin16">READ_VOUT (0x8B)</option>
+                <option value="0x8C" data-fmt="lin11">READ_IOUT (0x8C)</option>
+                <option value="0x8D" data-fmt="lin11">READ_TEMP1 (0x8D)</option>
+                <option value="0x96" data-fmt="lin11">READ_POUT (0x96)</option>
+                <option value="0x79" data-fmt="raw">STATUS_WORD (0x79)</option>
+                <option value="custom">Custom…</option>
+              </select>
+            </div>
+            <div class="field" id="cmd-custom-field" style="display:none;">
+              <label>Hex Code</label>
+              <input id="cmd-custom-code" placeholder="0xNN" />
+            </div>
+            <button class="cmd-send" id="btn-cmd-send" onclick="sendCommand()" disabled>Send</button>
+          </div>
+          <div class="cmd-log" id="cmd-log">
+            <div style="color:var(--muted);font-size:10px;padding:4px;">No commands sent yet.</div>
+          </div>
+        </div>
+      </div>
 
-<script>
-// ── Helpers ───────────────────────────────────────────────────────────
-function now() { return Date.now(); }
-function toNum(v, fallback = NaN) {
-  const n = parseFloat(v);
-  return isNaN(n) ? fallback : n;
-}
+      <!-- Row 2 Col 1: Buffer depth -->
+      <div class="card">
+        <div class="card-header">Buffer Depth (RAM)
+          <span class="card-tag">metrics</span>
+          <div class="card-actions">
+            <button class="export-btn" title="Export CSV" onclick="exportCSV(cBuffer,'buffer')">&#x2B73; CSV</button>
+            <button class="icon-btn" title="Reset zoom" onclick="resetZoom(cBuffer)">&#x2B1C;</button>
+            <button class="icon-btn" title="Expand" onclick="toggleFullscreen(this.closest('.card'))">&#x26F6;</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <canvas id="c-buffer"></canvas>
+          <div class="no-data" id="nd-buffer">Waiting for data…</div>
+          <span class="zoom-hint">scroll = zoom · drag = pan · dbl-click = reset</span>
+        </div>
+      </div>
 
-// ── State ─────────────────────────────────────────────────────────────
-let counts = { telemetry: 0, status: 0, metrics: 0, events: 0 };
-let client = null;
+      <!-- Row 2 Col 2: Errors -->
+      <div class="card">
+        <div class="card-header">PMBus Errors &amp; Retries
+          <span class="card-tag">metrics</span>
+          <div class="card-actions">
+            <button class="export-btn" title="Export CSV" onclick="exportCSV(cErrors,'errors')">&#x2B73; CSV</button>
+            <button class="icon-btn" title="Reset zoom" onclick="resetZoom(cErrors)">&#x2B1C;</button>
+            <button class="icon-btn" title="Expand" onclick="toggleFullscreen(this.closest('.card'))">&#x26F6;</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <canvas id="c-errors"></canvas>
+          <div class="no-data" id="nd-errors">Waiting for data…</div>
+          <span class="zoom-hint">scroll = zoom · drag = pan · dbl-click = reset</span>
+        </div>
+      </div>
 
-// ── Auto-reconnect ────────────────────────────────────────────────────
-let _reconnectTimer = null;
-let _reconnectDelay = 1000;   // ms, doubles each attempt, caps at 30s
-const RECONNECT_MAX = 30000;
+      <!-- Row 3 Col 1–2: Telemetry 2×2 -->
+      <div class="card telem">
+        <div class="card-header" style="gap:8px;">
+          <span style="white-space:nowrap;">Device Telemetry</span>
+          <div class="dev-tabs" id="dev-tabs">
+            <span class="dev-tab-placeholder">No devices seen yet</span>
+          </div>
+          <span class="card-tag">telemetry</span>
+          <div class="card-actions" style="position:relative;">
+            <button class="export-btn" title="Export all telemetry CSV" onclick="exportTelemetryCSV()">&#x2B73; CSV</button>
+            <button class="icon-btn" title="Alarm thresholds" onclick="toggleThresholdCfg()">&#x2699;</button>
+            <button class="icon-btn" title="Reset zoom (all)"
+              onclick="[cVin,cVout,cIout,cTemp].forEach(c=>resetZoom(c))">&#x2B1C;</button>
+            <button class="icon-btn" title="Expand" onclick="toggleFullscreen(this.closest('.card'))">&#x26F6;</button>
+            <!-- Threshold config popover -->
+            <div class="threshold-cfg" id="threshold-cfg">
+              <h4>Alarm Thresholds</h4>
+              <div class="threshold-row"><label>VIN (V)</label> <input id="th-vin-min" placeholder="44"> — <input id="th-vin-max" placeholder="52"></div>
+              <div class="threshold-row"><label>VOUT (V)</label> <input id="th-vout-min" placeholder="11.4"> — <input id="th-vout-max" placeholder="12.6"></div>
+              <div class="threshold-row"><label>IOUT (A)</label> <input id="th-iout-min" placeholder="0"> — <input id="th-iout-max" placeholder="10"></div>
+              <div class="threshold-row"><label>TEMP (°C)</label> <input id="th-temp-min" placeholder="0"> — <input id="th-temp-max" placeholder="60"></div>
+              <button class="btn" style="margin-top:6px;font-size:11px;padding:3px 10px;" onclick="saveThresholds()">Save</button>
+            </div>
+          </div>
+        </div>
+        <!-- Status badges for active device -->
+        <div class="status-row" id="status-row">
+          <span class="status-label">STATUS</span>
+          <span class="status-badge" id="sb-word">WORD —</span>
+          <span class="status-badge" id="sb-vout">VOUT —</span>
+          <span class="status-badge" id="sb-iout">IOUT —</span>
+          <span class="status-badge" id="sb-temp">TEMP —</span>
+        </div>
+        <div class="card-body">
+          <div class="sub-chart" id="sc-vin"><canvas id="c-vin"></canvas><span class="alarm-icon" id="ai-vin">⚠</span></div>
+          <div class="sub-chart" id="sc-vout"><canvas id="c-vout"></canvas><span class="alarm-icon" id="ai-vout">⚠</span></div>
+          <div class="sub-chart" id="sc-iout"><canvas id="c-iout"></canvas><span class="alarm-icon" id="ai-iout">⚠</span></div>
+          <div class="sub-chart" id="sc-temp"><canvas id="c-temp"></canvas><span class="alarm-icon" id="ai-temp">⚠</span></div>
+        </div>
+      </div>
 
-function _scheduleReconnect() {
-  clearTimeout(_reconnectTimer);
-  setBadge('connecting', `Reconnecting in ${Math.round(_reconnectDelay/1000)}s…`);
-  _reconnectTimer = setTimeout(() => {
-    if (client && !client.isConnected()) {
-      setBadge('connecting', 'Reconnecting…');
-      _doConnect();
+    </div><!-- .main -->
+  </div><!-- .app -->
+
+  <script>
+    // ── Helpers ───────────────────────────────────────────────────────────
+    function now() { return Date.now(); }
+    function toNum(v, fallback = NaN) {
+      const n = parseFloat(v);
+      return isNaN(n) ? fallback : n;
     }
-  }, _reconnectDelay);
-  _reconnectDelay = Math.min(_reconnectDelay * 2, RECONNECT_MAX);
-}
 
-// ── Session reset ─────────────────────────────────────────────────────
-function resetSession() {
-  // Clear chart datasets
-  allCharts.forEach(ch => {
-    ch.data.datasets.forEach(ds => { ds.data = []; });
-    ch.update('none');
-  });
-  // Restore no-data overlays
-  ['latency','throughput','buffer','errors'].forEach(id => {
-    const el = document.getElementById('nd-' + id);
-    if (el) el.style.display = '';
-  });
-  // Clear device state
-  Object.keys(deviceData).forEach(k => delete deviceData[k]);
-  activeAddr = null;
-  renderDeviceTabs();
-  // Reset status badges
-  ['sb-word','sb-vout','sb-iout','sb-temp'].forEach((id, i) => {
-    const el = document.getElementById(id);
-    if (el) { el.textContent = ['WORD','VOUT','IOUT','TEMP'][i] + ' —'; el.className = 'status-badge'; }
-  });
-  // Reset counters
-  counts = { telemetry: 0, status: 0, metrics: 0, events: 0 };
-  ['s-telem','s-status','s-metrics','s-events'].forEach(id => stat(id, 0));
-  ['s-uptime','s-reconn','s-buf','s-rssi','s-pmbus-avg','s-mqtt-avg'].forEach(id => stat(id, '—'));
-  // Reset event log
-  const list = document.getElementById('event-list');
-  list.innerHTML = '<div data-placeholder style="color:var(--muted);font-size:11px;padding:6px;">No events yet.</div>';
-}
+    // ── State ─────────────────────────────────────────────────────────────
+    let counts = { telemetry: 0, status: 0, metrics: 0, events: 0 };
+    let client = null;
 
-// ── Per-device telemetry history ──────────────────────────────────────
-// deviceData[addr] = { vin:[], vout:[], iout:[], temp:[], status:{} }
-const deviceData = {};
-let activeAddr   = null;
+    // ── Auto-reconnect ────────────────────────────────────────────────────
+    let _reconnectTimer = null;
+    let _reconnectDelay = 1000;   // ms, doubles each attempt, caps at 30s
+    const RECONNECT_MAX = 30000;
 
-function ensureDevice(addr) {
-  if (deviceData[addr]) return;
-  deviceData[addr] = { vin: [], vout: [], iout: [], temp: [], status: {} };
-  renderDeviceTabs();
-  if (!activeAddr) switchDevice(addr);   // auto-select first device
-}
+    function _scheduleReconnect() {
+      clearTimeout(_reconnectTimer);
+      setBadge('connecting', `Reconnecting in ${Math.round(_reconnectDelay / 1000)}s…`);
+      _reconnectTimer = setTimeout(() => {
+        if (client && !client.isConnected()) {
+          setBadge('connecting', 'Reconnecting…');
+          _doConnect();
+        }
+      }, _reconnectDelay);
+      _reconnectDelay = Math.min(_reconnectDelay * 2, RECONNECT_MAX);
+    }
 
-function renderDeviceTabs() {
-  const bar  = document.getElementById('dev-tabs');
-  const addrs = Object.keys(deviceData);
-  if (addrs.length === 0) {
-    bar.innerHTML = '<span class="dev-tab-placeholder">No devices seen yet</span>';
-    return;
-  }
-  bar.innerHTML = '';
-  addrs.forEach(addr => {
-    const t = document.createElement('button');
-    t.className  = 'dev-tab' + (addr === activeAddr ? ' active' : '');
-    t.textContent = addr;
-    t.onclick = () => switchDevice(addr);
-    bar.appendChild(t);
-  });
-}
+    // ── Session reset ─────────────────────────────────────────────────────
+    function resetSession() {
+      // Clear chart datasets
+      allCharts.forEach(ch => {
+        ch.data.datasets.forEach(ds => { ds.data = []; });
+        ch.update('none');
+      });
+      // Restore no-data overlays
+      ['latency', 'throughput', 'buffer', 'errors'].forEach(id => {
+        const el = document.getElementById('nd-' + id);
+        if (el) el.style.display = '';
+      });
+      // Clear device state
+      Object.keys(deviceData).forEach(k => delete deviceData[k]);
+      activeAddr = null;
+      renderDeviceTabs();
+      // Reset status badges
+      ['sb-word', 'sb-vout', 'sb-iout', 'sb-temp'].forEach((id, i) => {
+        const el = document.getElementById(id);
+        if (el) { el.textContent = ['WORD', 'VOUT', 'IOUT', 'TEMP'][i] + ' —'; el.className = 'status-badge'; }
+      });
+      // Reset counters
+      counts = { telemetry: 0, status: 0, metrics: 0, events: 0 };
+      ['s-telem', 's-status', 's-metrics', 's-events'].forEach(id => stat(id, 0));
+      ['s-uptime', 's-reconn', 's-buf', 's-rssi', 's-pmbus-avg', 's-mqtt-avg'].forEach(id => stat(id, '—'));
+      // Reset event log
+      const list = document.getElementById('event-list');
+      list.innerHTML = '<div data-placeholder style="color:var(--muted);font-size:11px;padding:6px;">No events yet.</div>';
+    }
 
-function switchDevice(addr) {
-  if (!deviceData[addr]) return;
-  activeAddr = addr;
-  renderDeviceTabs();
+    // ── Per-device telemetry history ──────────────────────────────────────
+    // deviceData[addr] = { vin:[], vout:[], iout:[], temp:[], status:{} }
+    const deviceData = {};
+    let activeAddr = null;
 
-  // Replay this device's history into the 4 sub-charts
-  const cutoff = now() - DURATION_MS();
-  const d = deviceData[addr];
-  [cVin, cVout, cIout, cTemp].forEach((ch, i) => {
-    const key = ['vin','vout','iout','temp'][i];
-    ch.data.datasets[0].data = d[key].filter(p => p.x >= cutoff);
-    ch.update('none');
-  });
+    function ensureDevice(addr) {
+      if (deviceData[addr]) return;
+      deviceData[addr] = { vin: [], vout: [], iout: [], temp: [], status: {} };
+      renderDeviceTabs();
+      if (!activeAddr) switchDevice(addr);   // auto-select first device
+    }
 
-  // Fix #2: always refresh status badges for the newly selected device
-  updateStatusRow(addr);
-}
-
-// ── Chart factory ─────────────────────────────────────────────────────
-const DURATION_MS = () => (parseInt(document.getElementById('inp-history').value, 10) || 120) * 1000;
-const DELAY_MS    = 0;
-
-const commonScales = () => ({
-  x: {
-    type: 'realtime',
-    realtime: {
-      duration: DURATION_MS(),
-      delay: DELAY_MS,
-      ttl: undefined,
-    },
-    ticks: { color: '#8b949e', font: { size: 10 }, maxRotation: 0 },
-    grid: { color: '#21262d' },
-  }
-});
-const yScale = (label, opts = {}) => ({
-  ticks: { color: '#8b949e', font: { size: 10 }, ...opts },
-  grid: { color: '#21262d' },
-  title: { display: !!label, text: label, color: '#8b949e', font: { size: 10 } },
-  ...opts,
-});
-
-function makeChart(id, datasets, yLabel, opts = {}) {
-  const ctx = document.getElementById(id).getContext('2d');
-  return new Chart(ctx, {
-    type: 'line',
-    data: { datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { labels: { color: '#8b949e', font: { size: 10 }, boxWidth: 10, padding: 8 } },
-        streaming: { frameRate: 10 },
-      },
-      scales: {
-        ...commonScales(),
-        y: yScale(yLabel, opts.y || {}),
-      },
-    },
-  });
-}
-
-function ds(label, color, fill = false) {
-  return {
-    label, borderColor: color, backgroundColor: color + '33',
-    borderWidth: 1.5, pointRadius: 0, fill,
-    data: [],
-  };
-}
-
-// ── Build all charts ──────────────────────────────────────────────────
-
-// Latency
-const cLatency = makeChart('c-latency',
-  [ds('p95', '#f85149'), ds('avg', '#58a6ff'), ds('max', '#f0883e')],
-  'ms');
-
-// Throughput
-const cThroughput = makeChart('c-throughput',
-  [ds('msgs/s', '#3fb950'), ds('cmds/s', '#58a6ff')],
-  'per second');
-
-// Buffer
-const cBuffer = makeChart('c-buffer',
-  [ds('RAM records', '#58a6ff', true)],
-  'records', { y: { beginAtZero: true } });
-
-// Errors (bar)
-const cErrors = (() => {
-  const ctx = document.getElementById('c-errors').getContext('2d');
-  return new Chart(ctx, {
-    type: 'bar',
-    data: {
-      datasets: [
-        { label: 'fail+pec+nack+timeout', backgroundColor: '#f8514988', borderColor:'#f85149', borderWidth:1, data: [], barPercentage: 0.8 },
-        { label: 'retries',               backgroundColor: '#f0883e88', borderColor:'#f0883e', borderWidth:1, data: [], barPercentage: 0.8 },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false, animation: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { labels: { color: '#8b949e', font: { size: 10 }, boxWidth: 10, padding: 6 } },
-        streaming: { frameRate: 10 },
-      },
-      scales: {
-        ...commonScales(),
-        y: { ...yScale('count/window'), beginAtZero: true, stacked: false },
-      },
-    },
-  });
-})();
-
-// Telemetry sub-charts
-function makeSubChart(id, label, color, yUnit) {
-  const ctx = document.getElementById(id).getContext('2d');
-  return new Chart(ctx, {
-    type: 'line',
-    data: { datasets: [{ label: `${label} (${yUnit})`, borderColor: color, borderWidth: 1.5, pointRadius: 0, data: [] }] },
-    options: {
-      responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: {
-        legend: { labels: { color: '#8b949e', font: { size: 9 }, boxWidth: 8, padding: 4 } },
-        streaming: { frameRate: 8 },
-      },
-      scales: {
-        x: { type: 'realtime', realtime: { duration: DURATION_MS(), delay: DELAY_MS }, ticks: { color: '#8b949e', font: { size: 9 }, maxTicksLimit: 4 }, grid: { color: '#21262d' } },
-        y: { ticks: { color: '#8b949e', font: { size: 9 } }, grid: { color: '#21262d' } },
-      },
-    },
-  });
-}
-const cVin  = makeSubChart('c-vin',  'VIN',   '#79c0ff', 'V');
-const cVout = makeSubChart('c-vout', 'VOUT',  '#e3b341', 'V');
-const cIout = makeSubChart('c-iout', 'IOUT',  '#f0883e', 'A');
-const cTemp = makeSubChart('c-temp', 'TEMP1', '#f85149', '°C');
-
-const allCharts = [cLatency, cThroughput, cBuffer, cErrors, cVin, cVout, cIout, cTemp];
-
-// ── No-data overlays ─────────────────────────────────────────────────
-function hideNoData(id) {
-  const el = document.getElementById('nd-' + id);
-  if (el) el.style.display = 'none';
-}
-
-// ── Push data to chart ────────────────────────────────────────────────
-function push(chart, dsIdx, value, timestamp) {
-  chart.data.datasets[dsIdx].data.push({ x: timestamp || now(), y: value });
-}
-
-// ── Stats bar helpers ─────────────────────────────────────────────────
-function stat(id, val, cls = '') {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.textContent = val;
-  el.className = 'stat-value' + (cls ? ' ' + cls : '');
-}
-
-// ── Handle metrics message ────────────────────────────────────────────
-function handleMetrics(obj) {
-  const t = now();
-  const tm = obj.timing_ms || {};
-  const p95 = toNum(tm.read_to_publish_p95);
-  const avg = toNum(tm.read_to_publish_avg);
-  const mx  = toNum(tm.read_to_publish_max);
-
-  if (!isNaN(p95)) {
-    push(cLatency, 0, p95);
-    push(cLatency, 1, avg);
-    push(cLatency, 2, mx);
-    hideNoData('latency');
-  }
-
-  const rates = obj.rates || {};
-  const msgs = toNum(rates.telemetry_msgs_per_s);
-  const cmds = toNum(rates.pmbus_cmds_per_s);
-  if (!isNaN(msgs)) {
-    push(cThroughput, 0, msgs);
-    push(cThroughput, 1, cmds);
-    hideNoData('throughput');
-  }
-
-  const gauges = obj.gauges || {};
-  const buf = toNum(gauges.buffer_depth_ram);
-  if (!isNaN(buf)) {
-    push(cBuffer, 0, buf);
-    hideNoData('buffer');
-  }
-
-  const cd = obj.counters_delta || {};
-  const fail = toNum(cd.pmbus_reads_fail, 0) + toNum(cd.pmbus_crc_pec_fail, 0)
-             + toNum(cd.pmbus_nack, 0)        + toNum(cd.pmbus_timeouts, 0);
-  const rty  = toNum(cd.pmbus_retries, 0);
-  cErrors.data.datasets[0].data.push({ x: t, y: fail });
-  cErrors.data.datasets[1].data.push({ x: t, y: rty });
-  hideNoData('errors');
-
-  // Stats bar
-  const uptime = toNum(gauges.uptime_s);
-  if (!isNaN(uptime)) stat('s-uptime', uptime);
-  const reconn = toNum(cd.mqtt_reconnects);
-  if (!isNaN(reconn)) stat('s-reconn', reconn, reconn > 0 ? 'orange' : '');
-  if (!isNaN(buf)) stat('s-buf', buf);
-  const rssi = toNum(gauges.wifi_rssi_dbm);
-  if (!isNaN(rssi)) stat('s-rssi', rssi + ' dBm', rssi < -75 ? 'red' : '');
-  const pmbusAvg = toNum(tm.pmbus_txn_avg);
-  if (!isNaN(pmbusAvg)) stat('s-pmbus-avg', pmbusAvg.toFixed(1));
-  const mqttAvg = toNum(tm.mqtt_publish_avg);
-  if (!isNaN(mqttAvg)) stat('s-mqtt-avg', mqttAvg.toFixed(1));
-}
-
-// ── Handle telemetry message ──────────────────────────────────────────
-function handleTelemetry(obj) {
-  const addr = obj.addr || 'unknown';
-  ensureDevice(addr);
-
-  const v = obj.v || {};
-  const a = obj.a || {};
-  const c = obj.c || {};
-  const ts = (obj.ts_ms && typeof obj.ts_ms === 'number') ? obj.ts_ms : now();
-
-  const vin  = toNum(v.vin);
-  const vout = toNum(v.vout);
-  const iout = toNum(a.iout);
-  const temp = toNum(c.temp1);
-
-  // Always store in device history buffer
-  const d = deviceData[addr];
-  if (!isNaN(vin))  d.vin.push({ x: ts, y: vin });
-  if (!isNaN(vout)) d.vout.push({ x: ts, y: vout });
-  if (!isNaN(iout)) d.iout.push({ x: ts, y: iout });
-  if (!isNaN(temp)) d.temp.push({ x: ts, y: temp });
-
-  // Prune old entries (keep 2× window to survive tab switches)
-  const maxAge = DURATION_MS() * 2;
-  const cutoff = ts - maxAge;
-  ['vin','vout','iout','temp'].forEach(k => {
-    while (d[k].length && d[k][0].x < cutoff) d[k].shift();
-  });
-
-  // Push to live charts only for the active device
-  if (addr === activeAddr) {
-    if (!isNaN(vin))  push(cVin,  0, vin, ts);
-    if (!isNaN(vout)) push(cVout, 0, vout, ts);
-    if (!isNaN(iout)) push(cIout, 0, iout, ts);
-    if (!isNaN(temp)) push(cTemp, 0, temp, ts);
-  }
-}
-
-// ── Handle event message ──────────────────────────────────────────────
-function handleEvent(obj, raw) {
-  const list = document.getElementById('event-list');
-  // Clear placeholder on first real event
-  const ph = list.querySelector('[data-placeholder]');
-  if (ph) ph.remove();
-
-  const item = document.createElement('div');
-  item.className = 'event-item';
-
-  // Row 1: type + detail (safe textContent, no innerHTML)
-  const row1 = document.createElement('div');
-  const typeSpan = document.createElement('span');
-  typeSpan.className = 'event-type';
-  typeSpan.textContent = obj.type || 'UNKNOWN';
-  row1.appendChild(typeSpan);
-  if (obj.detail) {
-    const detailSpan = document.createElement('span');
-    detailSpan.className = 'event-detail';
-    detailSpan.textContent = ' — ' + obj.detail;
-    row1.appendChild(detailSpan);
-  }
-  item.appendChild(row1);
-
-  // Row 2: timestamp
-  const tsDiv = document.createElement('div');
-  tsDiv.className = 'event-ts';
-  tsDiv.textContent = obj.ts_ms ? new Date(obj.ts_ms).toISOString().replace('T', ' ').slice(0, 22) : '—';
-  item.appendChild(tsDiv);
-
-  list.prepend(item);
-
-  // Keep max 30
-  while (list.children.length > 30) list.removeChild(list.lastChild);
-}
-
-// ── Badge ─────────────────────────────────────────────────────────────
-function setBadge(state, text) {
-  const b = document.getElementById('badge');
-  b.className = 'badge ' + state;
-  document.getElementById('badge-text').textContent = text;
-}
-
-// ── MQTT Connect ──────────────────────────────────────────────────────
-let _connectGw = '+';
-
-function connect() {
-  const host = document.getElementById('inp-host').value.trim();
-  const port  = parseInt(document.getElementById('inp-port').value, 10);
-  _connectGw  = document.getElementById('inp-gw').value.trim() || '+';
-
-  if (!host || !port) { alert('Enter a valid host and port.'); return; }
-
-  // Full session reset each time connect is pressed
-  resetSession();
-  _reconnectDelay = 1000;
-  clearTimeout(_reconnectTimer);
-
-  document.getElementById('btn-connect').disabled    = true;
-  document.getElementById('btn-disconnect').disabled = false;
-  setBadge('connecting', 'Connecting…');
-
-  const wsPath = document.getElementById('inp-path').value.trim() || '/mqtt';
-  client = new Paho.Client(host, port, wsPath, 'pmbus-dash-' + Math.random().toString(36).slice(2, 8));
-
-  client.onConnectionLost = (resp) => {
-    if (resp.errorCode !== 0) {
-      console.warn('[MQTT] Lost:', resp.errorMessage);
-      // Auto-reconnect only if user hasn't manually disconnected
-      if (document.getElementById('btn-disconnect').disabled === false) {
-        _scheduleReconnect();
+    function renderDeviceTabs() {
+      const bar = document.getElementById('dev-tabs');
+      const addrs = Object.keys(deviceData);
+      if (addrs.length === 0) {
+        bar.innerHTML = '<span class="dev-tab-placeholder">No devices seen yet</span>';
         return;
       }
+      bar.innerHTML = '';
+      addrs.forEach(addr => {
+        const t = document.createElement('button');
+        t.className = 'dev-tab' + (addr === activeAddr ? ' active' : '');
+        t.textContent = addr;
+        t.onclick = () => switchDevice(addr);
+        bar.appendChild(t);
+      });
     }
-    setBadge('disconnected', 'Disconnected');
-    document.getElementById('btn-connect').disabled    = false;
-    document.getElementById('btn-disconnect').disabled = true;
-  };
 
-  client.onMessageArrived = (msg) => {
-    const topic   = msg.destinationName;
-    const payload = msg.payloadString;
-    let obj;
-    try { obj = JSON.parse(payload); } catch { return; }
+    function switchDevice(addr) {
+      if (!deviceData[addr]) return;
+      activeAddr = addr;
+      renderDeviceTabs();
 
-    // Match by last topic segment to avoid false positives
-    const lastSeg = topic.split('/').pop();
-    if (lastSeg === 'telemetry')      { counts.telemetry++; stat('s-telem', counts.telemetry); handleTelemetry(obj); }
-    else if (lastSeg === 'status')    { counts.status++;    stat('s-status', counts.status);   handleStatus(obj); }
-    else if (lastSeg === 'metrics')   { counts.metrics++;   stat('s-metrics', counts.metrics); handleMetrics(obj); }
-    else if (lastSeg === 'events')    { counts.events++;    stat('s-events', counts.events);   handleEvent(obj, payload); }
-  };
+      // Replay this device's history into the 4 sub-charts
+      const cutoff = now() - DURATION_MS();
+      const d = deviceData[addr];
+      [cVin, cVout, cIout, cTemp].forEach((ch, i) => {
+        const key = ['vin', 'vout', 'iout', 'temp'][i];
+        ch.data.datasets[0].data = d[key].filter(p => p.x >= cutoff);
+        ch.update('none');
+      });
 
-  _doConnect();
-}
+      // Fix #2: always refresh status badges for the newly selected device
+      updateStatusRow(addr);
+    }
 
-function _doConnect() {
-  if (!client) return;
-  const useSSL = document.getElementById('inp-tls').checked;
-  client.connect({
-    useSSL,
-    keepAliveInterval: 20,
-    onSuccess: () => {
-      _reconnectDelay = 1000;  // reset backoff on success
-      setBadge('connected', 'Connected');
-      const subs = [
-        `pmbus/${_connectGw}/dev/+/telemetry`,
-        `pmbus/${_connectGw}/dev/+/status`,
-        `pmbus/${_connectGw}/metrics`,
-        `pmbus/${_connectGw}/events`,
-      ];
-      subs.forEach(t => client.subscribe(t, { qos: 0 }));
-      console.log('[MQTT] Connected, subscribed:', subs);
-    },
-    onFailure: (err) => {
-      console.error('[MQTT] Connect failed:', err);
-      if (document.getElementById('btn-disconnect').disabled === false) {
-        _scheduleReconnect();
-      } else {
-        setBadge('disconnected', 'Failed: ' + err.errorMessage);
-        document.getElementById('btn-connect').disabled    = false;
-        document.getElementById('btn-disconnect').disabled = true;
+    // ── Chart factory ─────────────────────────────────────────────────────
+    const DURATION_MS = () => (parseInt(document.getElementById('inp-history').value, 10) || 120) * 1000;
+    const DELAY_MS = 0;
+
+    const commonScales = () => ({
+      x: {
+        type: 'realtime',
+        realtime: {
+          duration: DURATION_MS(),
+          delay: DELAY_MS,
+          ttl: undefined,
+        },
+        ticks: { color: '#8b949e', font: { size: 10 }, maxRotation: 0 },
+        grid: { color: '#21262d' },
       }
-    },
-  });
-}
-
-function disconnect() {
-  clearTimeout(_reconnectTimer);
-  // Signal: manual disconnect — prevent auto-reconnect
-  document.getElementById('btn-disconnect').disabled = true;
-  if (client && client.isConnected()) client.disconnect();
-  setBadge('disconnected', 'Disconnected');
-  document.getElementById('btn-connect').disabled    = false;
-}
-
-// ── Update chart durations when history changes ───────────────────────
-document.getElementById('inp-history').addEventListener('change', () => {
-  const d = DURATION_MS();
-  allCharts.forEach(ch => {
-    if (ch.options.scales.x?.realtime) ch.options.scales.x.realtime.duration = d;
-    ch.update('none');
-  });
-});
-
-document.getElementById('btn-connect').addEventListener('click', connect);
-document.getElementById('btn-disconnect').addEventListener('click', disconnect);
-
-// ── Handle status message ─────────────────────────────────────────────
-function handleStatus(obj) {
-  const addr = obj.addr || 'unknown';
-  ensureDevice(addr);
-  // Store on device
-  deviceData[addr].status = {
-    word: obj.status_word,
-    vout: obj.status_vout,
-    iout: obj.status_iout,
-    temp: obj.status_temperature,
-  };
-  // Reflect immediately if this is the active device
-  if (addr === activeAddr) updateStatusRow(addr);
-}
-
-function updateStatusRow(addr) {
-  if (!deviceData[addr]) return;
-  const s = deviceData[addr].status;
-  function setBadgeVal(id, label, hexStr) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const val = hexStr != null ? hexStr : '—';
-    el.textContent = label + ' ' + val;
-    // Non-zero status word = fault; 0x0000 = ok
-    const num = parseInt(hexStr, 16);
-    el.className = 'status-badge' + (hexStr == null ? '' : num !== 0 ? ' fault' : ' ok');
-  }
-  setBadgeVal('sb-word', 'WORD', s.word);
-  setBadgeVal('sb-vout', 'VOUT', s.vout);
-  setBadgeVal('sb-iout', 'IOUT', s.iout);
-  setBadgeVal('sb-temp', 'TEMP', s.temp);
-}
-
-// ── Periodic stale-history pruner ─────────────────────────────────────
-// Runs every 60s; prunes ALL devices regardless of active message flow
-setInterval(() => {
-  const cutoff = now() - DURATION_MS() * 2;
-  let tabsDirty = false;
-  Object.entries(deviceData).forEach(([addr, d]) => {
-    ['vin','vout','iout','temp'].forEach(k => {
-      while (d[k].length && d[k][0].x < cutoff) d[k].shift();
     });
-    // Fix #3: remove device entry if all sample arrays are empty (stale device)
-    const isEmpty = ['vin','vout','iout','temp'].every(k => d[k].length === 0);
-    if (isEmpty) {
-      delete deviceData[addr];
-      if (activeAddr === addr) activeAddr = null;
-      tabsDirty = true;
-    }
-  });
-  if (tabsDirty) {
-    // Switch to first remaining device, or clear if none left
-    const remaining = Object.keys(deviceData);
-    if (remaining.length) switchDevice(remaining[0]);
-    else renderDeviceTabs();
-  }
-}, 60_000);
+    const yScale = (label, opts = {}) => ({
+      ticks: { color: '#8b949e', font: { size: 10 }, ...opts },
+      grid: { color: '#21262d' },
+      title: { display: !!label, text: label, color: '#8b949e', font: { size: 10 } },
+      ...opts,
+    });
+    // ── Shared tooltip style (applied once as Chart.js defaults) ─────────
+    // ── Custom robust tooltip handler ────────────────────────────────────
+    // Driven by onHover rather than the notoriously buggy Chart.js tooltip plugin (when streaming+zoom is used)
+    const customTip = document.getElementById('custom-tooltip');
 
-// ── CDN library load check ────────────────────────────────────────────
-// Fix #1: check EARLY (inline, synchronous) before chart instantiation crashes.
-// This block runs before makeChart() is called below.
-// If a library is missing the banner is shown and chart init is skipped.
-(function earlyLibCheck() {
-  const missing = [];
-  if (typeof Chart  === 'undefined') missing.push('Chart.js');
-  if (typeof Paho   === 'undefined') missing.push('Paho MQTT');
-  if (typeof luxon  === 'undefined') missing.push('Luxon');
-  if (!missing.length) return;
-  const el = document.getElementById('lib-warn');
-  if (el) {
-    el.textContent = '\u26a0 ' + missing.join(', ') + ' failed to load from CDN. '
-      + 'Check internet access or vendor the libraries locally alongside index.html.';
-    el.style.display = 'block';
-  }
-  // Disable Connect button so user knows the dashboard is non-functional
-  const btn = document.getElementById('btn-connect');
-  if (btn) { btn.disabled = true; btn.title = 'Libraries missing — cannot connect'; }
-  throw new Error('[Dashboard] Aborting: missing CDN libraries: ' + missing.join(', '));
-})();
-</script>
+    function handleChartHover(e, activeElements, chart) {
+      if (!activeElements || !activeElements.length) {
+        customTip.style.display = 'none';
+        return;
+      }
+
+      // Get the first hovered element to find the X timestamp
+      const firstEl = activeElements[0];
+      const dataIndex = firstEl.index;
+      const datasetIndex = firstEl.datasetIndex;
+      const point = chart.data.datasets[datasetIndex].data[dataIndex];
+      if (!point) return;
+
+      const timeStr = new Date(point.x).toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '.' + String(new Date(point.x).getMilliseconds()).padStart(3, '0');
+
+      let html = `<div class="ct-time">${timeStr}</div>`;
+
+      // List all active elements
+      activeElements.forEach(el => {
+        const ds = chart.data.datasets[el.datasetIndex];
+        const val = ds.data[el.index]?.y;
+        if (val === undefined) return;
+        const color = ds.borderColor || '#8b949e';
+        const lbl = ds.label || '';
+        const fmtVal = typeof val === 'number' ? val.toFixed(3) : val;
+        html += `<div class="ct-row"><span class="ct-dot" style="background:${color}"></span><span class="ct-val">${fmtVal}</span><span class="ct-lbl">${lbl}</span></div>`;
+      });
+
+      customTip.innerHTML = html;
+      customTip.style.display = 'block';
+
+      // Position near cursor (e.native contains browser mouse real coordinates)
+      let x = e.native.clientX + 15;
+      let y = e.native.clientY - 10;
+      if (x + customTip.offsetWidth > window.innerWidth) x = e.native.clientX - customTip.offsetWidth - 10;
+      if (y + customTip.offsetHeight > window.innerHeight) y = window.innerHeight - customTip.offsetHeight - 10;
+
+      customTip.style.left = x + 'px';
+      customTip.style.top = y + 'px';
+    }
+
+    function handleChartLeave() {
+      customTip.style.display = 'none';
+    }
+
+    function makeChart(id, datasets, yLabel, opts = {}) {
+      const ctx = document.getElementById(id).getContext('2d');
+      const ch = new Chart(ctx, {
+        type: 'line',
+        data: { datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: 'nearest', intersect: true },
+          onHover: handleChartHover,
+          plugins: {
+            tooltip: { enabled: false }, // fully disable native
+            legend: { labels: { color: '#8b949e', font: { size: 10 }, boxWidth: 10, padding: 8 } },
+            streaming: { frameRate: 10 },
+            zoom: {
+              zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+              pan: { enabled: true, mode: 'x', modifierKey: 'ctrl' },
+            },
+          },
+          scales: {
+            ...commonScales(),
+            y: yScale(yLabel, opts.y || {}),
+          },
+        },
+      });
+      // Double-click resets zoom
+      ctx.canvas.addEventListener('dblclick', () => ch.resetZoom());
+      return ch;
+    }
+
+    function ds(label, color, fill = false) {
+      return {
+        label, borderColor: color, backgroundColor: color + '33',
+        borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 3, pointHitRadius: 5, fill,
+        data: [],
+      };
+    }
+
+    // ── Build all charts ──────────────────────────────────────────────────
+
+    // Latency
+    const cLatency = makeChart('c-latency',
+      [ds('p95', '#f85149'), ds('avg', '#58a6ff'), ds('max', '#f0883e')],
+      'ms');
+
+    // Throughput
+    const cThroughput = makeChart('c-throughput',
+      [ds('msgs/s', '#3fb950'), ds('cmds/s', '#58a6ff')],
+      'per second');
+
+    // Buffer
+    const cBuffer = makeChart('c-buffer',
+      [ds('RAM records', '#58a6ff', true)],
+      'records', { y: { beginAtZero: true } });
+
+    // Errors (bar)
+    const cErrors = (() => {
+      const ctx = document.getElementById('c-errors').getContext('2d');
+      const ch = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          datasets: [
+            { label: 'fail+pec+nack+timeout', backgroundColor: '#f8514988', borderColor: '#f85149', borderWidth: 1, data: [], barPercentage: 0.8 },
+            { label: 'retries', backgroundColor: '#f0883e88', borderColor: '#f0883e', borderWidth: 1, data: [], barPercentage: 0.8 },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          interaction: { mode: 'nearest', intersect: true },
+          onHover: handleChartHover,
+          plugins: {
+            tooltip: { enabled: false },
+            legend: { labels: { color: '#8b949e', font: { size: 10 }, boxWidth: 10, padding: 6 } },
+            streaming: { frameRate: 10 },
+            zoom: {
+              zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+              pan: { enabled: true, mode: 'x', modifierKey: 'ctrl' },
+            },
+          },
+          scales: {
+            ...commonScales(),
+            y: { ...yScale('count/window'), beginAtZero: true, stacked: false },
+          },
+        },
+      });
+      ctx.canvas.addEventListener('dblclick', () => ch.resetZoom());
+      return ch;
+    })();
+
+    // Telemetry sub-charts
+    function makeSubChart(id, label, color, yUnit) {
+      const ctx = document.getElementById(id).getContext('2d');
+      const ch = new Chart(ctx, {
+        type: 'line',
+        data: {
+          datasets: [{
+            label: `${label} (${yUnit})`, borderColor: color, borderWidth: 1.5,
+            pointRadius: 0, pointHoverRadius: 3, pointHitRadius: 10, data: []
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          interaction: { mode: 'nearest', intersect: true },
+          onHover: handleChartHover,
+          plugins: {
+            tooltip: { enabled: false },
+            legend: { labels: { color: '#8b949e', font: { size: 9 }, boxWidth: 8, padding: 4 } },
+            streaming: { frameRate: 8 },
+            zoom: {
+              zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+              pan: { enabled: true, mode: 'x', modifierKey: 'ctrl' },
+            },
+          },
+          scales: {
+            x: { type: 'realtime', realtime: { duration: DURATION_MS(), delay: DELAY_MS }, ticks: { color: '#8b949e', font: { size: 9 }, maxTicksLimit: 4 }, grid: { color: '#21262d' } },
+            y: { ticks: { color: '#8b949e', font: { size: 9 } }, grid: { color: '#21262d' } },
+          },
+        },
+      });
+      ctx.canvas.addEventListener('dblclick', () => ch.resetZoom());
+      return ch;
+    }
+    const cVin = makeSubChart('c-vin', 'VIN', '#79c0ff', 'V');
+    const cVout = makeSubChart('c-vout', 'VOUT', '#e3b341', 'V');
+    const cIout = makeSubChart('c-iout', 'IOUT', '#f0883e', 'A');
+    const cTemp = makeSubChart('c-temp', 'TEMP1', '#f85149', '°C');
+
+    const allCharts = [cLatency, cThroughput, cBuffer, cErrors, cVin, cVout, cIout, cTemp];
+
+    // ── No-data overlays ─────────────────────────────────────────────────
+    function hideNoData(id) {
+      const el = document.getElementById('nd-' + id);
+      if (el) el.style.display = 'none';
+    }
+
+    // ── Push data to chart ────────────────────────────────────────────────
+    function push(chart, dsIdx, value, timestamp) {
+      chart.data.datasets[dsIdx].data.push({ x: timestamp || now(), y: value });
+    }
+
+    // ── Stats bar helpers ─────────────────────────────────────────────────
+    function stat(id, val, cls = '') {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = val;
+      el.className = 'stat-value' + (cls ? ' ' + cls : '');
+    }
+
+    // ── Handle metrics message ────────────────────────────────────────────
+    function handleMetrics(obj) {
+      const t = now();
+      const tm = obj.timing_ms || {};
+      const p95 = toNum(tm.read_to_publish_p95);
+      const avg = toNum(tm.read_to_publish_avg);
+      const mx = toNum(tm.read_to_publish_max);
+
+      if (!isNaN(p95)) {
+        push(cLatency, 0, p95);
+        push(cLatency, 1, avg);
+        push(cLatency, 2, mx);
+        hideNoData('latency');
+      }
+
+      const rates = obj.rates || {};
+      const msgs = toNum(rates.telemetry_msgs_per_s);
+      const cmds = toNum(rates.pmbus_cmds_per_s);
+      if (!isNaN(msgs)) {
+        push(cThroughput, 0, msgs);
+        push(cThroughput, 1, cmds);
+        hideNoData('throughput');
+      }
+
+      const gauges = obj.gauges || {};
+      const buf = toNum(gauges.buffer_depth_ram);
+      if (!isNaN(buf)) {
+        push(cBuffer, 0, buf);
+        hideNoData('buffer');
+      }
+
+      const cd = obj.counters_delta || {};
+      const fail = toNum(cd.pmbus_reads_fail, 0) + toNum(cd.pmbus_crc_pec_fail, 0)
+        + toNum(cd.pmbus_nack, 0) + toNum(cd.pmbus_timeouts, 0);
+      const rty = toNum(cd.pmbus_retries, 0);
+      cErrors.data.datasets[0].data.push({ x: t, y: fail });
+      cErrors.data.datasets[1].data.push({ x: t, y: rty });
+      hideNoData('errors');
+
+      // Stats bar
+      const uptime = toNum(gauges.uptime_s);
+      if (!isNaN(uptime)) stat('s-uptime', uptime);
+      const reconn = toNum(cd.mqtt_reconnects);
+      if (!isNaN(reconn)) stat('s-reconn', reconn, reconn > 0 ? 'orange' : '');
+      if (!isNaN(buf)) stat('s-buf', buf);
+      const rssi = toNum(gauges.wifi_rssi_dbm);
+      if (!isNaN(rssi)) stat('s-rssi', rssi + ' dBm', rssi < -75 ? 'red' : '');
+      const pmbusAvg = toNum(tm.pmbus_txn_avg);
+      if (!isNaN(pmbusAvg)) stat('s-pmbus-avg', pmbusAvg.toFixed(1));
+      const mqttAvg = toNum(tm.mqtt_publish_avg);
+      if (!isNaN(mqttAvg)) stat('s-mqtt-avg', mqttAvg.toFixed(1));
+    }
+
+    // ── Handle telemetry message ──────────────────────────────────────────
+    function handleTelemetry(obj) {
+      const addr = obj.addr || 'unknown';
+      ensureDevice(addr);
+
+      const v = obj.v || {};
+      const a = obj.a || {};
+      const c = obj.c || {};
+      const ts = (obj.ts_ms && typeof obj.ts_ms === 'number') ? obj.ts_ms : now();
+
+      const vin = toNum(v.vin);
+      const vout = toNum(v.vout);
+      const iout = toNum(a.iout);
+      const temp = toNum(c.temp1);
+
+      // Always store in device history buffer
+      const d = deviceData[addr];
+      if (!isNaN(vin)) d.vin.push({ x: ts, y: vin });
+      if (!isNaN(vout)) d.vout.push({ x: ts, y: vout });
+      if (!isNaN(iout)) d.iout.push({ x: ts, y: iout });
+      if (!isNaN(temp)) d.temp.push({ x: ts, y: temp });
+
+      // Prune old entries (keep 2× window to survive tab switches)
+      const maxAge = DURATION_MS() * 2;
+      const cutoff = ts - maxAge;
+      ['vin', 'vout', 'iout', 'temp'].forEach(k => {
+        while (d[k].length && d[k][0].x < cutoff) d[k].shift();
+      });
+
+      // Push to live charts only for the active device
+      if (addr === activeAddr) {
+        if (!isNaN(vin))  { push(cVin, 0, vin, ts);  checkAlarm('vin', vin); }
+        if (!isNaN(vout)) { push(cVout, 0, vout, ts); checkAlarm('vout', vout); }
+        if (!isNaN(iout)) { push(cIout, 0, iout, ts); checkAlarm('iout', iout); }
+        if (!isNaN(temp)) { push(cTemp, 0, temp, ts); checkAlarm('temp', temp); }
+      }
+    }
+
+    // ── Handle event message ──────────────────────────────────────────────
+    function handleEvent(obj, raw) {
+      const list = document.getElementById('event-list');
+      // Clear placeholder on first real event
+      const ph = list.querySelector('[data-placeholder]');
+      if (ph) ph.remove();
+
+      const item = document.createElement('div');
+      item.className = 'event-item';
+
+      // Row 1: type + detail (safe textContent, no innerHTML)
+      const row1 = document.createElement('div');
+      const typeSpan = document.createElement('span');
+      typeSpan.className = 'event-type';
+      typeSpan.textContent = obj.type || 'UNKNOWN';
+      row1.appendChild(typeSpan);
+      if (obj.detail) {
+        const detailSpan = document.createElement('span');
+        detailSpan.className = 'event-detail';
+        detailSpan.textContent = ' — ' + obj.detail;
+        row1.appendChild(detailSpan);
+      }
+      item.appendChild(row1);
+
+      // Row 2: timestamp
+      const tsDiv = document.createElement('div');
+      tsDiv.className = 'event-ts';
+      tsDiv.textContent = obj.ts_ms ? new Date(obj.ts_ms).toISOString().replace('T', ' ').slice(0, 22) : '—';
+      item.appendChild(tsDiv);
+
+      list.prepend(item);
+
+      // Keep max 30
+      while (list.children.length > 30) list.removeChild(list.lastChild);
+    }
+
+    // ── Badge ─────────────────────────────────────────────────────────────
+    function setBadge(state, text) {
+      const b = document.getElementById('badge');
+      b.className = 'badge ' + state;
+      document.getElementById('badge-text').textContent = text;
+    }
+
+    // ── MQTT Connect ──────────────────────────────────────────────────────
+    let _connectGw = '+';
+
+    function connect() {
+      const host = document.getElementById('inp-host').value.trim();
+      const port = parseInt(document.getElementById('inp-port').value, 10);
+      _connectGw = document.getElementById('inp-gw').value.trim() || '+';
+
+      if (!host || !port) { alert('Enter a valid host and port.'); return; }
+
+      // Full session reset each time connect is pressed
+      resetSession();
+      _reconnectDelay = 1000;
+      clearTimeout(_reconnectTimer);
+
+      document.getElementById('btn-connect').disabled = true;
+      document.getElementById('btn-disconnect').disabled = false;
+      setBadge('connecting', 'Connecting…');
+
+      const wsPath = document.getElementById('inp-path').value.trim() || '/mqtt';
+      client = new Paho.Client(host, port, wsPath, 'pmbus-dash-' + Math.random().toString(36).slice(2, 8));
+
+      client.onConnectionLost = (resp) => {
+        if (resp.errorCode !== 0) {
+          console.warn('[MQTT] Lost:', resp.errorMessage);
+          // Auto-reconnect only if user hasn't manually disconnected
+          if (document.getElementById('btn-disconnect').disabled === false) {
+            _scheduleReconnect();
+            return;
+          }
+        }
+        setBadge('disconnected', 'Disconnected');
+        document.getElementById('btn-connect').disabled = false;
+        document.getElementById('btn-disconnect').disabled = true;
+      };
+
+      client.onMessageArrived = (msg) => {
+        const topic = msg.destinationName;
+        const payload = msg.payloadString;
+        let obj;
+        try { obj = JSON.parse(payload); } catch { return; }
+
+        // Match by last topic segment to avoid false positives
+        const lastSeg = topic.split('/').pop();
+        if (lastSeg === 'telemetry') { counts.telemetry++; stat('s-telem', counts.telemetry); handleTelemetry(obj); }
+        else if (lastSeg === 'status') { counts.status++; stat('s-status', counts.status); handleStatus(obj); }
+        else if (lastSeg === 'metrics') { counts.metrics++; stat('s-metrics', counts.metrics); handleMetrics(obj); }
+        else if (lastSeg === 'events') { counts.events++; stat('s-events', counts.events); handleEvent(obj, payload); }
+        else if (lastSeg === 'response') { handleCmdResponse(obj); }
+      };
+
+      _doConnect();
+    }
+
+    function _doConnect() {
+      if (!client) return;
+      const useSSL = document.getElementById('inp-tls').checked;
+      client.connect({
+        useSSL,
+        keepAliveInterval: 20,
+        onSuccess: () => {
+          _reconnectDelay = 1000;  // reset backoff on success
+          setBadge('connected', 'Connected');
+          const subs = [
+            `pmbus/${_connectGw}/dev/+/telemetry`,
+            `pmbus/${_connectGw}/dev/+/status`,
+            `pmbus/${_connectGw}/metrics`,
+            `pmbus/${_connectGw}/events`,
+          ];
+      subs.forEach(t => client.subscribe(t, { qos: 0 }));
+          // Also subscribe to command responses
+          const cmdRespTopic = `pmbus/${_connectGw}/cmd/response`;
+          client.subscribe(cmdRespTopic, { qos: 0 });
+          console.log('[MQTT] Connected, subscribed:', [...subs, cmdRespTopic]);
+          // Enable command send button
+          document.getElementById('btn-cmd-send').disabled = false;
+        },
+        onFailure: (err) => {
+          console.error('[MQTT] Connect failed:', err);
+          if (document.getElementById('btn-disconnect').disabled === false) {
+            _scheduleReconnect();
+          } else {
+            setBadge('disconnected', 'Failed: ' + err.errorMessage);
+            document.getElementById('btn-connect').disabled = false;
+            document.getElementById('btn-disconnect').disabled = true;
+          }
+        },
+      });
+    }
+
+    function disconnect() {
+      clearTimeout(_reconnectTimer);
+      // Signal: manual disconnect — prevent auto-reconnect
+      document.getElementById('btn-disconnect').disabled = true;
+      if (client && client.isConnected()) client.disconnect();
+      setBadge('disconnected', 'Disconnected');
+      document.getElementById('btn-connect').disabled = false;
+      document.getElementById('btn-cmd-send').disabled = true;
+    }
+
+    // ── Update chart durations when history changes ───────────────────────
+    document.getElementById('inp-history').addEventListener('change', () => {
+      const d = DURATION_MS();
+      allCharts.forEach(ch => {
+        if (ch.options.scales.x?.realtime) ch.options.scales.x.realtime.duration = d;
+        ch.update('none');
+      });
+    });
+
+    document.getElementById('btn-connect').addEventListener('click', connect);
+    document.getElementById('btn-disconnect').addEventListener('click', disconnect);
+
+    // ── Fullscreen + zoom helpers ───────────────────────────────────────────
+    function toggleFullscreen(card) {
+      if (card.classList.contains('fullscreen')) {
+        card.classList.remove('fullscreen');
+        // Re-notify charts of size change
+        allCharts.forEach(c => c.resize());
+      } else {
+        // Remove fullscreen from any other card first
+        document.querySelectorAll('.card.fullscreen').forEach(c => c.classList.remove('fullscreen'));
+        card.classList.add('fullscreen');
+        allCharts.forEach(c => c.resize());
+      }
+    }
+    // Esc key exits fullscreen
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.card.fullscreen').forEach(c => c.classList.remove('fullscreen'));
+        allCharts.forEach(c => c.resize());
+      }
+    });
+
+    function resetZoom(chart) {
+      if (chart && chart.resetZoom) chart.resetZoom();
+    }
+
+    // ── Handle status message ─────────────────────────────────────────────
+    function handleStatus(obj) {
+      const addr = obj.addr || 'unknown';
+      ensureDevice(addr);
+      // Store on device
+      deviceData[addr].status = {
+        word: obj.status_word,
+        vout: obj.status_vout,
+        iout: obj.status_iout,
+        temp: obj.status_temperature,
+      };
+      // Reflect immediately if this is the active device
+      if (addr === activeAddr) updateStatusRow(addr);
+    }
+
+    function updateStatusRow(addr) {
+      if (!deviceData[addr]) return;
+      const s = deviceData[addr].status;
+      function setBadgeVal(id, label, hexStr) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const val = hexStr != null ? hexStr : '—';
+        el.textContent = label + ' ' + val;
+        // Non-zero status word = fault; 0x0000 = ok
+        const num = parseInt(hexStr, 16);
+        el.className = 'status-badge' + (hexStr == null ? '' : num !== 0 ? ' fault' : ' ok');
+      }
+      setBadgeVal('sb-word', 'WORD', s.word);
+      setBadgeVal('sb-vout', 'VOUT', s.vout);
+      setBadgeVal('sb-iout', 'IOUT', s.iout);
+      setBadgeVal('sb-temp', 'TEMP', s.temp);
+    }
+
+    // ── Periodic stale-history pruner ─────────────────────────────────────
+    // Runs every 60s; prunes ALL devices regardless of active message flow
+    setInterval(() => {
+      const cutoff = now() - DURATION_MS() * 2;
+      let tabsDirty = false;
+      Object.entries(deviceData).forEach(([addr, d]) => {
+        ['vin', 'vout', 'iout', 'temp'].forEach(k => {
+          while (d[k].length && d[k][0].x < cutoff) d[k].shift();
+        });
+        // Fix #3: remove device entry if all sample arrays are empty (stale device)
+        const isEmpty = ['vin', 'vout', 'iout', 'temp'].every(k => d[k].length === 0);
+        if (isEmpty) {
+          delete deviceData[addr];
+          if (activeAddr === addr) activeAddr = null;
+          tabsDirty = true;
+        }
+      });
+      if (tabsDirty) {
+        // Switch to first remaining device, or clear if none left
+        const remaining = Object.keys(deviceData);
+        if (remaining.length) switchDevice(remaining[0]);
+        else renderDeviceTabs();
+      }
+    }, 60_000);
+
+    // ══════════════════════════════════════════════════════════════════════
+    // FEATURE 1: CSV Export
+    // ══════════════════════════════════════════════════════════════════════
+    function exportCSV(chart, filename) {
+      const datasets = chart.data.datasets;
+      if (!datasets.length || !datasets[0].data.length) { alert('No data to export.'); return; }
+
+      // Collect all unique timestamps
+      const tsSet = new Set();
+      datasets.forEach(ds => ds.data.forEach(pt => tsSet.add(pt.x)));
+      const timestamps = [...tsSet].sort((a, b) => a - b);
+
+      // Build lookup: ts → value per dataset
+      const lookups = datasets.map(ds => {
+        const m = new Map();
+        ds.data.forEach(pt => m.set(pt.x, pt.y));
+        return m;
+      });
+
+      // Header
+      const header = ['timestamp', 'iso_time', ...datasets.map(ds => ds.label || 'value')];
+      const rows = [header.join(',')];
+      timestamps.forEach(ts => {
+        const iso = new Date(ts).toISOString();
+        const vals = lookups.map(m => m.has(ts) ? m.get(ts) : '');
+        rows.push([ts, iso, ...vals].join(','));
+      });
+
+      const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `pmbus_${filename}_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function exportTelemetryCSV() {
+      // Export all 4 telemetry sub-charts as one CSV
+      if (!activeAddr || !deviceData[activeAddr]) { alert('No telemetry data.'); return; }
+      const d = deviceData[activeAddr];
+      const tsSet = new Set();
+      ['vin', 'vout', 'iout', 'temp'].forEach(k => d[k].forEach(pt => tsSet.add(pt.x)));
+      const timestamps = [...tsSet].sort((a, b) => a - b);
+
+      const lookups = ['vin', 'vout', 'iout', 'temp'].map(k => {
+        const m = new Map();
+        d[k].forEach(pt => m.set(pt.x, pt.y));
+        return m;
+      });
+
+      const header = ['timestamp', 'iso_time', 'VIN_V', 'VOUT_V', 'IOUT_A', 'TEMP_C'];
+      const rows = [header.join(',')];
+      timestamps.forEach(ts => {
+        const iso = new Date(ts).toISOString();
+        const vals = lookups.map(m => m.has(ts) ? m.get(ts) : '');
+        rows.push([ts, iso, ...vals].join(','));
+      });
+
+      const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.download = `pmbus_telemetry_${activeAddr}_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`;
+      a.href = URL.createObjectURL(blob);
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // FEATURE 2: Command Panel
+    // ══════════════════════════════════════════════════════════════════════
+    const _pendingCmds = {};  // request_id → { el, timer }
+
+    // Show/hide custom hex code field
+    document.getElementById('cmd-select').addEventListener('change', e => {
+      document.getElementById('cmd-custom-field').style.display =
+        e.target.value === 'custom' ? '' : 'none';
+    });
+
+    function sendCommand() {
+      if (!client || !client.isConnected()) { alert('Not connected to broker.'); return; }
+
+      const sel = document.getElementById('cmd-select');
+      const addrVal = document.getElementById('cmd-addr').value.trim();
+      let register = sel.value;
+      let format = sel.selectedOptions[0]?.dataset?.fmt || 'none';
+
+      if (register === 'custom') {
+        register = document.getElementById('cmd-custom-code').value.trim();
+        format = 'raw';
+        if (!register) { alert('Enter a hex command code.'); return; }
+      }
+
+      const requestId = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const cmdType = register === '0x03' ? 'pmbus_write' : 'pmbus_read';
+
+      const payload = {
+        cmd: cmdType,
+        device: addrVal,
+        register: register,
+        format: format,
+        request_id: requestId,
+      };
+
+      const gw = document.getElementById('inp-gw').value.trim() || 'gw01';
+      const topic = `pmbus/${gw}/cmd/request`;
+      const msg = new Paho.Message(JSON.stringify(payload));
+      msg.destinationName = topic;
+      msg.qos = 1;
+      client.send(msg);
+
+      // Log entry
+      const log = document.getElementById('cmd-log');
+      // Clear placeholder
+      if (log.querySelector('[style]') && log.children.length === 1) log.innerHTML = '';
+
+      const entry = document.createElement('div');
+      entry.className = 'cmd-log-entry';
+      entry.id = 'cmd-' + requestId;
+      const tsStr = new Date().toLocaleTimeString(undefined, { hour12: false });
+      entry.innerHTML = `<span class="cmd-dir sent">▶ SENT</span> ${sel.value === 'custom' ? register : sel.selectedOptions[0]?.textContent} → ${addrVal}<span class="cmd-ts">${tsStr}</span>`;
+      log.prepend(entry);
+
+      // Timeout after 5s
+      const timer = setTimeout(() => {
+        const el = document.getElementById('cmd-' + requestId);
+        if (el && !el.dataset.resolved) {
+          el.innerHTML += `<br><span class="cmd-dir timeout">⏱ TIMEOUT</span> No response after 5s`;
+          el.dataset.resolved = '1';
+        }
+        delete _pendingCmds[requestId];
+      }, 5000);
+
+      _pendingCmds[requestId] = { el: entry, timer };
+
+      // Keep max 20 entries
+      while (log.children.length > 20) log.removeChild(log.lastChild);
+    }
+
+    function handleCmdResponse(obj) {
+      const rid = obj.request_id;
+      if (!rid || !_pendingCmds[rid]) return;
+
+      clearTimeout(_pendingCmds[rid].timer);
+      const el = document.getElementById('cmd-' + rid);
+      if (el && !el.dataset.resolved) {
+        const statusTxt = obj.status === 'ok' ? '✔ OK' : `✘ ${obj.status || 'ERROR'}`;
+        let details = '';
+        if (obj.value != null) details += ` value=${obj.value}`;
+        if (obj.unit) details += ` ${obj.unit}`;
+        if (obj.raw) details += ` raw=${obj.raw}`;
+        el.innerHTML += `<br><span class="cmd-dir recv">${statusTxt}</span>${details}`;
+        el.dataset.resolved = '1';
+      }
+      delete _pendingCmds[rid];
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // FEATURE 3: Alarm Thresholds
+    // ══════════════════════════════════════════════════════════════════════
+    const DEFAULT_THRESHOLDS = {
+      vin:  { min: 44,   max: 52 },
+      vout: { min: 11.4, max: 12.6 },
+      iout: { min: 0,    max: 10 },
+      temp: { min: 0,    max: 60 },
+    };
+
+    let alarmThresholds = { ...DEFAULT_THRESHOLDS };
+
+    // Load from localStorage
+    function loadThresholds() {
+      try {
+        const saved = localStorage.getItem('pmbus_alarm_thresholds');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          Object.keys(DEFAULT_THRESHOLDS).forEach(k => {
+            if (parsed[k]) alarmThresholds[k] = parsed[k];
+          });
+        }
+      } catch { /* ignore */ }
+      // Populate inputs
+      Object.keys(alarmThresholds).forEach(k => {
+        const minEl = document.getElementById(`th-${k}-min`);
+        const maxEl = document.getElementById(`th-${k}-max`);
+        if (minEl) minEl.value = alarmThresholds[k].min;
+        if (maxEl) maxEl.value = alarmThresholds[k].max;
+      });
+    }
+    loadThresholds();
+
+    function saveThresholds() {
+      Object.keys(DEFAULT_THRESHOLDS).forEach(k => {
+        const minVal = parseFloat(document.getElementById(`th-${k}-min`).value);
+        const maxVal = parseFloat(document.getElementById(`th-${k}-max`).value);
+        if (!isNaN(minVal)) alarmThresholds[k].min = minVal;
+        if (!isNaN(maxVal)) alarmThresholds[k].max = maxVal;
+      });
+      localStorage.setItem('pmbus_alarm_thresholds', JSON.stringify(alarmThresholds));
+      document.getElementById('threshold-cfg').classList.remove('open');
+    }
+
+    function toggleThresholdCfg() {
+      document.getElementById('threshold-cfg').classList.toggle('open');
+    }
+
+    function checkAlarm(param, value) {
+      const th = alarmThresholds[param];
+      if (!th) return;
+      const scEl = document.getElementById('sc-' + param);
+      if (!scEl) return;
+      const outOfRange = value < th.min || value > th.max;
+      scEl.classList.toggle('alarm-active', outOfRange);
+    }
+
+    // ── CDN library load check ────────────────────────────────────────────
+    // Fix #1: check EARLY (inline, synchronous) before chart instantiation crashes.
+    // This block runs before makeChart() is called below.
+    // If a library is missing the banner is shown and chart init is skipped.
+    (function earlyLibCheck() {
+      const missing = [];
+      if (typeof Chart === 'undefined') missing.push('Chart.js');
+      if (typeof Paho === 'undefined') missing.push('Paho MQTT');
+      if (typeof luxon === 'undefined') missing.push('Luxon');
+      if (!missing.length) return;
+      const el = document.getElementById('lib-warn');
+      if (el) {
+        el.textContent = '\u26a0 ' + missing.join(', ') + ' failed to load from CDN. '
+          + 'Check internet access or vendor the libraries locally alongside index.html.';
+        el.style.display = 'block';
+      }
+      // Disable Connect button so user knows the dashboard is non-functional
+      const btn = document.getElementById('btn-connect');
+      if (btn) { btn.disabled = true; btn.title = 'Libraries missing — cannot connect'; }
+      throw new Error('[Dashboard] Aborting: missing CDN libraries: ' + missing.join(', '));
+    })();
+  </script>
 </body>
+
 </html>

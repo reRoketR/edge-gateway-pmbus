@@ -44,8 +44,8 @@ static volatile metrics_gauges_t s_gauges;
 /** Boot time (set once in metrics_init, used for uptime) */
 static uint64_t s_boot_ms;
 
-/** Last snapshot time (for window_ms calculation) */
-static uint64_t s_last_snapshot_ms;
+/** Last snapshot time from the monotonic clock (for window_ms calculation) */
+static uint64_t s_last_snapshot_monotonic_ms;
 
 /*******************************************************************************
  * Timing ring buffers
@@ -143,7 +143,7 @@ void metrics_init(void)
     memset(&s_ring_mqtt_pub, 0, sizeof(s_ring_mqtt_pub));
 
     s_boot_ms = 0u;
-    s_last_snapshot_ms = 0u;
+    s_last_snapshot_monotonic_ms = 0u;
 }
 
 /*******************************************************************************
@@ -183,27 +183,30 @@ void metrics_record_mqtt_publish_us(uint32_t us)     { ring_add(&s_ring_mqtt_pub
 /*******************************************************************************
  * Snapshot & reset
  ******************************************************************************/
-void metrics_snapshot_and_reset(metrics_snapshot_t *snap, uint64_t now_ms)
+void metrics_snapshot_and_reset(metrics_snapshot_t *snap,
+                                uint64_t ts_ms,
+                                uint64_t now_monotonic_ms)
 {
     if (snap == NULL) return;
 
     /* Set boot time on first call */
     if (s_boot_ms == 0u)
     {
-        s_boot_ms = now_ms;
+        s_boot_ms = now_monotonic_ms;
     }
 
     /* Window calculation */
     uint32_t window_ms = 0u;
-    if (s_last_snapshot_ms > 0u)
+    if (s_last_snapshot_monotonic_ms > 0u)
     {
-        window_ms = (uint32_t)(now_ms - s_last_snapshot_ms);
+        window_ms = (uint32_t)(now_monotonic_ms -
+                               s_last_snapshot_monotonic_ms);
     }
     /* else: first snapshot — window_ms stays 0; counters accumulated since
      * boot are reported but rates will be zero.  Post-processing scripts
      * should filter records where window_ms == 0. */
 
-    snap->ts_ms     = now_ms;
+    snap->ts_ms     = ts_ms;
     snap->window_ms = window_ms;
 
     /* --- Critical section: copy + reset counters atomically ---
@@ -216,7 +219,7 @@ void metrics_snapshot_and_reset(metrics_snapshot_t *snap, uint64_t now_ms)
 
     /* Copy gauges (not reset) */
     snap->gauges = *(const metrics_gauges_t *)&s_gauges;
-    snap->gauges.uptime_s = (uint32_t)((now_ms - s_boot_ms) / 1000u);
+    snap->gauges.uptime_s = (uint32_t)((now_monotonic_ms - s_boot_ms) / 1000u);
 
     /* Compute timing stats from ring buffers */
     compute_stats(&s_ring_read_to_pub,
@@ -266,7 +269,7 @@ void metrics_snapshot_and_reset(metrics_snapshot_t *snap, uint64_t now_ms)
         snap->rates.pmbus_cmds_per_s_x10 = 0u;
     }
 
-    s_last_snapshot_ms = now_ms;
+    s_last_snapshot_monotonic_ms = now_monotonic_ms;
 }
 
 /*******************************************************************************
