@@ -1,0 +1,99 @@
+@startuml
+title MQTT connect, reconnect, and backoff flow
+
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam activity {
+  FontName Courier New
+  BorderColor #82B366
+  BackgroundColor #F8F9FB
+  DiamondBorderColor #B85450
+  DiamondBackgroundColor #FDE2E2
+  StartColor #82B366
+  EndColor #82B366
+  BarColor #4E5B6A
+}
+
+start
+
+:cy_wcm_init();
+if (WCM init OK?) then (yes)
+  :mqtt_lib_ready = false;
+else (no)
+  :Log fatal error;
+  stop
+endif
+
+:backoff_reset();
+
+while (MQTT session offline?) is (yes)
+  if (Wi-Fi connected?) then (yes)
+    :wallclock_sntp_init();
+
+    if (MQTT library ready?) then (yes)
+    else (no)
+      :mqtt_init_and_create();
+      if (MQTT init/create OK?) then (yes)
+        :mqtt_lib_ready = true;
+      else (no)
+        :backoff_wait();\nbackoff_ms = min(backoff_ms * 2, max);
+      endif
+    endif
+
+    if (MQTT library ready now?) then (yes)
+      :mqtt_broker_connect();
+      if (Broker connected?) then (yes)
+        :gateway_ipc_set_mqtt_online(true);
+        :post EVT_MQTT_CONNECTED;
+        :backoff_reset();
+      else (no)
+        :backoff_wait();\nbackoff_ms = min(backoff_ms * 2, max);
+      endif
+    endif
+  else (no)
+    :wifi_connect();
+    if (Wi-Fi connect OK?) then (yes)
+      :Proceed to SNTP and MQTT setup\non next loop iteration;
+    else (no)
+      :backoff_wait();\nbackoff_ms = min(backoff_ms * 2, max);
+    endif
+  endif
+endwhile (no)
+
+repeat
+  if (Disconnect callback pending?) then (yes)
+    :Clear callback flag;
+    :gateway_ipc_set_mqtt_online(false);
+    :post EVT_MQTT_DISCONNECTED;
+  endif
+
+  if (MQTT online?) then (yes)
+    :Process telemetry/status/event queues;
+    :Flush buffered records;
+    :Publish metrics if due;
+    :vTaskDelay(QUEUE_POLL_TIMEOUT_MS);
+  else (no)
+    :cy_mqtt_disconnect() best-effort;
+
+    if (Wi-Fi connected?) then (yes)
+      :mqtt_broker_connect();
+      if (MQTT reconnect OK?) then (yes)
+        :gateway_ipc_set_mqtt_online(true);
+        :post EVT_MQTT_CONNECTED;
+        :metrics_inc_mqtt_reconnects();
+        :backoff_reset();
+      else (no)
+        :backoff_wait();\nretry on next loop iteration;
+      endif
+    else (no)
+      :wifi_connect();
+      if (Wi-Fi reconnect OK?) then (yes)
+        :Retry MQTT reconnect on next loop iteration;
+      else (no)
+        :backoff_wait();\nretry on next loop iteration;
+      endif
+    endif
+  endif
+repeat while (Task running?) is (yes)
+
+@enduml

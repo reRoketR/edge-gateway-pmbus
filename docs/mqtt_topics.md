@@ -25,13 +25,14 @@ Base topic: `pmbus/{gw_id}`
 
 | Stream    | QoS | retain |
 |----------|-----|--------|
-| telemetry| 1   | false  |
+| telemetry| 0   | false  |
 | status   | 1   | false  |
 | events   | 1   | false  |
 | metrics  | 0   | false  |
 
 Notes:
-- QoS1 may produce duplicates after reconnects; duplicates are handled by deduplication policy below.
+- QoS1 may produce duplicates after reconnects; this mainly applies to `status` and `events`.
+- Telemetry uses QoS0 in the current firmware to reduce publish-path latency and tail jitter.
 - `retain=false` for all streams to avoid stale state surprises.
 
 ---
@@ -133,6 +134,7 @@ Topic: `.../metrics`
   "gauges": {
     "buffer_depth_ram": 120,
     "buffer_depth_flash": 3500,
+    "telemetry_queue_depth": 3,
     "wifi_rssi_dbm": -56,
     "uptime_s": 1843
   },
@@ -155,7 +157,7 @@ Topic: `.../metrics`
 Rules:
 - `counters_delta` are increments over `window_ms` and are reset after publish.
 - `read_to_publish_*` MUST be measured on the gateway using a monotonic timer.
-- `p95` is computed over a ring buffer of the last N latency samples (recommended N=200).
+- `p95` is computed over a ring buffer of the last N latency samples. The current firmware uses `N=50`.
 
 ### 4.4 Events payload
 

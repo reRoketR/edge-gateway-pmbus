@@ -59,7 +59,7 @@ source/
 ├── events.c/.h            Event types + JSON encode
 ├── mqtt_client_config.c   Broker connection info (compile-time defaults)
 └── profiles/
-    ├── profile_default.h          Baseline: 2s poll, PEC on
+    ├── profile_default.h          Baseline: 2 targets @ 500 ms, PEC on
     ├── profile_exp1_fast.h        Exp1: 100ms poll, 2 targets
     ├── profile_exp1_single.h      Exp1: 200ms poll, 1 target
     ├── profile_exp2_throughput.h   Exp2: 50ms poll, stress test
@@ -200,16 +200,16 @@ mqtt_gw_task   ──► metrics_inc_mqtt_pub_ok()
 
 | Component | Size | Notes |
 |-----------|------|-------|
-| Telemetry queue | 64 × ~78 B = ~5 KB | Survives 128 s of 2 s polling during connect |
+| Telemetry queue | 64 × ~78 B = ~5 KB | Absorbs ~16 s of backlog in the current default profile (2 targets @ 500 ms) |
 | Status queue | 16 × ~28 B = ~448 B | |
 | Event queue | 16 × ~56 B = ~896 B | |
 | RAM ring buffer | 256 × 594 B = ~149 KB | Pre-encoded JSON + topic per record |
-| Metrics latency ring | 200 × 4 B × 3 = ~2.4 KB | 3 rings: read-to-pub, pmbus_txn, mqtt_pub |
+| Metrics latency ring | 50 × 4 B × 3 = ~0.6 KB | 3 rings: read-to-pub, pmbus_txn, mqtt_pub |
 | JSON encode buffer | 512 B + 768 B = 1.3 KB | Telemetry/status + metrics (separate) |
 | MQTT network buffer | ~2 × 1024 B = ~2 KB | cy_mqtt library |
 | Task stacks | (1024+3072+512+256) × 4 = ~19.5 KB | 4 tasks |
 
-**Total firmware: ~940 KB flash, ~180 KB RAM** (out of 2 MB flash / 1 MB RAM available on PSoC 62).
+**Total firmware: ~940 KB flash, ~179 KB RAM** (out of 2 MB flash / 1 MB RAM available on PSoC 62).
 
 ---
 
@@ -239,12 +239,13 @@ make build GW_PROFILE=exp4_pec_off
 
 At boot, `config_print_boot_banner()` logs all active parameters:
 ```
-[SYS] profile=default  pec=1  mqtt=192.168.1.2:1883  qos_data=1  qos_metrics=0
+[SYS] profile=default  pec=1  mqtt=172.20.10.3:1883  q_telem=0  q_ctrl=1  q_metrics=0
 [SYS] i2c: speed=100000  timeout=20ms  retries=2  recovery=0
 [SYS] buffer: enabled=1  ram=256  flash=0  batch=50  flush=200ms  drop_oldest=1
-[SYS] metrics_period=2000ms
-[SYS] devices: 1
-[SYS]   [0] 0x58 "psu_a"  poll=2000ms  status=10000ms
+[SYS] metrics_period=10000ms
+[SYS] devices: 2
+[SYS]   [0] 0x58 "psu_a"  poll=500ms  status=10000ms
+[SYS]   [1] 0x59 "psu_b"  poll=500ms  status=10000ms
 ```
 
 ---

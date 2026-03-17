@@ -101,15 +101,13 @@ make program
 
 Verify on UART:
 ```
-===== PMBus-MQTT Edge Gateway =====
-  Profile : default
-  GW ID   : gw01
-  Devices : 1
-  PEC     : ON
-  Poll    : 2000 ms
-  MQTT    : 192.168.1.2:1883
-  Buffer  : 256 (RAM)
-=======================================
+[SYS] profile=default  pec=1  mqtt=172.20.10.3:1883  q_telem=0  q_ctrl=1  q_metrics=0
+[SYS] i2c: speed=100000  timeout=20ms  retries=2  recovery=0
+[SYS] buffer: enabled=1  ram=256  flash=0  batch=50  flush=200ms  drop_oldest=1
+[SYS] metrics_period=10000ms
+[SYS] devices: 2
+[SYS]   [0] 0x58 "psu_a"  poll=500ms  status=10000ms
+[SYS]   [1] 0x59 "psu_b"  poll=500ms  status=10000ms
 ```
 
 ### 5. Start the MQTT Broker
@@ -185,7 +183,7 @@ make build TOOLCHAIN=GCC_ARM CONFIG=Debug GW_PROFILE=exp1_fast
 
 | Profile | File | Poll (ms) | Targets | PEC | Purpose |
 |---------|------|-----------|---------|-----|---------|
-| `default` | `profile_default.h` | 2000 | 1 | ON | Baseline |
+| `default` | `profile_default.h` | 500 | 2 | ON | Current development baseline |
 | `exp1_fast` | `profile_exp1_fast.h` | 100 | 2 | ON | Latency stress |
 | `exp1_single` | `profile_exp1_single.h` | 200 | 1 | ON | Single-target latency |
 | `exp2_throughput` | `profile_exp2_throughput.h` | 50 | 1 | ON | Max throughput |
@@ -198,10 +196,12 @@ make build TOOLCHAIN=GCC_ARM CONFIG=Debug GW_PROFILE=exp1_fast
 
 | Topic | QoS | Content |
 |-------|-----|---------|
-| `pmbus/gw01/dev/0x58/telemetry` | 1 | Voltage, current, temperature, power |
+| `pmbus/gw01/dev/0x58/telemetry` | 0 | Voltage, current, temperature, power |
 | `pmbus/gw01/dev/0x58/status` | 1 | STATUS_WORD, STATUS_VOUT/IOUT/TEMP |
 | `pmbus/gw01/metrics` | 0 | Counters, gauges, timing, rates |
 | `pmbus/gw01/events` | 1 | State changes (connect/disconnect) |
+
+The current `default` profile publishes telemetry for two devices (`0x58`, `0x59`).
 
 Full payload schemas: [`docs/mqtt_topics.md`](docs/mqtt_topics.md)
 

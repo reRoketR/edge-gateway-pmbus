@@ -108,13 +108,25 @@ static void process_status_queue(void);
 static void process_event_queue(void);
 static void flush_buffered_records(void);
 static void publish_metrics_if_due(void);
+static uint8_t qos_for_topic(const char *topic);
 static bool publish_json_qos(const char *topic, const char *payload,
                              size_t payload_len, uint8_t qos);
-static inline bool publish_json(const char *topic, const char *payload,
-                                size_t payload_len)
+static inline bool publish_telemetry_json(const char *topic, const char *payload,
+                                          size_t payload_len)
 {
     return publish_json_qos(topic, payload, payload_len,
-                            g_config.mqtt.qos_data);
+                            g_config.mqtt.qos_telemetry);
+}
+static inline bool publish_control_json(const char *topic, const char *payload,
+                                        size_t payload_len)
+{
+    return publish_json_qos(topic, payload, payload_len,
+                            g_config.mqtt.qos_control);
+}
+static inline bool publish_buffered_json(const char *topic, const char *payload,
+                                         size_t payload_len)
+{
+    return publish_json_qos(topic, payload, payload_len, qos_for_topic(topic));
 }
 static void backoff_reset(void);
 static void backoff_wait(void);
@@ -461,7 +473,7 @@ static void process_telemetry_queue(void)
                                            rec.addr_7bit, "telemetry");
         if (topic_len <= 0) continue;
 
-        if (!publish_json(s_topic_buf, s_json_buf, (size_t)json_len))
+        if (!publish_telemetry_json(s_topic_buf, s_json_buf, (size_t)json_len))
         {
             /* Buffer for later */
             buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)json_len);
@@ -498,7 +510,7 @@ static void process_status_queue(void)
                                            rec.addr_7bit, "status");
         if (topic_len <= 0) continue;
 
-        if (!publish_json(s_topic_buf, s_json_buf, (size_t)json_len))
+        if (!publish_control_json(s_topic_buf, s_json_buf, (size_t)json_len))
         {
             buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)json_len);
         }
@@ -520,7 +532,7 @@ static void process_event_queue(void)
         int topic_len = build_events_topic(s_topic_buf, TOPIC_BUF_SIZE);
         if (topic_len <= 0) continue;
 
-        if (!publish_json(s_topic_buf, s_json_buf, (size_t)json_len))
+        if (!publish_control_json(s_topic_buf, s_json_buf, (size_t)json_len))
         {
             buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)json_len);
         }
@@ -550,7 +562,7 @@ static void flush_buffered_records(void)
         while (flushed < g_config.buffer.flush_batch_size &&
                flash_buffer_peek(&rec))
         {
-            if (!publish_json(rec.topic, rec.payload, rec.payload_len))
+            if (!publish_buffered_json(rec.topic, rec.payload, rec.payload_len))
             {
                 break;  /* Stop flushing on first failure */
             }
@@ -563,7 +575,7 @@ static void flush_buffered_records(void)
     while (flushed < g_config.buffer.flush_batch_size &&
            buffer_mgr_peek(&rec))
     {
-        if (!publish_json(rec.topic, rec.payload, rec.payload_len))
+        if (!publish_buffered_json(rec.topic, rec.payload, rec.payload_len))
         {
             break;  /* Stop flushing on first failure */
         }
@@ -601,6 +613,7 @@ static void publish_metrics_if_due(void)
     {
         metrics_set_buffer_depth_flash(0u);
     }
+    metrics_set_telemetry_queue_depth(gateway_ipc_telemetry_queue_depth());
 
     /* Try to get Wi-Fi RSSI */
     {
@@ -638,6 +651,34 @@ static void publish_metrics_if_due(void)
 /*******************************************************************************
  * Publish helper
  ******************************************************************************/
+static bool topic_has_suffix(const char *topic, const char *suffix)
+{
+    size_t topic_len = strlen(topic);
+    size_t suffix_len = strlen(suffix);
+
+    if (topic_len < suffix_len)
+    {
+        return false;
+    }
+
+    return strcmp(topic + topic_len - suffix_len, suffix) == 0;
+}
+
+static uint8_t qos_for_topic(const char *topic)
+{
+    if (topic_has_suffix(topic, "/telemetry"))
+    {
+        return g_config.mqtt.qos_telemetry;
+    }
+
+    if (topic_has_suffix(topic, "/metrics"))
+    {
+        return g_config.mqtt.qos_metrics;
+    }
+
+    return g_config.mqtt.qos_control;
+}
+
 static bool publish_json_qos(const char *topic, const char *payload,
                              size_t payload_len, uint8_t qos)
 {

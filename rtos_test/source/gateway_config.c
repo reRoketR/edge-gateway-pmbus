@@ -4,7 +4,7 @@
  * Description: Instantiates the global configuration from the active profile.
  *              The profile is selected by the GW_PROFILE build define:
  *
- *                make build GW_PROFILE=exp1_200ms
+ *                make build GW_PROFILE=exp1_single
  *
  *              If GW_PROFILE is not set, profile_default.h is used.
  *
@@ -51,7 +51,7 @@ const config_t g_config      = PROFILE_CONFIG;
  *   Required by agent.md §5.4 for thesis reproducibility.
  *
  *   Example output:
- *     [SYS] profile=default pec=1 poll_ms=200 mqtt=192.168.1.10:1883 qos=1
+ *     [SYS] profile=default pec=1 mqtt=192.168.1.10:1883 q_telem=0 q_ctrl=1 q_metrics=0
  *     [SYS] i2c: speed=100000 timeout=20ms retries=2 recovery=1
  *     [SYS] buffer: ram=256 flash=0 batch=50 drop_oldest=1
  *     [SYS] devices: 2
@@ -63,12 +63,13 @@ void config_print_boot_banner(void)
     const config_t *c = &g_config;
 
     printf("\n");
-    printf("[SYS] profile=%s  pec=%d  mqtt=%s:%u  qos_data=%u  qos_metrics=%u\n",
+    printf("[SYS] profile=%s  pec=%d  mqtt=%s:%u  q_telem=%u  q_ctrl=%u  q_metrics=%u\n",
            g_profile_name,
            (int)c->i2c.pec_enabled,
            c->mqtt.host,
            (unsigned)c->mqtt.port,
-           (unsigned)c->mqtt.qos_data,
+           (unsigned)c->mqtt.qos_telemetry,
+           (unsigned)c->mqtt.qos_control,
            (unsigned)c->mqtt.qos_metrics);
 
     printf("[SYS] i2c: speed=%lu  timeout=%lums  retries=%u  recovery=%d\n",

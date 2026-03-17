@@ -61,6 +61,11 @@ bool gateway_ipc_init(void)
 QueueHandle_t gateway_ipc_telemetry_queue(void) { return s_telemetry_q; }
 QueueHandle_t gateway_ipc_status_queue(void)    { return s_status_q;    }
 QueueHandle_t gateway_ipc_event_queue(void)     { return s_event_q;     }
+uint32_t gateway_ipc_telemetry_queue_depth(void)
+{
+    return (s_telemetry_q != NULL) ?
+        (uint32_t)uxQueueMessagesWaiting(s_telemetry_q) : 0u;
+}
 
 /*******************************************************************************
  * MQTT state

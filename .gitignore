@@ -35,6 +35,7 @@ mtb_shared/
 target_proj/bsps/
 
 # VS Code / IDE
+.vscode/
 *.code-workspace
 */.vscode/
 */openocd.tcl
@@ -121,3 +122,4 @@ ehthumbs_vista.db
 *_REMOTE_*.txt
 
 *.log
+*.crswap

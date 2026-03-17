@@ -39,7 +39,7 @@ make build GW_PROFILE=exp1_fast
 ```
 
 Available profiles:
-- `default` — Baseline (2000 ms poll, 1 target, PEC ON)
+- `default` — Baseline (500 ms poll, 2 targets, PEC ON)
 - `exp1_fast` — Latency stress (100 ms poll, 2 targets)
 - `exp1_single` — Single-target latency (200 ms poll)
 - `exp2_throughput` — Max throughput (50 ms poll)

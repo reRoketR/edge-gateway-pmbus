@@ -7,11 +7,12 @@
  *              buffer records and flush them after reconnection.
  *
  *              Changes vs default:
- *                - poll_period_ms:   2000 → 500  (2 msgs/s for predictable
- *                  buffer fill math)
+ *                - poll_period_ms:   500 (unchanged; 2 msgs/s with 1 target)
+ *                - status_period_ms: 10000 → 5000
  *                - ram_max_records:  256 (unchanged — fills in ~128 s)
  *                - flash_max_records: 0 → 63 (enable flash persistence)
  *                - metrics_period_ms: 10000 → 2000 (finer monitoring)
+ *                - devices:            2 → 1
  *
  * Related Document: agent.md §9 — Exp3, docs/experiments/exp3_offline_buffer.md
  *
@@ -49,7 +50,8 @@ static const device_cfg_t k_devices[] = {
         .port           = 1883,                                                \
         .client_id      = "pmbus-gw01",                                        \
         .base_topic     = "pmbus/gw01",                                        \
-        .qos_data       = 1,                                                   \
+        .qos_telemetry  = 0,                                                   \
+        .qos_control    = 1,                                                   \
         .qos_metrics    = 0,                                                   \
         .backoff_min_ms = 500,                                                 \
         .backoff_max_ms = 10000,                                               \

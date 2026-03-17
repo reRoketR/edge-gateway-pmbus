@@ -61,6 +61,11 @@
 /** Rate-limit queue-full warnings: print at most once per this many ticks */
 #define WARN_THROTTLE_TICKS       pdMS_TO_TICKS(5000u)
 
+/** Enable per-device telemetry cycle start logging for I2C fault diagnosis */
+#ifndef GW_DEBUG_LOG_POLL_CYCLE
+#define GW_DEBUG_LOG_POLL_CYCLE   1
+#endif
+
 /*******************************************************************************
  * Per-device state
  ******************************************************************************/
@@ -86,6 +91,9 @@ static void poll_status(const device_cfg_t *dev, device_state_t *state);
 static void read_vout_mode(const device_cfg_t *dev, device_state_t *state);
 static void check_online_transition(const device_cfg_t *dev,
                                     device_state_t *state, bool success);
+static void log_poll_cycle_start(const device_cfg_t *dev,
+                                 const device_state_t *state,
+                                 uint32_t telemetry_depth);
 
 /*******************************************************************************
  * Task entry point
@@ -154,6 +162,9 @@ void pmbus_poll_task(void *pvParameters)
             /* --- Telemetry poll --- */
             if ((int32_t)(current - state->next_telem_tick) >= 0)
             {
+                uint32_t telemetry_depth = gateway_ipc_telemetry_queue_depth();
+                metrics_set_telemetry_queue_depth(telemetry_depth);
+                log_poll_cycle_start(dev, state, telemetry_depth);
                 poll_telemetry(dev, state);
                 state->next_telem_tick = current +
                     pdMS_TO_TICKS(telem_period);
@@ -303,6 +314,32 @@ static inline void log_telemetry_table(const telemetry_record_t *r)
     (void)r;  /* Telemetry table logging disabled */
 }
 #endif /* GW_DEBUG_LOG_TELEM */
+
+#if GW_DEBUG_LOG_POLL_CYCLE
+static void log_poll_cycle_start(const device_cfg_t *dev,
+                                 const device_state_t *state,
+                                 uint32_t telemetry_depth)
+{
+    printf("[POLL] cycle start addr=0x%02X label=\"%s\" online=%d fails=%u "
+           "qdepth=%lu mqtt=%d t=%lu\n",
+           (unsigned)dev->addr_7bit,
+           dev->label,
+           (int)state->online,
+           (unsigned)state->consec_fails,
+           (unsigned long)telemetry_depth,
+           (int)gateway_ipc_is_mqtt_online(),
+           (unsigned long)gateway_ipc_monotonic_ms());
+}
+#else
+static inline void log_poll_cycle_start(const device_cfg_t *dev,
+                                        const device_state_t *state,
+                                        uint32_t telemetry_depth)
+{
+    (void)dev;
+    (void)state;
+    (void)telemetry_depth;
+}
+#endif /* GW_DEBUG_LOG_POLL_CYCLE */
 
 static void poll_telemetry(const device_cfg_t *dev, device_state_t *state)
 {

@@ -29,7 +29,7 @@
  * Configuration
  ******************************************************************************/
 
-/** Ring buffer size for latency samples (agent.md recommends 200) */
+/** Ring buffer size for latency samples (current firmware uses 50 samples) */
 #define METRICS_LATENCY_RING_SIZE   50u
 
 /*******************************************************************************
@@ -58,6 +58,7 @@ typedef struct {
 typedef struct {
     uint32_t buffer_depth_ram;
     uint32_t buffer_depth_flash;
+    uint32_t telemetry_queue_depth;
     int32_t  wifi_rssi_dbm;
     uint32_t uptime_s;
 } metrics_gauges_t;
@@ -144,6 +145,7 @@ void metrics_inc_telemetry_enqueued(void);
 
 void metrics_set_buffer_depth_ram(uint32_t depth);
 void metrics_set_buffer_depth_flash(uint32_t depth);
+void metrics_set_telemetry_queue_depth(uint32_t depth);
 void metrics_set_wifi_rssi(int32_t rssi_dbm);
 
 /*******************************************************************************

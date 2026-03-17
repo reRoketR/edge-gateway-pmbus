@@ -317,6 +317,7 @@ static void test_metrics_json(void)
     }
 
     metrics_set_buffer_depth_ram(42);
+    metrics_set_telemetry_queue_depth(7);
     metrics_set_wifi_rssi(-56);
 
     /* Take snapshot at t=2000 ms */
@@ -333,6 +334,9 @@ static void test_metrics_json(void)
                     "mqtt_pub_ok=%u", (unsigned)snap.counters.mqtt_pub_ok);
     TEST_ASSERT_MSG(snap.gauges.buffer_depth_ram == 42,
                     "buffer_depth_ram=%u", (unsigned)snap.gauges.buffer_depth_ram);
+    TEST_ASSERT_MSG(snap.gauges.telemetry_queue_depth == 7,
+                    "telemetry_queue_depth=%u",
+                    (unsigned)snap.gauges.telemetry_queue_depth);
     TEST_ASSERT_MSG(snap.gauges.wifi_rssi_dbm == -56,
                     "rssi=%d", (int)snap.gauges.wifi_rssi_dbm);
 
@@ -359,6 +363,7 @@ static void test_metrics_json(void)
     TEST_ASSERT_TRUE(json_contains(buf, "\"pmbus_reads_ok\":100"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"pmbus_reads_fail\":2"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"buffer_depth_ram\":42"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"telemetry_queue_depth\":7"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"wifi_rssi_dbm\":-56"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"read_to_publish_avg\":"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"read_to_publish_p95\":"));

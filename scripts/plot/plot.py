@@ -96,9 +96,10 @@ def load_jsonl(path: str) -> pd.DataFrame:
     return df
 
 
-def elapsed_s(df: pd.DataFrame, ts_col: str = "ts_ms") -> pd.Series:
-    """Convert ts_ms column to elapsed seconds from first record."""
-    t0 = df[ts_col].iloc[0]
+def elapsed_s(df: pd.DataFrame, ts_col: str = "ts_ms", t0=None) -> pd.Series:
+    """Convert ts_ms column to elapsed seconds from the provided or first record."""
+    if t0 is None:
+        t0 = df[ts_col].iloc[0]
     return (df[ts_col] - t0) / 1000.0
 
 
@@ -266,38 +267,65 @@ def plot_telemetry(df_t: pd.DataFrame, out_dir: str, offline_start, offline_end)
         print("  SKIP telemetry.png — no telemetry data")
         return
 
-    t = elapsed_s(df_t)
+    df_t = df_t.sort_values("ts_ms").reset_index(drop=True)
+    t0 = df_t["ts_ms"].iloc[0]
 
-    def col(name):
-        if name not in df_t.columns:
-            return pd.Series([float("nan")] * len(df_t))
-        return pd.to_numeric(df_t[name], errors="coerce")
+    def col(df, name):
+        if name not in df.columns:
+            return pd.Series([float("nan")] * len(df), index=df.index)
+        return pd.to_numeric(df[name], errors="coerce")
 
-    vin  = col("v.vin")
-    vout = col("v.vout")
-    iout = col("a.iout")
-    temp = col("c.temp1")
-    pout = col("w.pout")
+    def target_label(df):
+        addr = str(df["addr"].dropna().iloc[0]) if "addr" in df.columns and df["addr"].notna().any() else "telemetry"
+        if "label" in df.columns and df["label"].notna().any():
+            return f"{addr} ({df['label'].dropna().iloc[0]})"
+        return addr
+
+    if "addr" in df_t.columns and df_t["addr"].notna().any():
+        groups = [(target_label(df_g), df_g.sort_values("ts_ms").reset_index(drop=True))
+                  for _, df_g in df_t.groupby("addr", sort=True)]
+    else:
+        groups = [(target_label(df_t), df_t)]
+
+    target_colors = list(plt.get_cmap("tab10").colors)
+
+    metric_specs = [
+        (0, 0, "v.vin",  "VIN",   "V"),
+        (0, 1, "v.vout", "VOUT",  "V"),
+        (1, 0, "a.iout", "IOUT",  "A"),
+        (1, 1, "c.temp1","TEMP1", "\u00b0C"),
+        (2, 0, "w.pout", "POUT",  "W"),
+    ]
 
     fig, axes = plt.subplots(3, 2, figsize=(12, 9), sharex=True)
+    axes[2, 1].axis("off")  # empty cell
 
-    def _ax(ax, series, label, ylabel, color):
-        ax.plot(t, series, color=color, linewidth=1.2)
+    for row, col_idx, field, title, ylabel in metric_specs:
+        ax = axes[row, col_idx]
+        for idx, (label, df_g) in enumerate(groups):
+            t = elapsed_s(df_g, t0=t0)
+            ax.plot(
+                t,
+                col(df_g, field),
+                color=target_colors[idx % len(target_colors)],
+                linewidth=1.2,
+                label=label,
+            )
+
         shade_offline(ax, offline_start, offline_end)
         ax.set_ylabel(ylabel)
-        ax.set_title(label)
-
-    _ax(axes[0, 0], vin,  "VIN",   "V",  COLORS["vin"])
-    _ax(axes[0, 1], vout, "VOUT",  "V",  COLORS["vout"])
-    _ax(axes[1, 0], iout, "IOUT",  "A",  COLORS["iout"])
-    _ax(axes[1, 1], temp, "TEMP1", "\u00b0C", COLORS["temp"])
-    _ax(axes[2, 0], pout, "POUT",  "W",  COLORS["pout"])
-    axes[2, 1].axis("off")  # empty cell
+        ax.set_title(title)
+        if len(groups) > 1:
+            ax.legend(fontsize=8)
 
     for ax in axes[2, :]:
         ax.set_xlabel("Elapsed time (s)")
 
-    fig.suptitle("PMBus telemetry — device 0x58", fontsize=11)
+    if len(groups) == 1:
+        title = f"PMBus telemetry — {groups[0][0]}"
+    else:
+        title = "PMBus telemetry — per target"
+    fig.suptitle(title, fontsize=11)
     save(fig, os.path.join(out_dir, "telemetry.png"))
 
 

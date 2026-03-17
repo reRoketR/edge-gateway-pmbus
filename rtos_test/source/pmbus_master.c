@@ -135,6 +135,56 @@ static pmbus_status_t map_pdl_status(cy_en_scb_i2c_status_t pdl_st)
     }
 }
 
+static const char *pmbus_status_str(pmbus_status_t status)
+{
+    switch (status)
+    {
+        case PMBUS_OK:           return "OK";
+        case PMBUS_ERR_NACK:     return "NACK";
+        case PMBUS_ERR_TIMEOUT:  return "TIMEOUT";
+        case PMBUS_ERR_BUS:      return "BUS";
+        case PMBUS_ERR_PEC:      return "PEC";
+        case PMBUS_ERR_ARG:      return "ARG";
+        case PMBUS_ERR_NOT_INIT: return "NOT_INIT";
+        default:                 return "UNKNOWN";
+    }
+}
+
+static void log_i2c_error(const char *op, const char *phase,
+                          uint8_t addr_7bit, uint8_t cmd, uint8_t attempt,
+                          uint8_t max_retries, pmbus_status_t result,
+                          uint32_t scb_status)
+{
+    printf("[PMBUS] ERROR: %s %s addr=0x%02X cmd=0x%02X attempt=%u/%u "
+           "status=%s scb=0x%08lX\n",
+           op,
+           phase,
+           (unsigned)addr_7bit,
+           (unsigned)cmd,
+           (unsigned)(attempt + 1u),
+           (unsigned)(max_retries + 1u),
+           pmbus_status_str(result),
+           (unsigned long)scb_status);
+}
+
+static void log_i2c_pdl_error(const char *op, const char *phase,
+                              uint8_t addr_7bit, uint8_t cmd, uint8_t attempt,
+                              uint8_t max_retries,
+                              cy_en_scb_i2c_status_t pdl_st,
+                              pmbus_status_t result)
+{
+    printf("[PMBUS] ERROR: %s %s addr=0x%02X cmd=0x%02X attempt=%u/%u "
+           "status=%s pdl=0x%02lX\n",
+           op,
+           phase,
+           (unsigned)addr_7bit,
+           (unsigned)cmd,
+           (unsigned)(attempt + 1u),
+           (unsigned)(max_retries + 1u),
+           pmbus_status_str(result),
+           (unsigned long)pdl_st);
+}
+
 /*******************************************************************************
  * PEC (CRC-8) — SMBus polynomial 0x07
  ******************************************************************************/
@@ -349,6 +399,7 @@ pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd,
     for (uint8_t attempt = 0; attempt <= max_retries; attempt++)
     {
         cy_en_scb_i2c_status_t pdl_st;
+        uint32_t scb_status;
 
         /* --- Phase 1: Write the command byte (no STOP — xferPending) --- */
         uint8_t cmd_buf[1] = { cmd };
@@ -364,12 +415,20 @@ pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd,
         if (CY_SCB_I2C_SUCCESS != pdl_st)
         {
             result = map_pdl_status(pdl_st);
+            log_i2c_pdl_error("read_word", "write-start",
+                              addr_7bit, cmd, attempt, max_retries,
+                              pdl_st, result);
             goto retry;
         }
 
         result = wait_for_completion(pmbus_timeout_ms);
         if (PMBUS_OK != result)
         {
+            scb_status = Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                                    &pmbus_i2c_ctx);
+            log_i2c_error("read_word", "write-complete",
+                          addr_7bit, cmd, attempt, max_retries,
+                          result, scb_status);
             goto retry;
         }
 
@@ -388,12 +447,20 @@ pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd,
         if (CY_SCB_I2C_SUCCESS != pdl_st)
         {
             result = map_pdl_status(pdl_st);
+            log_i2c_pdl_error("read_word", "read-start",
+                              addr_7bit, cmd, attempt, max_retries,
+                              pdl_st, result);
             goto retry;
         }
 
         result = wait_for_completion(pmbus_timeout_ms);
         if (PMBUS_OK != result)
         {
+            scb_status = Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                                    &pmbus_i2c_ctx);
+            log_i2c_error("read_word", "read-complete",
+                          addr_7bit, cmd, attempt, max_retries,
+                          result, scb_status);
             goto retry;
         }
 
@@ -412,6 +479,9 @@ pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd,
             if (computed_pec != rd_buf[2])
             {
                 result = PMBUS_ERR_PEC;
+                log_i2c_error("read_word", "pec-check",
+                              addr_7bit, cmd, attempt, max_retries,
+                              result, 0u);
                 goto retry;
             }
         }
@@ -427,6 +497,12 @@ retry:
             /* If bus error and recovery enabled, try to recover */
             if (result == PMBUS_ERR_BUS && g_config.i2c.bus_recovery)
             {
+                printf("[PMBUS] WARN: invoking bus recovery after read_word "
+                       "addr=0x%02X cmd=0x%02X attempt=%u/%u\n",
+                       (unsigned)addr_7bit,
+                       (unsigned)cmd,
+                       (unsigned)(attempt + 1u),
+                       (unsigned)(max_retries + 1u));
                 pmbus_bus_recovery();
             }
             vTaskDelay(pdMS_TO_TICKS(1));  /* RTOS-friendly delay between retries */
@@ -463,6 +539,7 @@ pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd,
     for (uint8_t attempt = 0; attempt <= max_retries; attempt++)
     {
         cy_en_scb_i2c_status_t pdl_st;
+        uint32_t scb_status;
 
         /* --- Phase 1: Write the command byte (no STOP — xferPending) --- */
         uint8_t cmd_buf[1] = { cmd };
@@ -478,12 +555,20 @@ pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd,
         if (CY_SCB_I2C_SUCCESS != pdl_st)
         {
             result = map_pdl_status(pdl_st);
+            log_i2c_pdl_error("read_byte", "write-start",
+                              addr_7bit, cmd, attempt, max_retries,
+                              pdl_st, result);
             goto retry_byte;
         }
 
         result = wait_for_completion(pmbus_timeout_ms);
         if (PMBUS_OK != result)
         {
+            scb_status = Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                                    &pmbus_i2c_ctx);
+            log_i2c_error("read_byte", "write-complete",
+                          addr_7bit, cmd, attempt, max_retries,
+                          result, scb_status);
             goto retry_byte;
         }
 
@@ -502,12 +587,20 @@ pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd,
         if (CY_SCB_I2C_SUCCESS != pdl_st)
         {
             result = map_pdl_status(pdl_st);
+            log_i2c_pdl_error("read_byte", "read-start",
+                              addr_7bit, cmd, attempt, max_retries,
+                              pdl_st, result);
             goto retry_byte;
         }
 
         result = wait_for_completion(pmbus_timeout_ms);
         if (PMBUS_OK != result)
         {
+            scb_status = Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                                    &pmbus_i2c_ctx);
+            log_i2c_error("read_byte", "read-complete",
+                          addr_7bit, cmd, attempt, max_retries,
+                          result, scb_status);
             goto retry_byte;
         }
 
@@ -525,6 +618,9 @@ pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd,
             if (computed_pec != rd_buf[1])
             {
                 result = PMBUS_ERR_PEC;
+                log_i2c_error("read_byte", "pec-check",
+                              addr_7bit, cmd, attempt, max_retries,
+                              result, 0u);
                 goto retry_byte;
             }
         }
@@ -539,6 +635,12 @@ retry_byte:
         {
             if (result == PMBUS_ERR_BUS && g_config.i2c.bus_recovery)
             {
+                printf("[PMBUS] WARN: invoking bus recovery after read_byte "
+                       "addr=0x%02X cmd=0x%02X attempt=%u/%u\n",
+                       (unsigned)addr_7bit,
+                       (unsigned)cmd,
+                       (unsigned)(attempt + 1u),
+                       (unsigned)(max_retries + 1u));
                 pmbus_bus_recovery();
             }
             vTaskDelay(pdMS_TO_TICKS(1));  /* RTOS-friendly delay between retries */
@@ -565,6 +667,7 @@ pmbus_status_t pmbus_send_byte(uint8_t addr_7bit, uint8_t cmd)
     for (uint8_t attempt = 0; attempt <= max_retries; attempt++)
     {
         cy_en_scb_i2c_status_t pdl_st;
+        uint32_t scb_status;
 
         uint8_t tx_buf[1] = { cmd };
         cy_stc_scb_i2c_master_xfer_config_t wr_cfg = {
@@ -579,6 +682,9 @@ pmbus_status_t pmbus_send_byte(uint8_t addr_7bit, uint8_t cmd)
         if (CY_SCB_I2C_SUCCESS != pdl_st)
         {
             result = map_pdl_status(pdl_st);
+            log_i2c_pdl_error("send_byte", "write-start",
+                              addr_7bit, cmd, attempt, max_retries,
+                              pdl_st, result);
             goto send_retry;
         }
 
@@ -588,11 +694,23 @@ pmbus_status_t pmbus_send_byte(uint8_t addr_7bit, uint8_t cmd)
             return PMBUS_OK;
         }
 
+        scb_status = Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                                &pmbus_i2c_ctx);
+        log_i2c_error("send_byte", "write-complete",
+                      addr_7bit, cmd, attempt, max_retries,
+                      result, scb_status);
+
 send_retry:
         if (attempt < max_retries)
         {
             if (result == PMBUS_ERR_BUS && g_config.i2c.bus_recovery)
             {
+                printf("[PMBUS] WARN: invoking bus recovery after send_byte "
+                       "addr=0x%02X cmd=0x%02X attempt=%u/%u\n",
+                       (unsigned)addr_7bit,
+                       (unsigned)cmd,
+                       (unsigned)(attempt + 1u),
+                       (unsigned)(max_retries + 1u));
                 pmbus_bus_recovery();
             }
             vTaskDelay(pdMS_TO_TICKS(1));  /* RTOS-friendly delay between retries */

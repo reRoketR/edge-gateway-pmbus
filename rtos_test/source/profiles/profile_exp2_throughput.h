@@ -6,9 +6,10 @@
  *              telemetry throughput before queue overflow or error growth.
  *
  *              Changes vs default:
- *                - poll_period_ms:   2000 → 50  (20 msgs/s target)
+ *                - poll_period_ms:    500 → 50  (20 msgs/s target)
  *                - status_period_ms: 10000 → 5000
  *                - metrics_period_ms: 10000 → 1000 (fine granularity)
+ *                - devices:            2 → 1
  *
  * Related Document: agent.md §9 — Exp2, docs/experiments/exp2_throughput.md
  *
@@ -46,7 +47,8 @@ static const device_cfg_t k_devices[] = {
         .port           = 1883,                                                \
         .client_id      = "pmbus-gw01",                                        \
         .base_topic     = "pmbus/gw01",                                        \
-        .qos_data       = 1,                                                   \
+        .qos_telemetry  = 0,                                                   \
+        .qos_control    = 1,                                                   \
         .qos_metrics    = 0,                                                   \
         .backoff_min_ms = 500,                                                 \
         .backoff_max_ms = 10000,                                               \

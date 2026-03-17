@@ -6,9 +6,10 @@
  *              the latency impact of polling multiple devices per cycle.
  *
  *              Changes vs default:
- *                - poll_period_ms:   2000 → 200
+ *                - poll_period_ms:    500 → 200
  *                - status_period_ms: 10000 → 1000
  *                - metrics_period_ms: 10000 → 1000
+ *                - devices:            2 → 1
  *
  * Related Document: agent.md §9 — Exp1
  *
@@ -46,7 +47,8 @@ static const device_cfg_t k_devices[] = {
         .port           = 1883,                                                \
         .client_id      = "pmbus-gw01",                                        \
         .base_topic     = "pmbus/gw01",                                        \
-        .qos_data       = 1,                                                   \
+        .qos_telemetry  = 0,                                                   \
+        .qos_control    = 1,                                                   \
         .qos_metrics    = 0,                                                   \
         .backoff_min_ms = 500,                                                 \
         .backoff_max_ms = 10000,                                               \

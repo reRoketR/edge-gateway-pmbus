@@ -4,7 +4,7 @@
  * Description: Default configuration profile for the PMBus-MQTT gateway.
  *              Used for normal development and as a baseline for experiments.
  *
- *              1 target @ 2000 ms polling, PEC enabled, RAM buffer only.
+ *              2 targets @ 500 ms polling, PEC enabled, RAM buffer only.
  *
  * Related Document: agent.md §5
  *
@@ -54,8 +54,9 @@ static const device_cfg_t k_devices[] = {
         .port           = 1883,                                                \
         .client_id      = "pmbus-gw01",                                        \
         .base_topic     = "pmbus/gw01",                                        \
-        .qos_data       = 1,            /* telemetry/status/events */           \
-        .qos_metrics    = 0,            /* metrics: fire-and-forget */           \
+        .qos_telemetry  = 0,            /* latency-sensitive stream */          \
+        .qos_control    = 1,            /* status/events must be reliable */    \
+        .qos_metrics    = 0,            /* metrics: fire-and-forget */          \
         .backoff_min_ms = 500,                                                 \
         .backoff_max_ms = 10000,                                               \
     },                                                                         \

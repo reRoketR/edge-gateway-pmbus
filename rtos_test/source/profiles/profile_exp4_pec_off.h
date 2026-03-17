@@ -7,8 +7,8 @@
  *
  *              Changes vs default:
  *                - pec_enabled: true → false
- *                - poll_period_ms: 2000 → 200
- *                - 2 devices (psu_a + psu_b) vs 1 in default
+ *                - poll_period_ms: 500 → 200
+ *                - bus_recovery:  false → true
  *                - metrics_period_ms: 10000 → 1000 (finer granularity)
  *
  * Related Document: agent.md §9 — Exp4
@@ -53,7 +53,8 @@ static const device_cfg_t k_devices[] = {
         .port           = 1883,                                                \
         .client_id      = "pmbus-gw01",                                        \
         .base_topic     = "pmbus/gw01",                                        \
-        .qos_data       = 1,                                                   \
+        .qos_telemetry  = 0,                                                   \
+        .qos_control    = 1,                                                   \
         .qos_metrics    = 0,                                                   \
         .backoff_min_ms = 500,                                                 \
         .backoff_max_ms = 10000,                                               \

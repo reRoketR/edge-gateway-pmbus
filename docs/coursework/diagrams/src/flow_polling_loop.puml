@@ -1,0 +1,81 @@
+@startuml
+title PMBus polling loop
+
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam activity {
+  FontName Courier New
+  BorderColor #6C8EBF
+  BackgroundColor #F8F9FB
+  DiamondBorderColor #B85450
+  DiamondBackgroundColor #FDE2E2
+  StartColor #82B366
+  EndColor #82B366
+  BarColor #4E5B6A
+}
+
+start
+
+:pmbus_init();
+if (PMBus init OK?) then (yes)
+  :Initialise per-device state\nnext_telem_tick = now\nnext_status_tick = now;
+else (no)
+  :Log init failure;
+  :Stay alive without polling;
+  stop
+endif
+
+repeat
+  :vTaskDelayUntil(POLL_TICK_MS);
+  :current = xTaskGetTickCount();
+
+  while (Next configured device?) is (yes)
+    :Load device config and state;
+    :Compute effective telemetry/status period;\napply offline backoff after threshold;
+
+    if (Telemetry deadline reached?) then (yes)
+      if (VOUT_MODE cached?) then (yes)
+      else (no)
+        if (Retry window reached?) then (yes)
+          :read_vout_mode();
+        endif
+      endif
+
+      :poll_telemetry();\nREAD_* commands -> decode -> fill metadata;
+
+      if (Any telemetry command succeeded?) then (yes)
+        :Reset consecutive-fail counter;
+        :Update ONLINE transition if needed;
+        if (xQueueSend(telemetry_queue) OK?) then (yes)
+          :metrics_inc_telemetry_enqueued();
+        else (no)
+          :metrics_inc_queue_drops();\npost EVT_QUEUE_OVERFLOW (throttled);
+        endif
+      else (no)
+        :Increment consecutive-fail counter;
+        :Update OFFLINE transition if needed;
+        :Skip empty telemetry record;
+      endif
+
+      :next_telem_tick = current + telemetry_period;
+    endif
+
+    if (Status deadline reached?) then (yes)
+      :poll_status();\nread STATUS_* registers;
+      if (Status record valid?) then (yes)
+        if (xQueueSend(status_queue) OK?) then (yes)
+          :Status record queued;
+        else (no)
+          :Warn on full status queue (throttled);
+        endif
+      else (no)
+        :Skip empty status record;
+      endif
+
+      :next_status_tick = current + status_period;
+    endif
+  endwhile (all devices checked)
+
+repeat while (Task running?) is (yes)
+
+@enduml

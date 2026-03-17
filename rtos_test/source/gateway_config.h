@@ -53,7 +53,8 @@ typedef struct {
         uint16_t    port;           /**< Broker port (1883 / 8883)           */
         const char *client_id;      /**< MQTT client ID                      */
         const char *base_topic;     /**< Topic prefix, e.g. "pmbus/gw01"    */
-        uint8_t     qos_data;       /**< QoS for telemetry/status/events     */
+        uint8_t     qos_telemetry;  /**< QoS for telemetry live/buffered     */
+        uint8_t     qos_control;    /**< QoS for status/events live/buffered */
         uint8_t     qos_metrics;    /**< QoS for metrics (typically 0)       */
         uint32_t    backoff_min_ms; /**< Reconnect backoff minimum           */
         uint32_t    backoff_max_ms; /**< Reconnect backoff maximum           */

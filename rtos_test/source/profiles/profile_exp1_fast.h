@@ -3,13 +3,14 @@
  *
  * Description: Experiment 1 — End-to-end latency measurement.
  *              Fast polling (100 ms) to stress the read→publish pipeline.
- *              Compare with profile_default (2000 ms) for latency analysis.
+ *              Compare with the current default profile (2 targets @ 500 ms)
+ *              for latency analysis.
  *
  *              Changes vs default:
- *                - poll_period_ms:  2000 → 100
+ *                - poll_period_ms:   500 → 100
  *                - status_period_ms: 10000 → 2000  (reduce noise)
  *                - metrics_period_ms: 10000 → 1000 (finer granularity)
- *                - 2 devices (stress multi-device pipeline)
+ *                - 2 devices (unchanged; stress multi-device pipeline)
  *
  * Related Document: agent.md §9 — Exp1
  *
@@ -53,7 +54,8 @@ static const device_cfg_t k_devices[] = {
         .port           = 1883,                                                \
         .client_id      = "pmbus-gw01",                                        \
         .base_topic     = "pmbus/gw01",                                        \
-        .qos_data       = 1,                                                   \
+        .qos_telemetry  = 0,                                                   \
+        .qos_control    = 1,                                                   \
         .qos_metrics    = 0,                                                   \
         .backoff_min_ms = 500,                                                 \
         .backoff_max_ms = 10000,                                               \

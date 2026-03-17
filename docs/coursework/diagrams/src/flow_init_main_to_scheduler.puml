@@ -1,0 +1,64 @@
+@startuml
+title Gateway init flow from main() to FreeRTOS scheduler
+
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam activity {
+  FontName Courier New
+  BorderColor #6C8EBF
+  BackgroundColor #F8F9FB
+  DiamondBorderColor #B85450
+  DiamondBackgroundColor #FDE2E2
+  StartColor #82B366
+  EndColor #82B366
+  BarColor #4E5B6A
+}
+
+start
+
+if (CY_DEVICE_SECURE build?) then (yes)
+  :Clear watchdog via cyhal_wdt_init();\ncyhal_wdt_free();
+endif
+
+:cybsp_init();
+:__enable_irq();
+:cy_retarget_io_init();
+:Print banner and active profile;
+:metrics_init();
+
+if (gateway_ipc_init() OK?) then (yes)
+else (no)
+  :Log "[SYS] FATAL: IPC init failed";
+  :CY_ASSERT(0);\nhalt in __WFI() loop;
+  stop
+endif
+
+if (buffer_mgr_init() OK?) then (yes)
+else (no)
+  :Log "[SYS] FATAL: Buffer manager init failed";
+  :CY_ASSERT(0);\nhalt in __WFI() loop;
+  stop
+endif
+
+:xTaskCreate(pmbus_poll_task);
+
+if (GW_DISABLE_MQTT defined?) then (yes)
+  :Print MQTT/buffer tasks suppressed;
+else (no)
+  :xTaskCreate(mqtt_gw_task);
+  :xTaskCreate(buffer_task);
+endif
+
+:xTaskCreate(blinky_task);
+:Print "starting scheduler";
+:vTaskStartScheduler();
+
+note right
+After scheduler start:
+- pmbus_poll_task performs pmbus_init()
+- mqtt_gw_task performs Wi-Fi/MQTT connect
+end note
+
+stop
+
+@enduml

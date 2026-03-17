@@ -1,0 +1,85 @@
+@startuml
+title MQTT publish and store-and-forward flow
+
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam activity {
+  FontName Courier New
+  BorderColor #9673A6
+  BackgroundColor #F8F9FB
+  DiamondBorderColor #B85450
+  DiamondBackgroundColor #FDE2E2
+  StartColor #82B366
+  EndColor #82B366
+  BarColor #4E5B6A
+}
+
+start
+
+repeat
+  :Drain telemetry/status/event queues;
+
+  while (Next IPC record available?) is (yes)
+    :Encode JSON and build MQTT topic;
+    if (Encode/topic build OK?) then (yes)
+      if (publish_json() success?) then (yes)
+        :metrics_inc_mqtt_pub_ok();\nupdate read-to-publish latency;
+      else (no)
+        :buffer_mgr_put(topic, payload);
+        if (RAM buffer full?) then (yes)
+          :Try flash_buffer_put(...)\noutside critical section;
+          if (Flash spill OK?) then (yes)
+            :Persist record in flash tier;
+          else (no)
+            if (drop_oldest policy enabled?) then (yes)
+              :Advance RAM tail and overwrite oldest record;
+            else (no)
+              :Drop newest record;
+            endif
+          endif
+        endif
+      endif
+    else (no)
+      :Skip malformed/oversized record;
+    endif
+  endwhile (queues drained)
+
+  if (Buffering enabled?) then (yes)
+    :Flush batch counter = 0;
+
+    while (Flash record available and batch not exhausted?) is (yes)
+      :flash_buffer_peek();
+      if (publish_json() success?) then (yes)
+        :flash_buffer_consume();\nflushed++;
+      else (no)
+        :Stop flush batch on first publish failure;
+        break
+      endif
+    endwhile (flash tier done)
+
+    while (RAM record available and batch not exhausted?) is (yes)
+      :buffer_mgr_peek();
+      if (publish_json() success?) then (yes)
+        :buffer_mgr_consume();\nflushed++;
+      else (no)
+        :Stop flush batch on first publish failure;
+        break
+      endif
+    endwhile (RAM tier done)
+  endif
+
+  if (Metrics publish due?) then (yes)
+    :Update buffer gauges and Wi-Fi RSSI;
+    :metrics_snapshot_and_reset();
+    :Encode metrics JSON;
+    if (Metrics publish OK?) then (yes)
+      :Continue main loop;
+    else (no)
+      :Log warning;\nmetrics are not buffered;
+    endif
+  endif
+
+  :vTaskDelay(QUEUE_POLL_TIMEOUT_MS);
+repeat while (Main MQTT loop active?) is (yes)
+
+@enduml

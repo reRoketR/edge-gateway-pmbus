@@ -171,6 +171,10 @@ void metrics_inc_telemetry_enqueued(void){ s_counters.telemetry_enqueued++;}
  ******************************************************************************/
 void metrics_set_buffer_depth_ram(uint32_t depth)   { s_gauges.buffer_depth_ram   = depth;    }
 void metrics_set_buffer_depth_flash(uint32_t depth) { s_gauges.buffer_depth_flash = depth;    }
+void metrics_set_telemetry_queue_depth(uint32_t depth)
+{
+    s_gauges.telemetry_queue_depth = depth;
+}
 void metrics_set_wifi_rssi(int32_t rssi_dbm)        { s_gauges.wifi_rssi_dbm      = rssi_dbm; }
 
 /*******************************************************************************
@@ -352,10 +356,12 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
     M_PRINTF(",\"gauges\":{"
              "\"buffer_depth_ram\":%u,"
              "\"buffer_depth_flash\":%u,"
+             "\"telemetry_queue_depth\":%u,"
              "\"wifi_rssi_dbm\":%d,"
              "\"uptime_s\":%u}",
              (unsigned)snap->gauges.buffer_depth_ram,
              (unsigned)snap->gauges.buffer_depth_flash,
+             (unsigned)snap->gauges.telemetry_queue_depth,
              (int)snap->gauges.wifi_rssi_dbm,
              (unsigned)snap->gauges.uptime_s);
 

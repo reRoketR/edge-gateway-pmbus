@@ -66,6 +66,9 @@ QueueHandle_t gateway_ipc_status_queue(void);
 /** Queue of event_record_t items (producer: any task) */
 QueueHandle_t gateway_ipc_event_queue(void);
 
+/** Current telemetry queue depth (0 if queue is not initialised yet). */
+uint32_t gateway_ipc_telemetry_queue_depth(void);
+
 /*******************************************************************************
  * MQTT state flag
  ******************************************************************************/

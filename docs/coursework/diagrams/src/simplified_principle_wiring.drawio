@@ -1,0 +1,46 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36" version="29.6.1">
+  <diagram id="principle-01" name="wiring">
+    <mxGraphModel dx="817" dy="462" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="CY8CKIT-062S2-43012&#xa;(Gateway Master)" vertex="1">
+          <mxGeometry height="220" width="320" x="85" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="KIT_PSC3M5_EVK&#xa;(PMBus Slave 0x58)" vertex="1">
+          <mxGeometry height="220" width="320" x="610" y="220" as="geometry" />
+        </mxCell>
+        <mxCell id="4" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;" value="P6_0 / SCB3_SCL" vertex="1">
+          <mxGeometry height="24" width="190" x="150" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="5" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;" value="P6_1 / SCB3_SDA" vertex="1">
+          <mxGeometry height="24" width="190" x="150" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="6" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;" value="GND" vertex="1">
+          <mxGeometry height="24" width="70" x="150" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="7" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;" value="P9_0 / SCB0_SCL" vertex="1">
+          <mxGeometry height="24" width="190" x="640" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="8" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;" value="P9_2 / SCB0_SDA" vertex="1">
+          <mxGeometry height="24" width="190" x="640" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="9" parent="1" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;" value="GND" vertex="1">
+          <mxGeometry height="24" width="70" x="640" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="10" edge="1" parent="1" source="4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" target="7" value="SCL">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="11" edge="1" parent="1" source="5" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" target="8" value="SDA">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="12" edge="1" parent="1" source="6" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" target="9" value="GND">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Pull-up resistors to 3.3V on SCL/SDA lines" vertex="1">
+          <mxGeometry height="70" width="360" x="350" y="500" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
