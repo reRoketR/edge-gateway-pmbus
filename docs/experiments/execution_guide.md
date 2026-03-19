@@ -32,21 +32,21 @@ make program TOOLCHAIN=GCC_ARM CONFIG=Debug GW_PROFILE=exp1_single
 
 # 2. Start capture (90 seconds)
 cd scripts/capture
-python capture.py --broker 192.168.1.2 --duration 90 --out ../logs/exp1_single
+python capture.py --host <broker-host> --duration 90 --out-dir ../logs/exp1_single
 
 # 3. Generate plots
 cd ../plot
-python plot.py --input ../logs/exp1_single --out ../logs/exp1_single
+python plot.py --log-dir ../logs/exp1_single --out-dir ../logs/exp1_single
 
 # 4. Repeat with exp1_fast profile (2 devices, 100ms poll)
 cd ../..
 make program TOOLCHAIN=GCC_ARM CONFIG=Debug GW_PROFILE=exp1_fast
 
 cd scripts/capture
-python capture.py --broker 192.168.1.2 --duration 90 --out ../logs/exp1_fast
+python capture.py --host <broker-host> --duration 90 --out-dir ../logs/exp1_fast
 
 cd ../plot
-python plot.py --input ../logs/exp1_fast --out ../logs/exp1_fast
+python plot.py --log-dir ../logs/exp1_fast --out-dir ../logs/exp1_fast
 ```
 
 ### Expected Outputs
@@ -73,11 +73,11 @@ make program TOOLCHAIN=GCC_ARM CONFIG=Debug GW_PROFILE=exp2_throughput
 
 # 2. Capture for 120 seconds (stress test needs longer window)
 cd scripts/capture
-python capture.py --broker 192.168.1.2 --duration 120 --out ../logs/exp2_throughput
+python capture.py --host <broker-host> --duration 120 --out-dir ../logs/exp2_throughput
 
 # 3. Generate plots
 cd ../plot
-python plot.py --input ../logs/exp2_throughput --out ../logs/exp2_throughput
+python plot.py --log-dir ../logs/exp2_throughput --out-dir ../logs/exp2_throughput
 ```
 
 ### Key Metrics to Report
@@ -101,7 +101,7 @@ make program TOOLCHAIN=GCC_ARM CONFIG=Debug GW_PROFILE=exp3_offline
 
 # 2. Start long capture (300 seconds = 5 minutes)
 cd scripts/capture
-python capture.py --broker 192.168.1.2 --duration 300 --out ../logs/exp3_offline
+python capture.py --host <broker-host> --duration 300 --out-dir ../logs/exp3_offline
 
 # 3. At T=60s: Stop the MQTT broker to simulate outage
 #    (In a separate terminal)
@@ -125,7 +125,7 @@ docker-compose -f scripts/mqtt_broker/docker-compose.yml start
 
 # 9. Generate plots
 cd ../plot
-python plot.py --input ../logs/exp3_offline --out ../logs/exp3_offline
+python plot.py --log-dir ../logs/exp3_offline --out-dir ../logs/exp3_offline
 ```
 
 ### Key Metrics to Report
@@ -149,20 +149,20 @@ Compare PMBus read success rate with PEC (CRC-8) enabled vs disabled.
 make program TOOLCHAIN=GCC_ARM CONFIG=Debug
 
 cd scripts/capture
-python capture.py --broker 192.168.1.2 --duration 90 --out ../logs/exp4_pec_on
+python capture.py --host <broker-host> --duration 90 --out-dir ../logs/exp4_pec_on
 
 cd ../plot
-python plot.py --input ../logs/exp4_pec_on --out ../logs/exp4_pec_on
+python plot.py --log-dir ../logs/exp4_pec_on --out-dir ../logs/exp4_pec_on
 
 # 2. Build and flash with exp4_pec_off profile (PEC OFF)
 cd ../..
 make program TOOLCHAIN=GCC_ARM CONFIG=Debug GW_PROFILE=exp4_pec_off
 
 cd scripts/capture
-python capture.py --broker 192.168.1.2 --duration 90 --out ../logs/exp4_pec_off
+python capture.py --host <broker-host> --duration 90 --out-dir ../logs/exp4_pec_off
 
 cd ../plot
-python plot.py --input ../logs/exp4_pec_off --out ../logs/exp4_pec_off
+python plot.py --log-dir ../logs/exp4_pec_off --out-dir ../logs/exp4_pec_off
 ```
 
 ### Key Metrics to Report
@@ -186,11 +186,11 @@ make program TOOLCHAIN=GCC_ARM CONFIG=Debug
 
 # 2. Capture for 1800 seconds (30 minutes)
 cd scripts/capture
-python capture.py --broker 192.168.1.2 --duration 1800 --out ../logs/stability_30min
+python capture.py --host <broker-host> --duration 1800 --out-dir ../logs/stability_30min
 
 # 3. Generate plots
 cd ../plot
-python plot.py --input ../logs/stability_30min --out ../logs/stability_30min
+python plot.py --log-dir ../logs/stability_30min --out-dir ../logs/stability_30min
 ```
 
 ### Pass Criteria

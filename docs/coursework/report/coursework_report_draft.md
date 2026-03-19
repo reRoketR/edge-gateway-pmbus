@@ -27,13 +27,30 @@
 
 ## ПЕРЕЛІК СКОРОЧЕНЬ
 
-- МПС - мікропроцесорна система
-- RTOS - real-time operating system
-- PMBus - power management bus
-- SMBus - system management bus
+- API - application programming interface
+- BSP - board support package
+- CRC - cyclic redundancy check
+- FIFO - first in, first out
+- Flash - флеш-пам'ять
+- Gateway - шлюз
+- FreeRTOS - free and open-source real-time operating system kernel
+- HAL - hardware abstraction layer
+- I2C - inter-integrated circuit
 - IPC - inter-process communication
-- QoS - quality of service
+- JSON - JavaScript Object Notation
+- MQTT - message queuing telemetry transport
 - PEC - packet error checking
+- PDL - peripheral driver library
+- PMBus - power management bus
+- PSoC - programmable system-on-chip
+- QoS - quality of service
+- RAM - random access memory
+- RTOS - real-time operating system
+- SCB - serial communication block
+- SMBus - system management bus
+- UART - universal asynchronous receiver-transmitter
+- Wi-Fi - wireless fidelity
+- МПС - мікропроцесорна система
 
 
 ## ТЕХНІЧНЕ ЗАВДАННЯ
@@ -1272,7 +1289,7 @@ status/events, QoS `0` для metrics, RAM-буфер на `256` записів 
     .pec_enabled  = true,
 },
 .mqtt = {
-    .host         = "172.20.10.3",
+    .host         = "BROKER_HOST",
     .port         = 1883,
     .qos_telemetry = 0,
     .qos_control   = 1,

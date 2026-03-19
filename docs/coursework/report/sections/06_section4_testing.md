@@ -82,7 +82,7 @@ status/events, QoS `0` для metrics, RAM-буфер на `256` записів 
     .pec_enabled  = true,
 },
 .mqtt = {
-    .host         = "172.20.10.3",
+    .host         = "BROKER_HOST",
     .port         = 1883,
     .qos_telemetry = 0,
     .qos_control   = 1,

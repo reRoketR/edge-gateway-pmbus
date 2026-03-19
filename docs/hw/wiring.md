@@ -116,7 +116,7 @@ The CY8CKIT-062S2-43012 connects to the local Wi-Fi network via the on-board CYW
 |-----------|-------|
 | Band | 2.4 GHz |
 | Security | WPA2-PSK (configured in `wifi_config.h`) |
-| MQTT broker | 192.168.1.2:1883 (Mosquitto on host PC) |
+| MQTT broker | `<broker-host>:1883` (Mosquitto on host PC) |
 
 ---
 

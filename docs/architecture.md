@@ -26,7 +26,7 @@ This document describes the hardware, firmware, and data-flow architecture of th
                               ┌──────────────────────────┐
                               │   PC / Laptop            │
                               │   Mosquitto MQTT Broker  │
-                              │   192.168.1.2:1883       │
+                              │   broker-host:1883       │
                               │                          │
                               │   capture.py → JSONL     │
                               │   plot.py    → PNG       │
@@ -239,7 +239,7 @@ make build GW_PROFILE=exp4_pec_off
 
 At boot, `config_print_boot_banner()` logs all active parameters:
 ```
-[SYS] profile=default  pec=1  mqtt=172.20.10.3:1883  q_telem=0  q_ctrl=1  q_metrics=0
+[SYS] profile=default  pec=1  mqtt=broker-host:1883  q_telem=0  q_ctrl=1  q_metrics=0
 [SYS] i2c: speed=100000  timeout=20ms  retries=2  recovery=0
 [SYS] buffer: enabled=1  ram=256  flash=0  batch=50  flush=200ms  drop_oldest=1
 [SYS] metrics_period=10000ms

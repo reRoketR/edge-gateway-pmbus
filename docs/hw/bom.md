@@ -61,7 +61,9 @@ Hardware components required to reproduce the PMBus↔MQTT Edge Gateway thesis e
 | 13 | Wi-Fi access point (2.4 GHz, WPA2) | Gateway connects wirelessly |
 | 14 | Ethernet or Wi-Fi for host PC | Host PC runs MQTT broker on LAN |
 
-The gateway board and host PC must be on the same LAN subnet. Default broker address: `192.168.1.2:1883`.
+The gateway board and host PC must be on the same LAN subnet. The broker host is
+deployment-specific; use your local Mosquitto host and port, typically
+`<broker-host>:1883`.
 
 ---
 

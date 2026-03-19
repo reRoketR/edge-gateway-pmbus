@@ -13,7 +13,7 @@ Designed for thesis-grade reproducible experiments on industrial bus monitoring.
 ```
 ├── rtos_test/              Gateway firmware (PSoC 62, FreeRTOS)
 │   ├── Makefile            ModusToolbox build (APPNAME=pmbus-mqtt-gateway)
-│   ├── main.c              Entry point, task creation
+│   ├── source/main.c       Entry point, task creation
 │   ├── source/             All gateway modules (.c/.h)
 │   ├── tests/              Host-side unit tests
 │   ├── configs/            Wi-Fi credentials (git-ignored)
@@ -21,13 +21,14 @@ Designed for thesis-grade reproducible experiments on industrial bus monitoring.
 │
 ├── target_proj/            PMBus target simulator (PSC3, bare-metal)
 │   ├── Makefile            ModusToolbox build (APPNAME=pmbus-target-simulator)
-│   ├── main.c              Simulates 12 PMBus registers at addr 0x58
+│   ├── main.c              PMBus target simulator entry point (addr 0x58)
 │   └── imports/            mtb-pmbus middleware config
 │
 ├── scripts/                Python tooling
 │   ├── capture/capture.py  MQTT → JSONL log capture
 │   ├── plot/plot.py        JSONL → PNG experiment plots
 │   ├── mqtt_broker/        Mosquitto config
+│   ├── dashboard/          Static live dashboard
 │   └── requirements.txt    Python dependencies
 │
 ├── docs/                   Project & experiment documentation
@@ -89,7 +90,8 @@ make build TOOLCHAIN=GCC_ARM CONFIG=Debug
 make program
 ```
 
-Verify on UART: `PMBus slave ready at address 0x58`
+Verify on UART that the target banner appears and ends with:
+`[TARGET] Waiting for controller reads...`
 
 ### 4. Flash the Gateway
 
@@ -101,7 +103,7 @@ make program
 
 Verify on UART:
 ```
-[SYS] profile=default  pec=1  mqtt=172.20.10.3:1883  q_telem=0  q_ctrl=1  q_metrics=0
+[SYS] profile=default  pec=1  mqtt=broker-host:1883  q_telem=0  q_ctrl=1  q_metrics=0
 [SYS] i2c: speed=100000  timeout=20ms  retries=2  recovery=0
 [SYS] buffer: enabled=1  ram=256  flash=0  batch=50  flush=200ms  drop_oldest=1
 [SYS] metrics_period=10000ms
@@ -118,7 +120,7 @@ mosquitto -c scripts/mqtt_broker/mosquitto.conf
 
 Or with a minimal local config:
 ```
-listener 1883 0.0.0.0
+listener 1883
 allow_anonymous true
 ```
 
@@ -126,7 +128,7 @@ allow_anonymous true
 
 ```bash
 pip install -r scripts/requirements.txt
-python scripts/capture/capture.py --host 192.168.1.2 --duration 60
+python scripts/capture/capture.py --host <broker-host> --duration 60
 ```
 
 Output: `logs/<timestamp>/` with `telemetry.jsonl`, `status.jsonl`, `metrics.jsonl`, `events.jsonl`
@@ -155,8 +157,8 @@ http://localhost:8080
 ```
 
 In the dashboard UI set:
-- Host: your broker host (for example `192.168.1.2`)
-- WS Port: your broker WebSocket port (for example `9001`)
+- Host: your broker host name or LAN IP
+- WS Port: your broker WebSocket port (commonly `9001`)
 - WS Path: broker WebSocket path (typically `/mqtt`)
 - GW ID: gateway id (default `gw01`)
 - TLS: OFF for local `ws://`, ON only when broker is configured for `wss://`
@@ -209,7 +211,9 @@ Full payload schemas: [`docs/mqtt_topics.md`](docs/mqtt_topics.md)
 
 ## Architecture
 
-Four FreeRTOS tasks on the gateway:
+The gateway runtime uses four FreeRTOS tasks. The diagram below shows the three
+functional pipeline tasks; the low-priority `blinky_task` heartbeat is omitted
+for clarity.
 
 ```
 ┌─────────────────┐     ┌──────────────┐     ┌──────────────┐
@@ -255,6 +259,10 @@ make test
 
 Runs `test_buffer_ring`, `test_pmbus_decode`, and `test_json_encode` with
 `-Wall -Wextra -Werror`.
+
+On POSIX shells, `make test` works directly. On Windows PowerShell, the current
+Makefile test recipe may require MSYS2 bash or manual execution of the built
+`*.exe` test binaries.
 
 ---
 

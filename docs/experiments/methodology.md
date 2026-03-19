@@ -11,7 +11,7 @@ This document defines the general methodology shared by all four experiments.
 | Gateway | CY8CKIT-062S2-43012 | PSoC 62 (CM4 @ 150 MHz) | Wi-Fi via CYW43012 |
 | Target A | KIT_PSC3M5_EVK | PSC3 (CM33) | PMBus slave addr **0x58** |
 | Target B | KIT_PSC3M5_EVK | PSC3 (CM33) | PMBus slave addr **0x59** (optional) |
-| Broker | Windows PC | — | Mosquitto 2.1.2 at 192.168.1.2:1883 |
+| Broker | Windows PC | — | Mosquitto 2.1.2 at `<broker-host>:1883` |
 
 ### Wiring (I²C / SMBus)
 
@@ -68,14 +68,14 @@ mosquitto -c mosquitto_dev.conf
 Configuration (`mosquitto_dev.conf`):
 
 ```
-listener 1883 0.0.0.0
+listener 1883
 allow_anonymous true
 ```
 
 ### Capture Script
 
 ```bash
-python scripts/capture/capture.py --broker 192.168.1.2 --duration 300 --out-dir scripts/logs/<experiment>/
+python scripts/capture/capture.py --host <broker-host> --duration 300 --out-dir scripts/logs/<experiment>/
 ```
 
 This subscribes to all four topic patterns and writes:
@@ -132,7 +132,7 @@ based on `ts_ms` range if needed.
 Before each experiment run:
 
 - [ ] Correct profile flashed on gateway (verify boot banner)
-- [ ] Target(s) flashed and responding (verify UART "PMBus slave ready")
+- [ ] Target(s) flashed and responding (verify UART target banner and controller-read wait message)
 - [ ] Broker running and reachable (`mosquitto_pub -t test -m hello`)
 - [ ] Capture script started before gateway power-on
 - [ ] Previous log directory backed up or cleared
