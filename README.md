@@ -141,36 +141,42 @@ python scripts/plot/plot.py --log-dir logs/<timestamp>
 
 Output: `latency.png`, `buffer.png`, `errors.png`, `throughput.png`, `telemetry.png`
 
-### 8. Run Live Dashboard Locally
+### 8. Choose Data Source
 
-The dashboard is a static web app in `scripts/dashboard/index.html`.
+To see data on the dashboard, you need a source publishing to the MQTT broker.
 
+#### Option A: Real Hardware (Recommended)
+Follow **steps 1-5** of this guide to flash the PSoC boards and start the gateway. This provides real-time sensor data from the hardware.
+
+#### Option B: Mock Simulator (Alternative)
+If you don't have the hardware ready, you can simulate it (Step 5 broker still required):
 ```bash
 cd scripts/dashboard
-python -m http.server 8080
+python mock_gateway.py
 ```
 
-Open in browser:
+### 9. Launch the Web UI
 
-```text
-http://localhost:8080
-```
+The dashboard is a static web app located in `scripts/dashboard/index.html`.
 
-In the dashboard UI set:
-- Host: your broker host name or LAN IP
-- WS Port: your broker WebSocket port (commonly `9001`)
-- WS Path: broker WebSocket path (typically `/mqtt`)
-- GW ID: gateway id (default `gw01`)
-- TLS: OFF for local `ws://`, ON only when broker is configured for `wss://`
+1. **Serve the files**:
+   ```bash
+   cd scripts/dashboard
+   python -m http.server 8080
+   ```
+2. **Open in browser**: [http://localhost:8080](http://localhost:8080)
+3. **Configure & Connect**: 
+   Click **Settings** and use:
+   - **Host**: `127.0.0.1` (or your broker IP)
+   - **WS Port**: `9001` (Mosquitto default)
+   - **WS Path**: `/mqtt`
+   - **GW ID**: `gw01`
+   - Then click **Connect** to see live telemetry and charts.
 
-Then click **Connect** and verify live updates in charts and event log.
-
-Troubleshooting:
-- If the page loads but no data appears, verify broker WebSocket listener and topic path.
-- If browser reports mixed-content or secure WebSocket errors, use matching protocol:
-  - local HTTP page -> `ws://`
-  - HTTPS page (GitHub Pages/Vercel/Netlify) -> `wss://`
-- If connected but empty charts, check gateway topic prefix and GW ID match.
+#### Troubleshooting
+- **No data appears**: Verify broker WebSocket listener and topic path.
+- **WebSocket errors**: Ensure protocol match (HTTP page → `ws://`, HTTPS → `wss://`).
+- **Empty charts**: Check gateway topic prefix and GW ID match.
 
 ---
 
