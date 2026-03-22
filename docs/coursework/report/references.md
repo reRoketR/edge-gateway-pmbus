@@ -57,3 +57,19 @@
     (PSOC 62S2 Wi-Fi BT Pioneer Kit). URL:
     https://www.infineon.com/evaluation-board/CY8CKIT-062S2-43012
     (дата звернення: 15.03.2026).
+16. Total Phase. Aardvark I2C/SPI Host Adapter. URL:
+    https://www.totalphase.com/products/aardvark-i2cspi/
+    (дата звернення: 22.03.2026).
+17. Total Phase. Beagle I2C/SPI Protocol Analyzer. URL:
+    https://www.totalphase.com/products/beagle-i2cspi/
+    (дата звернення: 22.03.2026).
+18. Texas Instruments. FUSION_DIGITAL_POWER_DESIGNER Application software
+    & framework. URL:
+    https://www.ti.com/tool/FUSION_DIGITAL_POWER_DESIGNER
+    (дата звернення: 22.03.2026).
+19. The Linux Kernel Documentation. Kernel driver pmbus. URL:
+    https://docs.kernel.org/hwmon/pmbus.html
+    (дата звернення: 22.03.2026).
+20. HiveMQ. HiveMQ Edge: Software-based edge MQTT gateway. URL:
+    https://www.hivemq.com/products/hivemq-edge/
+    (дата звернення: 22.03.2026).

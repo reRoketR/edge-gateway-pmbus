@@ -14,7 +14,6 @@ Candidate:
 | Explanatory note PDF | `report/coursework_report.pdf` | [ ] |
 | Source code | `source/rtos_test/` | [ ] |
 | Functional scheme PDF | `graphics/functional_electrical_scheme.pdf` | [ ] |
-| Principle wiring PDF | `graphics/simplified_principle_wiring.pdf` | [ ] |
 | UML component PDF | `graphics/uml_component.pdf` | [ ] |
 | UML sequence PDF | `graphics/uml_sequence_pmbus_to_mqtt.pdf` | [ ] |
 | Init flowchart PDF | `graphics/flow_init_main_to_scheduler.pdf` | [ ] |

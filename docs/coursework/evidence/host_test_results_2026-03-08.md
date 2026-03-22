@@ -38,7 +38,7 @@ Console summary:
 
 Result:
 
-- `66 passed`
+- `68 passed`
 - `0 failed`
 
 Console summary:
@@ -46,7 +46,7 @@ Console summary:
 ```text
 === JSON Encoding & Metrics Unit Tests ===
 ...
-=== Results: 66 passed, 0 failed, 66 total ===
+=== Results: 68 passed, 0 failed, 68 total ===
 ```
 
 ## Consolidated status

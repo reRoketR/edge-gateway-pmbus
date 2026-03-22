@@ -1,0 +1,56 @@
+@startuml
+title Functional electrical scheme of PMBus-MQTT gateway
+
+left to right direction
+skinparam shadowing false
+skinparam monochrome true
+skinparam defaultTextAlignment center
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+skinparam linetype ortho
+skinparam dpi 180
+skinparam nodesep 40
+skinparam ranksep 55
+
+skinparam rectangle {
+  BorderThickness 1
+  RoundCorner 6
+}
+
+skinparam package {
+  BorderThickness 1
+}
+
+rectangle "PMBus target #1\nKIT_PSC3M5_EVK\naddr 0x58" as target1
+rectangle "PMBus target #2\nKIT_PSC3M5_EVK\naddr 0x59" as target2
+
+package "Gateway board\nCY8CKIT-062S2-43012" as gateway {
+  rectangle "CYW43012\nWi-Fi module" as wifi
+  rectangle "PSoC 6 MCU(CY8C624ABZI-S2D44)\nPMBus master" as mcu
+  rectangle "KitProg3\nUSB-UART / SWD" as kitprog
+
+  wifi -[hidden]down- mcu
+  mcu -[hidden]down- kitprog
+}
+
+rectangle "Wi-Fi AP / LAN" as ap
+rectangle "MQTT broker\nMosquitto" as broker
+rectangle "Engineering PC / laptop\nModusToolbox\ncapture.py / plot.py\ndashboard" as host
+
+target1 -[hidden]down- target2
+target2 -[hidden]right- gateway
+gateway -[hidden]right- ap
+ap -[hidden]right- broker
+gateway -[hidden]down- host
+broker -[hidden]down- host
+
+target1 --> mcu : I2C / SMBus
+target2 --> mcu : I2C / SMBus
+mcu --> wifi : internal interface
+wifi --> ap : Wi-Fi 2.4 GHz
+ap --> broker : TCP/IP + MQTT
+host --> broker : monitoring / capture
+host --> kitprog : USB debug / program
+kitprog --> mcu : UART / SWD
+
+@enduml

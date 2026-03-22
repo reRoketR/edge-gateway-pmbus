@@ -22,7 +22,6 @@
 ## Graphics
 
 - [ ] Functional scheme exported to PNG and PDF (A3).
-- [ ] Principle wiring scheme exported to PNG and PDF (A3).
 - [ ] UML component and sequence diagrams exported.
 - [ ] Flowcharts for polling, publish/flush, reconnect/backoff exported.
 

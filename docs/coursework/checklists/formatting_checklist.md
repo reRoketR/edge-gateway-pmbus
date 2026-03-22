@@ -32,7 +32,6 @@
 ## Graphics and appendices
 
 - [ ] Functional scheme is present.
-- [ ] Simplified principle wiring scheme is present.
 - [ ] UML diagrams are present.
 - [ ] Algorithm flowcharts are present.
 - [ ] Listings are moved to appendices.

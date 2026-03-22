@@ -9,7 +9,6 @@
 - [ ] Explanatory note (`.docx` or `.pdf`).
 - [ ] Firmware source code (gateway project).
 - [ ] Functional scheme (source + exported).
-- [ ] Principle wiring scheme (source + exported).
 - [ ] UML diagrams (source + exported).
 - [ ] Algorithm flowcharts (source + exported).
 - [ ] Testing evidence (logs/charts/screenshots).
