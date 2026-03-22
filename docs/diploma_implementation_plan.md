@@ -348,3 +348,13 @@ offset  field           size
    вважається overkill; повертатися до цієї ідеї має сенс уже в бакалаврській,
    якщо hot-plug/recovery robustness стане окремою ціллю. Деталі:
    `docs/smbus_timeout_recovery.md`.
+
+2. **Idle-bus timeout cooldown after successful SCB reset.**
+   Current PMBus hot-plug logs show that the hard lock is fixed and bus-low
+   hammering is reduced, but repeated `TIMEOUT` still happens on an apparently
+   idle bus (`scl=1`, `sda=1`) after `timeout-still-busy ->
+   controller-reset-after`. The follow-up task is to stop retrying the same
+   PMBus command after a successful idle-bus controller reset and/or arm a
+   short per-device cooldown before the next poll cycle. Goal: shorten the
+   remaining degraded tail after hot-plug events without reintroducing the
+   previous stuck-controller state.

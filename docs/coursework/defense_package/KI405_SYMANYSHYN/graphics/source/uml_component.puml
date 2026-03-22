@@ -1,0 +1,81 @@
+@startuml
+title Figure 2.1. UML component view of FreeRTOS tasks and IPC
+
+top to bottom direction
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam defaultTextAlignment center
+skinparam packageStyle rectangle
+skinparam BackgroundColor white
+skinparam ArrowColor #4E5B6A
+skinparam PackageBorderColor #4E5B6A
+skinparam PackageBackgroundColor #F8F9FB
+skinparam ComponentBorderColor #4E5B6A
+skinparam ComponentBackgroundColor #FFFFFF
+
+skinparam component {
+  FontName Courier New
+}
+
+skinparam package {
+  FontName Courier New
+}
+
+legend right
+  == Stereotypes ==
+  <<task>>       FreeRTOS task
+  <<module>>     firmware module
+  <<external>>   external system
+endlegend
+
+package "Gateway firmware (rtos_test)" {
+  component "main.c\nboot + init + task creation" as main <<module>>
+
+  package "Task layer" {
+    component "pmbus_poll_task\nTask A, prio 4" as poll <<task>>
+    component "mqtt_gw_task\nTask B, prio 3\nsingle MQTT publisher" as mqtt <<task>>
+    component "buffer_task\nTask C, prio 2\nbuffer housekeeping only" as buf_task <<task>>
+  }
+
+  package "Core services" {
+    component "PMBus stack\npmbus_master + pmbus_decode" as pmbus <<module>>
+    component "gateway_ipc\ntelemetry[64] + status[16] + event[16]\nseq + mqtt_online + time helpers" as ipc <<module>>
+    component "JSON contracts\ntelemetry + status + events" as json <<module>>
+    component "buffer_mgr\nRAM ring buffer" as ram_buf <<module>>
+    component "flash_buffer\noptional persistent tier" as flash_buf <<module>>
+    component "cy_wcm + cy_mqtt\nWi-Fi and MQTT middleware" as net <<module>>
+  }
+}
+
+component "PMBus target device\nslave PSU @ 0x58" as target <<external>>
+component "MQTT broker" as broker <<external>>
+
+poll -[hidden]right-> mqtt
+mqtt -[hidden]right-> buf_task
+pmbus -[hidden]right-> ipc
+ipc -[hidden]right-> json
+json -[hidden]right-> ram_buf
+ram_buf -[hidden]right-> flash_buf
+flash_buf -[hidden]right-> net
+target -[hidden]right-> broker
+
+main --> poll : xTaskCreate()
+main --> mqtt : xTaskCreate()
+main --> buf_task : xTaskCreate()
+
+poll --> pmbus : read + decode PMBus
+poll --> ipc : enqueue telemetry,\nstatus, events
+
+mqtt --> ipc : dequeue records,\nMQTT online state
+mqtt --> json : encode payloads
+mqtt --> ram_buf : put / peek / consume
+mqtt --> net : connect + publish
+
+buf_task --> ram_buf : depth housekeeping
+
+ram_buf --> flash_buf : spill when RAM is full
+flash_buf ..> mqtt : flash FIFO flushed first
+pmbus --> target : I2C / PMBus
+net --> broker : MQTT publish / reconnect
+
+@enduml

@@ -2,7 +2,7 @@
 
 ## Document-level
 
-- [ ] Language is Ukrainian.
+- [x] Language is Ukrainian.
 - [ ] Total volume is within 30-50 pages.
 - [ ] Main sections (1-4) occupy 30-45 pages.
 - [ ] Font is Times New Roman, size 14.
@@ -31,7 +31,7 @@
 
 ## Graphics and appendices
 
-- [ ] Functional scheme is present.
-- [ ] UML diagrams are present.
-- [ ] Algorithm flowcharts are present.
+- [x] Functional scheme is present.
+- [x] UML diagrams are present.
+- [x] Algorithm flowcharts are present.
 - [ ] Listings are moved to appendices.

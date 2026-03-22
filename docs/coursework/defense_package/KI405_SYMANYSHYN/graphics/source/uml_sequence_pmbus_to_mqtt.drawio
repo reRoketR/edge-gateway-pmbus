@@ -1,0 +1,77 @@
+<mxfile host="app.diagrams.net" modified="2026-03-08T12:03:00.000Z" agent="codex" version="24.7.17" type="device">
+  <diagram id="uml-seq-01" name="sequence">
+    <mxGraphModel dx="1800" dy="1200" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="2" value="PMBus Target" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="80" y="60" width="150" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="3" value="pmbus_poll_task" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="320" y="60" width="170" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="4" value="gateway_ipc queue" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="580" y="60" width="170" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="5" value="mqtt_gw_task" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="840" y="60" width="150" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="6" value="MQTT Broker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1090" y="60" width="150" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="7" value="" style="shape=line;strokeWidth=1;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="155" y="130" width="1" height="700" as="geometry"/>
+        </mxCell>
+        <mxCell id="8" value="" style="shape=line;strokeWidth=1;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="405" y="130" width="1" height="700" as="geometry"/>
+        </mxCell>
+        <mxCell id="9" value="" style="shape=line;strokeWidth=1;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="665" y="130" width="1" height="700" as="geometry"/>
+        </mxCell>
+        <mxCell id="10" value="" style="shape=line;strokeWidth=1;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="915" y="130" width="1" height="700" as="geometry"/>
+        </mxCell>
+        <mxCell id="11" value="" style="shape=line;strokeWidth=1;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1165" y="130" width="1" height="700" as="geometry"/>
+        </mxCell>
+        <mxCell id="20" value="read_word/read_byte" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="3" target="2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="21" value="raw response" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="2" target="3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="22" value="decode + build telemetry_record" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="3" target="4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="23" value="xQueueReceive()" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="5" target="4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="24" value="record payload" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="4" target="5">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="25" value="encode_telemetry_json" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="5" target="5">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="980" y="390"/>
+              <mxPoint x="980" y="430"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="26" value="publish(topic,payload)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="5" target="6">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="27" value="ACK / fail" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="6" target="5">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="28" value="if fail: buffer_mgr_put()" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="5" target="5">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="980" y="590"/>
+              <mxPoint x="980" y="630"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

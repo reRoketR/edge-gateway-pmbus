@@ -1,0 +1,124 @@
+@startuml
+title Figure 2.2. PMBus to MQTT store-and-forward sequence
+
+skinparam shadowing false
+skinparam responseMessageBelowArrow true
+skinparam sequenceMessageAlign center
+skinparam ParticipantPadding 20
+skinparam BoxPadding 10
+skinparam ArrowColor #4E5B6A
+skinparam LifeLineBorderColor #7C8A99
+skinparam LifeLineBackgroundColor #F8F9FB
+skinparam ParticipantBorderColor #4E5B6A
+skinparam ParticipantBackgroundColor #FFFFFF
+skinparam NoteBorderColor #8D99AE
+skinparam NoteBackgroundColor #FFF6D5
+
+skinparam participant {
+  FontName Courier New
+}
+
+autonumber
+
+actor "PMBus target" as target
+participant "pmbus_poll_task" as poll
+collections "gateway_ipc\ntelemetry_queue" as tq
+participant "mqtt_gw_task" as mqtt
+database "buffer_mgr\nRAM ring" as ram
+database "flash_buffer\npersistent tier" as flash
+participant "MQTT broker" as broker
+
+== Hot path: PMBus read -> queue -> JSON -> MQTT ==
+
+loop periodic polling cycle
+  poll -> target : read_word() / read_byte()
+  target --> poll : raw register values
+  poll -> poll : decode + build telemetry_record_t
+  poll -> tq : xQueueSend(rec)
+end
+
+loop queue drain in single publisher
+  mqtt -> tq : xQueueReceive()
+  tq --> mqtt : telemetry_record_t
+  mqtt -> mqtt : encode_telemetry_json()\nbuild_device_topic()
+  mqtt -> broker : publish_json(topic, payload)
+
+  alt publish succeeds
+    broker --> mqtt : PUBACK / success
+  else publish fails or link is down
+    broker --> mqtt : timeout / fail
+    mqtt -> ram : buffer_mgr_put(topic, payload)
+
+    opt RAM full and flash tier enabled
+      ram -> flash : flash_buffer_put(topic, payload)
+      flash --> ram : persisted
+    end
+  end
+end
+
+== Recovery path: outage -> buffer -> reconnect -> flush ==
+
+note over mqtt
+Reconnect uses exponential backoff.
+Flushing starts only after MQTT is online again.
+end note
+
+loop reconnect attempts until broker is online
+  mqtt -> mqtt : backoff_wait()
+  mqtt -> broker : reconnect()
+
+  alt reconnect succeeds
+    broker --> mqtt : CONNACK
+  else reconnect fails
+    broker --> mqtt : error
+  end
+end
+
+group Flush flash tier first
+  loop while flash_buffer_peek() returns data
+    mqtt -> flash : flash_buffer_peek()
+    flash --> mqtt : oldest buffered record
+    mqtt -> broker : publish_json(record)
+
+    alt publish succeeds
+      broker --> mqtt : PUBACK / success
+      mqtt -> flash : flash_buffer_consume()
+    else publish fails again
+      broker --> mqtt : timeout / fail
+      note over mqtt
+      stop current flush batch;
+      retry after next reconnect cycle
+      end note
+    end
+  end
+end
+
+group Flush RAM tier second
+  loop while buffer_mgr_peek() returns data
+    mqtt -> ram : buffer_mgr_peek()
+    ram --> mqtt : oldest RAM record
+    mqtt -> broker : publish_json(record)
+
+    alt publish succeeds
+      broker --> mqtt : PUBACK / success
+      mqtt -> ram : buffer_mgr_consume()
+    else publish fails again
+      broker --> mqtt : timeout / fail
+      note over mqtt
+      stop current flush batch;
+      retry after next reconnect cycle
+      end note
+    end
+  end
+end
+
+note right of mqtt
+Recovery order:
+1. flash FIFO
+2. RAM FIFO
+
+This preserves record ordering
+across prolonged outages.
+end note
+
+@enduml

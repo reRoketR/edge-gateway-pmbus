@@ -24,7 +24,7 @@ ModusToolbox для платформи PSoC 6. Такий вибір забез�
 Підпис: Рисунок 3.1 - Інтерфейс середовища розробки `Visual Studio Code` з
 розширенням `ModusToolbox Assistant` під час складання, запуску та
 відлагодження програмних модулів gateway.
-Файл: `docs/coursework/figures/vscode_modustoolbox_debug.png`.
+Файл: `docs/coursework/diagrams/exports/vscode_modustoolbox_debug.png`.
 
 У проєкті використано цільову плату `CY8CKIT-062S2-43012`, для якої в системі
 збирання явно задано відповідний BSP target. Компіляція виконується

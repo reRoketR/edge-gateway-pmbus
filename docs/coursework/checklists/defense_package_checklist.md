@@ -2,20 +2,20 @@
 
 ## Required package folder naming
 
-- [ ] Folder name format: `<group>_<surname>` using Latin letters/digits.
+- [x] Folder name format: `<group>_<surname>` using Latin letters/digits/underscore.
 
 ## Mandatory content
 
-- [ ] Explanatory note (`.docx` or `.pdf`).
-- [ ] Firmware source code (gateway project).
-- [ ] Functional scheme (source + exported).
-- [ ] UML diagrams (source + exported).
-- [ ] Algorithm flowcharts (source + exported).
-- [ ] Testing evidence (logs/charts/screenshots).
+- [x] Explanatory note (`.docx` or `.pdf`).
+- [x] Firmware source code (gateway project).
+- [x] Functional scheme (source + exported).
+- [x] UML diagrams (source + exported).
+- [x] Algorithm flowcharts (source + exported).
+- [x] Testing evidence (logs/charts/screenshots).
 
 ## Demonstration readiness
 
-- [ ] Build command prepared.
-- [ ] Test command prepared.
-- [ ] Screenshots from IDE/build/debug are included.
-- [ ] Oral explanation plan for each section is prepared.
+- [x] Build command prepared.
+- [x] Test command prepared.
+- [x] Screenshots from IDE/build/debug are included.
+- [x] Oral explanation plan for each section is prepared.
