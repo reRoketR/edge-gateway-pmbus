@@ -34,13 +34,17 @@
  * Return codes
  ******************************************************************************/
 typedef enum {
-    PMBUS_OK            = 0,    /**< Transaction completed successfully       */
-    PMBUS_ERR_NACK      = 1,    /**< Target NACKed (address or data)          */
-    PMBUS_ERR_TIMEOUT   = 2,    /**< Transaction timed out                    */
-    PMBUS_ERR_BUS       = 3,    /**< Bus error / arbitration lost             */
-    PMBUS_ERR_PEC       = 4,    /**< PEC (CRC-8) mismatch                    */
-    PMBUS_ERR_ARG       = 5,    /**< Invalid argument                        */
-    PMBUS_ERR_NOT_INIT  = 6,    /**< Driver not initialized                  */
+    PMBUS_OK                = 0,   /**< Transaction completed successfully    */
+    PMBUS_ERR_NACK          = 1,   /**< Target NACKed (address or data)       */
+    PMBUS_ERR_TIMEOUT       = 2,   /**< Transaction timed out                 */
+    PMBUS_ERR_ARB_LOST      = 3,   /**< Master lost bus arbitration           */
+    PMBUS_ERR_BUS_FAULT     = 4,   /**< SCB reported a bus-level fault        */
+    PMBUS_ERR_NOT_READY     = 5,   /**< SCB master refused to start transfer  */
+    PMBUS_ERR_RECOVERY_FAIL = 6,   /**< Bus-recovery procedure did not help   */
+    PMBUS_ERR_PEC           = 7,   /**< PEC (CRC-8) mismatch                  */
+    PMBUS_ERR_ARG           = 8,   /**< Invalid argument                      */
+    PMBUS_ERR_NOT_INIT      = 9,   /**< Driver not initialized                */
+    PMBUS_ERR_INIT          = 10,  /**< Driver/controller init failed         */
 } pmbus_status_t;
 
 /*******************************************************************************
@@ -57,7 +61,7 @@ typedef enum {
  * Must be called once before any pmbus_read_* or pmbus_write_* calls.
  * Uses configuration from g_config.i2c (speed_hz, timeout_ms, etc.).
  *
- * @return PMBUS_OK on success, PMBUS_ERR_BUS on failure.
+ * @return PMBUS_OK on success, PMBUS_ERR_INIT on controller init failure.
  */
 pmbus_status_t pmbus_init(void);
 
@@ -136,9 +140,22 @@ pmbus_status_t pmbus_send_byte(uint8_t addr_7bit, uint8_t cmd);
  * If SDA is stuck low (target holding the bus), toggling SCL can release it.
  * Called automatically by the retry logic when bus_recovery is enabled in config.
  *
- * @return PMBUS_OK if SDA is released, PMBUS_ERR_BUS if still stuck.
+ * @return PMBUS_OK if SDA is released, PMBUS_ERR_RECOVERY_FAIL if still stuck.
  */
 pmbus_status_t pmbus_bus_recovery(void);
+
+/**
+ * @brief Check whether the shared PMBus/I2C bus is in recovery backoff.
+ *
+ * The driver arms a short shared-bus backoff when the controller reset is
+ * skipped because SCL/SDA are not idle. Polling code can use this to defer
+ * new transactions instead of counting avoidable failures against devices.
+ *
+ * @param[out] out_remaining_ms Optional remaining backoff time in milliseconds.
+ *
+ * @return true if transactions should currently be deferred, false otherwise.
+ */
+bool pmbus_bus_backoff_active(uint32_t *out_remaining_ms);
 
 /*******************************************************************************
  * PEC utility (exposed for unit testing)

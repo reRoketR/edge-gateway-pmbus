@@ -58,6 +58,15 @@ static bool pmbus_initialized = false;
 /** Timeout for PDL high-level transfer, set from g_config at init */
 static uint32_t pmbus_timeout_ms;
 
+/** Give abort a short chance to complete before resetting the SCB block. */
+#define PMBUS_ABORT_SETTLE_MS (2u)
+
+/** Shared-bus backoff after a skipped controller reset on non-idle lines. */
+#define PMBUS_BUS_BACKOFF_MS  (500u)
+
+/** Global bus backoff deadline shared across all PMBus devices. */
+static TickType_t pmbus_bus_backoff_until = 0;
+
 /*******************************************************************************
  * ISR for SCB3 (PMBUS_CONTROLLER)
  ******************************************************************************/
@@ -74,6 +83,13 @@ static const cy_stc_sysint_t pmbus_scb3_irq_cfg = {
 /*******************************************************************************
  * Private helpers
  ******************************************************************************/
+static void read_i2c_pin_snapshot(uint32_t *scl_level, uint32_t *sda_level,
+                                  uint32_t *scl_hsiom, uint32_t *sda_hsiom);
+static void log_i2c_bus_snapshot(const char *tag, uint32_t scb_status);
+static void arm_bus_backoff(const char *reason);
+static void wait_for_bus_backoff(void);
+static bool wait_for_master_not_busy(uint32_t timeout_ms);
+static bool pmbus_reset_controller_if_idle(const char *reason);
 
 /**
  * @brief Wait for a PDL I2C master transfer to complete.
@@ -82,7 +98,8 @@ static const cy_stc_sysint_t pmbus_scb3_irq_cfg = {
  *   - transfer completes (no CY_SCB_I2C_MASTER_BUSY), or
  *   - timeout_ms elapses.
  *
- * @return PMBUS_OK, PMBUS_ERR_NACK, PMBUS_ERR_TIMEOUT, or PMBUS_ERR_BUS.
+ * @return PMBUS_OK, PMBUS_ERR_NACK, PMBUS_ERR_TIMEOUT, PMBUS_ERR_ARB_LOST,
+ *         or PMBUS_ERR_BUS_FAULT.
  */
 static pmbus_status_t wait_for_completion(uint32_t timeout_ms)
 {
@@ -102,11 +119,11 @@ static pmbus_status_t wait_for_completion(uint32_t timeout_ms)
             }
             if (status & CY_SCB_I2C_MASTER_ARB_LOST)
             {
-                return PMBUS_ERR_BUS;
+                return PMBUS_ERR_ARB_LOST;
             }
             if (status & CY_SCB_I2C_MASTER_BUS_ERR)
             {
-                return PMBUS_ERR_BUS;
+                return PMBUS_ERR_BUS_FAULT;
             }
             return PMBUS_OK;
         }
@@ -116,8 +133,21 @@ static pmbus_status_t wait_for_completion(uint32_t timeout_ms)
     }
 
     /* Timeout — abort the pending transfer */
+    log_i2c_bus_snapshot("timeout-before-abort",
+                         Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                                    &pmbus_i2c_ctx));
     Cy_SCB_I2C_MasterAbortWrite(PMBUS_CONTROLLER_HW, &pmbus_i2c_ctx);
     Cy_SCB_I2C_MasterAbortRead(PMBUS_CONTROLLER_HW, &pmbus_i2c_ctx);
+    log_i2c_bus_snapshot("timeout-after-abort",
+                         Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                                    &pmbus_i2c_ctx));
+    if (!wait_for_master_not_busy(PMBUS_ABORT_SETTLE_MS))
+    {
+        log_i2c_bus_snapshot("timeout-still-busy",
+                             Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                                        &pmbus_i2c_ctx));
+        (void)pmbus_reset_controller_if_idle("timeout");
+    }
     return PMBUS_ERR_TIMEOUT;
 }
 
@@ -129,9 +159,9 @@ static pmbus_status_t map_pdl_status(cy_en_scb_i2c_status_t pdl_st)
     switch (pdl_st)
     {
         case CY_SCB_I2C_SUCCESS:          return PMBUS_OK;
-        case CY_SCB_I2C_MASTER_NOT_READY: return PMBUS_ERR_BUS;
+        case CY_SCB_I2C_MASTER_NOT_READY: return PMBUS_ERR_NOT_READY;
         case CY_SCB_I2C_BAD_PARAM:        return PMBUS_ERR_ARG;
-        default:                          return PMBUS_ERR_BUS;
+        default:                          return PMBUS_ERR_BUS_FAULT;
     }
 }
 
@@ -139,15 +169,197 @@ static const char *pmbus_status_str(pmbus_status_t status)
 {
     switch (status)
     {
-        case PMBUS_OK:           return "OK";
-        case PMBUS_ERR_NACK:     return "NACK";
-        case PMBUS_ERR_TIMEOUT:  return "TIMEOUT";
-        case PMBUS_ERR_BUS:      return "BUS";
-        case PMBUS_ERR_PEC:      return "PEC";
-        case PMBUS_ERR_ARG:      return "ARG";
-        case PMBUS_ERR_NOT_INIT: return "NOT_INIT";
-        default:                 return "UNKNOWN";
+        case PMBUS_OK:                return "OK";
+        case PMBUS_ERR_NACK:          return "NACK";
+        case PMBUS_ERR_TIMEOUT:       return "TIMEOUT";
+        case PMBUS_ERR_ARB_LOST:      return "ARB_LOST";
+        case PMBUS_ERR_BUS_FAULT:     return "BUS_FAULT";
+        case PMBUS_ERR_NOT_READY:     return "NOT_READY";
+        case PMBUS_ERR_RECOVERY_FAIL: return "RECOVERY_FAIL";
+        case PMBUS_ERR_PEC:           return "PEC";
+        case PMBUS_ERR_ARG:           return "ARG";
+        case PMBUS_ERR_NOT_INIT:      return "NOT_INIT";
+        case PMBUS_ERR_INIT:          return "INIT";
+        default:                      return "UNKNOWN";
     }
+}
+
+static bool should_attempt_bus_recovery(pmbus_status_t status)
+{
+    return status == PMBUS_ERR_BUS_FAULT;
+}
+
+static bool should_attempt_controller_reset(pmbus_status_t status)
+{
+    return (status == PMBUS_ERR_TIMEOUT) || (status == PMBUS_ERR_NOT_READY);
+}
+
+static void arm_bus_backoff(const char *reason)
+{
+    TickType_t backoff_ticks = pdMS_TO_TICKS(PMBUS_BUS_BACKOFF_MS);
+    TickType_t now = xTaskGetTickCount();
+    TickType_t new_deadline;
+
+    if (backoff_ticks == 0u)
+    {
+        backoff_ticks = 1u;
+    }
+
+    new_deadline = now + backoff_ticks;
+    if ((int32_t)(new_deadline - pmbus_bus_backoff_until) > 0)
+    {
+        pmbus_bus_backoff_until = new_deadline;
+        printf("[PMBUS] WARN: shared-bus backoff %lu ms after %s\n",
+               (unsigned long)PMBUS_BUS_BACKOFF_MS,
+               reason);
+    }
+}
+
+static void read_i2c_pin_snapshot(uint32_t *scl_level, uint32_t *sda_level,
+                                  uint32_t *scl_hsiom, uint32_t *sda_hsiom)
+{
+    if (scl_level != NULL)
+    {
+        *scl_level = Cy_GPIO_Read(CYBSP_I2C_SCL_PORT, CYBSP_I2C_SCL_PIN);
+    }
+    if (sda_level != NULL)
+    {
+        *sda_level = Cy_GPIO_Read(CYBSP_I2C_SDA_PORT, CYBSP_I2C_SDA_PIN);
+    }
+    if (scl_hsiom != NULL)
+    {
+        *scl_hsiom = (uint32_t)Cy_GPIO_GetHSIOM(CYBSP_I2C_SCL_PORT,
+                                                CYBSP_I2C_SCL_PIN);
+    }
+    if (sda_hsiom != NULL)
+    {
+        *sda_hsiom = (uint32_t)Cy_GPIO_GetHSIOM(CYBSP_I2C_SDA_PORT,
+                                                CYBSP_I2C_SDA_PIN);
+    }
+}
+
+static void log_i2c_bus_snapshot(const char *tag, uint32_t scb_status)
+{
+    uint32_t scl_level;
+    uint32_t sda_level;
+    uint32_t scl_hsiom;
+    uint32_t sda_hsiom;
+
+    read_i2c_pin_snapshot(&scl_level, &sda_level, &scl_hsiom, &sda_hsiom);
+
+    printf("[PMBUS] BUS: %s scb=0x%08lX scl=%lu sda=%lu hsiom_scl=%lu "
+           "hsiom_sda=%lu\n",
+           tag,
+           (unsigned long)scb_status,
+           (unsigned long)scl_level,
+           (unsigned long)sda_level,
+           (unsigned long)scl_hsiom,
+           (unsigned long)sda_hsiom);
+}
+
+bool pmbus_bus_backoff_active(uint32_t *out_remaining_ms)
+{
+    TickType_t now;
+    TickType_t remaining_ticks;
+    uint32_t scl_level = 1u;
+    uint32_t sda_level = 1u;
+
+    now = xTaskGetTickCount();
+    if ((int32_t)(pmbus_bus_backoff_until - now) <= 0)
+    {
+        pmbus_bus_backoff_until = 0u;
+        if (out_remaining_ms != NULL)
+        {
+            *out_remaining_ms = 0u;
+        }
+        return false;
+    }
+
+    read_i2c_pin_snapshot(&scl_level, &sda_level, NULL, NULL);
+    if ((scl_level != 0u) && (sda_level != 0u))
+    {
+        pmbus_bus_backoff_until = 0u;
+        if (out_remaining_ms != NULL)
+        {
+            *out_remaining_ms = 0u;
+        }
+        return false;
+    }
+
+    remaining_ticks = pmbus_bus_backoff_until - now;
+    if (out_remaining_ms != NULL)
+    {
+        *out_remaining_ms = (uint32_t)remaining_ticks * portTICK_PERIOD_MS;
+        if ((*out_remaining_ms == 0u) && (remaining_ticks != 0u))
+        {
+            *out_remaining_ms = 1u;
+        }
+    }
+
+    return true;
+}
+
+static void wait_for_bus_backoff(void)
+{
+    uint32_t remaining_ms = 0u;
+
+    while (pmbus_bus_backoff_active(&remaining_ms))
+    {
+        (void)remaining_ms;
+        vTaskDelay(pdMS_TO_TICKS(1u));
+    }
+}
+
+static bool wait_for_master_not_busy(uint32_t timeout_ms)
+{
+    uint32_t elapsed = 0u;
+
+    while (elapsed < timeout_ms)
+    {
+        uint32_t scb_status = Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                                         &pmbus_i2c_ctx);
+        if (0u == (scb_status & CY_SCB_I2C_MASTER_BUSY))
+        {
+            return true;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1));
+        elapsed++;
+    }
+
+    return (0u == (Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                              &pmbus_i2c_ctx) &
+                    CY_SCB_I2C_MASTER_BUSY));
+}
+
+static bool pmbus_reset_controller_if_idle(const char *reason)
+{
+    uint32_t scl_level = 0u;
+    uint32_t sda_level = 0u;
+    uint32_t scb_status = Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                                     &pmbus_i2c_ctx);
+
+    read_i2c_pin_snapshot(&scl_level, &sda_level, NULL, NULL);
+    if ((scl_level == 0u) || (sda_level == 0u))
+    {
+        printf("[PMBUS] WARN: skip SCB reset after %s because bus is not idle\n",
+               reason);
+        log_i2c_bus_snapshot("controller-reset-skip", scb_status);
+        arm_bus_backoff(reason);
+        return false;
+    }
+
+    printf("[PMBUS] WARN: resetting SCB after %s\n", reason);
+    log_i2c_bus_snapshot("controller-reset-before", scb_status);
+    Cy_SCB_I2C_Disable(PMBUS_CONTROLLER_HW, &pmbus_i2c_ctx);
+    Cy_SCB_I2C_Enable(PMBUS_CONTROLLER_HW);
+    log_i2c_bus_snapshot("controller-reset-after",
+                         Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                                    &pmbus_i2c_ctx));
+
+    return (0u == (Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                              &pmbus_i2c_ctx) &
+                    CY_SCB_I2C_MASTER_BUSY));
 }
 
 static void log_i2c_error(const char *op, const char *phase,
@@ -155,8 +367,16 @@ static void log_i2c_error(const char *op, const char *phase,
                           uint8_t max_retries, pmbus_status_t result,
                           uint32_t scb_status)
 {
+    uint32_t scl_level;
+    uint32_t sda_level;
+    uint32_t scl_hsiom;
+    uint32_t sda_hsiom;
+
+    read_i2c_pin_snapshot(&scl_level, &sda_level, &scl_hsiom, &sda_hsiom);
+
     printf("[PMBUS] ERROR: %s %s addr=0x%02X cmd=0x%02X attempt=%u/%u "
-           "status=%s scb=0x%08lX\n",
+           "status=%s scb=0x%08lX scl=%lu sda=%lu hsiom_scl=%lu "
+           "hsiom_sda=%lu\n",
            op,
            phase,
            (unsigned)addr_7bit,
@@ -164,7 +384,11 @@ static void log_i2c_error(const char *op, const char *phase,
            (unsigned)(attempt + 1u),
            (unsigned)(max_retries + 1u),
            pmbus_status_str(result),
-           (unsigned long)scb_status);
+           (unsigned long)scb_status,
+           (unsigned long)scl_level,
+           (unsigned long)sda_level,
+           (unsigned long)scl_hsiom,
+           (unsigned long)sda_hsiom);
 }
 
 static void log_i2c_pdl_error(const char *op, const char *phase,
@@ -173,8 +397,16 @@ static void log_i2c_pdl_error(const char *op, const char *phase,
                               cy_en_scb_i2c_status_t pdl_st,
                               pmbus_status_t result)
 {
+    uint32_t scl_level;
+    uint32_t sda_level;
+    uint32_t scl_hsiom;
+    uint32_t sda_hsiom;
+
+    read_i2c_pin_snapshot(&scl_level, &sda_level, &scl_hsiom, &sda_hsiom);
+
     printf("[PMBUS] ERROR: %s %s addr=0x%02X cmd=0x%02X attempt=%u/%u "
-           "status=%s pdl=0x%02lX\n",
+           "status=%s pdl=0x%02lX scl=%lu sda=%lu hsiom_scl=%lu "
+           "hsiom_sda=%lu\n",
            op,
            phase,
            (unsigned)addr_7bit,
@@ -182,7 +414,11 @@ static void log_i2c_pdl_error(const char *op, const char *phase,
            (unsigned)(attempt + 1u),
            (unsigned)(max_retries + 1u),
            pmbus_status_str(result),
-           (unsigned long)pdl_st);
+           (unsigned long)pdl_st,
+           (unsigned long)scl_level,
+           (unsigned long)sda_level,
+           (unsigned long)scl_hsiom,
+           (unsigned long)sda_hsiom);
 }
 
 /*******************************************************************************
@@ -223,6 +459,7 @@ pmbus_status_t pmbus_init(void)
     }
 
     pmbus_timeout_ms = g_config.i2c.timeout_ms;
+    pmbus_bus_backoff_until = 0u;
 
     /* 1. Initialize SCB3 as I2C master using Device Configurator config */
     status = Cy_SCB_I2C_Init(PMBUS_CONTROLLER_HW, &PMBUS_CONTROLLER_config,
@@ -231,7 +468,7 @@ pmbus_status_t pmbus_init(void)
     {
         printf("[PMBUS] ERROR: Cy_SCB_I2C_Init failed (0x%02lX)\n",
                (unsigned long)status);
-        return PMBUS_ERR_BUS;
+        return PMBUS_ERR_INIT;
     }
 
     /* 2. Configure the clock divider for SCB3.
@@ -314,6 +551,7 @@ void pmbus_deinit(void)
     Cy_SCB_I2C_Disable(PMBUS_CONTROLLER_HW, &pmbus_i2c_ctx);
 
     pmbus_initialized = false;
+    pmbus_bus_backoff_until = 0u;
     printf("[PMBUS] De-initialized\n");
 }
 
@@ -323,6 +561,9 @@ void pmbus_deinit(void)
 pmbus_status_t pmbus_bus_recovery(void)
 {
     printf("[PMBUS] Bus recovery: toggling SCL 9 times\n");
+    log_i2c_bus_snapshot("recovery-start",
+                         Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                                    &pmbus_i2c_ctx));
 
     /*
      * Temporarily reconfigure SCL (P6_0) as GPIO output, toggle 9 times,
@@ -360,6 +601,9 @@ pmbus_status_t pmbus_bus_recovery(void)
 
     /* 2. Re-enable the I2C block */
     Cy_SCB_I2C_Enable(PMBUS_CONTROLLER_HW);
+    log_i2c_bus_snapshot("recovery-end",
+                         Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                                    &pmbus_i2c_ctx));
 
     /* Check if SDA is released (should be high) */
     uint32_t sda_val = Cy_GPIO_Read(CYBSP_I2C_SDA_PORT, CYBSP_I2C_SDA_PIN);
@@ -367,7 +611,7 @@ pmbus_status_t pmbus_bus_recovery(void)
     {
         printf("[PMBUS] Bus recovery FAILED: SDA still low\n");
         gateway_ipc_post_event(EVT_PMBUS_BUS_RECOVERY_FAIL, "SDA stuck low");
-        return PMBUS_ERR_BUS;
+        return PMBUS_ERR_RECOVERY_FAIL;
     }
 
     printf("[PMBUS] Bus recovery OK\n");
@@ -394,12 +638,13 @@ pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd,
 
     bool pec = g_config.i2c.pec_enabled;
     uint8_t max_retries = g_config.i2c.retries;
-    pmbus_status_t result = PMBUS_ERR_BUS;
+    pmbus_status_t result = PMBUS_ERR_BUS_FAULT;
 
     for (uint8_t attempt = 0; attempt <= max_retries; attempt++)
     {
         cy_en_scb_i2c_status_t pdl_st;
         uint32_t scb_status;
+        wait_for_bus_backoff();
 
         /* --- Phase 1: Write the command byte (no STOP — xferPending) --- */
         uint8_t cmd_buf[1] = { cmd };
@@ -418,6 +663,10 @@ pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd,
             log_i2c_pdl_error("read_word", "write-start",
                               addr_7bit, cmd, attempt, max_retries,
                               pdl_st, result);
+            if (should_attempt_controller_reset(result))
+            {
+                (void)pmbus_reset_controller_if_idle("read_word write-start");
+            }
             goto retry;
         }
 
@@ -450,6 +699,10 @@ pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd,
             log_i2c_pdl_error("read_word", "read-start",
                               addr_7bit, cmd, attempt, max_retries,
                               pdl_st, result);
+            if (should_attempt_controller_reset(result))
+            {
+                (void)pmbus_reset_controller_if_idle("read_word read-start");
+            }
             goto retry;
         }
 
@@ -494,8 +747,8 @@ pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd,
 retry:
         if (attempt < max_retries)
         {
-            /* If bus error and recovery enabled, try to recover */
-            if (result == PMBUS_ERR_BUS && g_config.i2c.bus_recovery)
+            /* Only a bus-level SCB fault should trigger SCL-based recovery. */
+            if (g_config.i2c.bus_recovery && should_attempt_bus_recovery(result))
             {
                 printf("[PMBUS] WARN: invoking bus recovery after read_word "
                        "addr=0x%02X cmd=0x%02X attempt=%u/%u\n",
@@ -534,12 +787,13 @@ pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd,
 
     bool pec = g_config.i2c.pec_enabled;
     uint8_t max_retries = g_config.i2c.retries;
-    pmbus_status_t result = PMBUS_ERR_BUS;
+    pmbus_status_t result = PMBUS_ERR_BUS_FAULT;
 
     for (uint8_t attempt = 0; attempt <= max_retries; attempt++)
     {
         cy_en_scb_i2c_status_t pdl_st;
         uint32_t scb_status;
+        wait_for_bus_backoff();
 
         /* --- Phase 1: Write the command byte (no STOP — xferPending) --- */
         uint8_t cmd_buf[1] = { cmd };
@@ -558,6 +812,10 @@ pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd,
             log_i2c_pdl_error("read_byte", "write-start",
                               addr_7bit, cmd, attempt, max_retries,
                               pdl_st, result);
+            if (should_attempt_controller_reset(result))
+            {
+                (void)pmbus_reset_controller_if_idle("read_byte write-start");
+            }
             goto retry_byte;
         }
 
@@ -590,6 +848,10 @@ pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd,
             log_i2c_pdl_error("read_byte", "read-start",
                               addr_7bit, cmd, attempt, max_retries,
                               pdl_st, result);
+            if (should_attempt_controller_reset(result))
+            {
+                (void)pmbus_reset_controller_if_idle("read_byte read-start");
+            }
             goto retry_byte;
         }
 
@@ -633,7 +895,7 @@ pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd,
 retry_byte:
         if (attempt < max_retries)
         {
-            if (result == PMBUS_ERR_BUS && g_config.i2c.bus_recovery)
+            if (g_config.i2c.bus_recovery && should_attempt_bus_recovery(result))
             {
                 printf("[PMBUS] WARN: invoking bus recovery after read_byte "
                        "addr=0x%02X cmd=0x%02X attempt=%u/%u\n",
@@ -662,12 +924,13 @@ pmbus_status_t pmbus_send_byte(uint8_t addr_7bit, uint8_t cmd)
     if (!pmbus_initialized) return PMBUS_ERR_NOT_INIT;
 
     uint8_t max_retries = g_config.i2c.retries;
-    pmbus_status_t result = PMBUS_ERR_BUS;
+    pmbus_status_t result = PMBUS_ERR_BUS_FAULT;
 
     for (uint8_t attempt = 0; attempt <= max_retries; attempt++)
     {
         cy_en_scb_i2c_status_t pdl_st;
         uint32_t scb_status;
+        wait_for_bus_backoff();
 
         uint8_t tx_buf[1] = { cmd };
         cy_stc_scb_i2c_master_xfer_config_t wr_cfg = {
@@ -685,6 +948,10 @@ pmbus_status_t pmbus_send_byte(uint8_t addr_7bit, uint8_t cmd)
             log_i2c_pdl_error("send_byte", "write-start",
                               addr_7bit, cmd, attempt, max_retries,
                               pdl_st, result);
+            if (should_attempt_controller_reset(result))
+            {
+                (void)pmbus_reset_controller_if_idle("send_byte write-start");
+            }
             goto send_retry;
         }
 
@@ -703,7 +970,7 @@ pmbus_status_t pmbus_send_byte(uint8_t addr_7bit, uint8_t cmd)
 send_retry:
         if (attempt < max_retries)
         {
-            if (result == PMBUS_ERR_BUS && g_config.i2c.bus_recovery)
+            if (g_config.i2c.bus_recovery && should_attempt_bus_recovery(result))
             {
                 printf("[PMBUS] WARN: invoking bus recovery after send_byte "
                        "addr=0x%02X cmd=0x%02X attempt=%u/%u\n",

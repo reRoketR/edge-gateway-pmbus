@@ -94,6 +94,9 @@ static void check_online_transition(const device_cfg_t *dev,
 static void log_poll_cycle_start(const device_cfg_t *dev,
                                  const device_state_t *state,
                                  uint32_t telemetry_depth);
+static bool should_abort_device_cycle(pmbus_status_t st);
+static bool defer_polls_for_bus_backoff(device_state_t *state,
+                                        TickType_t current);
 
 /*******************************************************************************
  * Task entry point
@@ -159,6 +162,11 @@ void pmbus_poll_task(void *pvParameters)
                 status_period *= OFFLINE_BACKOFF_MULT;
             }
 
+            if (defer_polls_for_bus_backoff(state, current))
+            {
+                continue;
+            }
+
             /* --- Telemetry poll --- */
             if ((int32_t)(current - state->next_telem_tick) >= 0)
             {
@@ -168,6 +176,11 @@ void pmbus_poll_task(void *pvParameters)
                 poll_telemetry(dev, state);
                 state->next_telem_tick = current +
                     pdMS_TO_TICKS(telem_period);
+            }
+
+            if (defer_polls_for_bus_backoff(state, current))
+            {
+                continue;
             }
 
             /* --- Status poll --- */
@@ -185,14 +198,50 @@ void pmbus_poll_task(void *pvParameters)
  * Telemetry polling — one full read cycle per device
  ******************************************************************************/
 
+static bool defer_polls_for_bus_backoff(device_state_t *state,
+                                        TickType_t current)
+{
+    uint32_t remaining_ms = 0u;
+    TickType_t defer_ticks;
+    TickType_t defer_until;
+
+    if (!pmbus_bus_backoff_active(&remaining_ms))
+    {
+        return false;
+    }
+
+    defer_ticks = pdMS_TO_TICKS(remaining_ms);
+    if ((defer_ticks == 0u) && (remaining_ms != 0u))
+    {
+        defer_ticks = 1u;
+    }
+
+    defer_until = current + defer_ticks;
+    if ((int32_t)(state->next_telem_tick - defer_until) < 0)
+    {
+        state->next_telem_tick = defer_until;
+    }
+    if ((int32_t)(state->next_status_tick - defer_until) < 0)
+    {
+        state->next_status_tick = defer_until;
+    }
+
+    return true;
+}
+
 /** Helper: read a single command byte, update counters, return true on success.
  *  Used for PMBus Read Byte commands: STATUS_VOUT (0x7A), STATUS_IOUT (0x7B),
  *  STATUS_TEMPERATURE (0x7D), etc. */
 static bool read_byte_cmd(uint8_t addr, uint8_t cmd, uint8_t *out,
-                          uint8_t *retries_total)
+                          uint8_t *retries_total,
+                          pmbus_status_t *out_status)
 {
     uint8_t retries_used = 0;
     pmbus_status_t st = pmbus_read_byte(addr, cmd, out, &retries_used);
+    if (out_status != NULL)
+    {
+        *out_status = st;
+    }
 
     /* Always account for actual retries consumed inside the driver */
     if (retries_total != NULL)
@@ -223,10 +272,15 @@ static bool read_byte_cmd(uint8_t addr, uint8_t cmd, uint8_t *out,
 
 /** Helper: read a single command word, update counters, return true on success */
 static bool read_cmd(uint8_t addr, uint8_t cmd, uint16_t *out,
-                     uint8_t *retries_total)
+                     uint8_t *retries_total,
+                     pmbus_status_t *out_status)
 {
     uint8_t retries_used = 0;
     pmbus_status_t st = pmbus_read_word(addr, cmd, out, &retries_used);
+    if (out_status != NULL)
+    {
+        *out_status = st;
+    }
 
     /* Always account for actual retries consumed inside the driver */
     if (retries_total != NULL)
@@ -254,6 +308,27 @@ static bool read_cmd(uint8_t addr, uint8_t cmd, uint16_t *out,
         default: break;
     }
     return false;
+}
+
+static bool should_abort_device_cycle(pmbus_status_t st)
+{
+    switch (st)
+    {
+        case PMBUS_ERR_TIMEOUT:
+        case PMBUS_ERR_NACK:
+        case PMBUS_ERR_ARB_LOST:
+        case PMBUS_ERR_BUS_FAULT:
+        case PMBUS_ERR_NOT_READY:
+        case PMBUS_ERR_RECOVERY_FAIL:
+        case PMBUS_ERR_NOT_INIT:
+        case PMBUS_ERR_INIT:
+            return true;
+        case PMBUS_OK:
+        case PMBUS_ERR_PEC:
+        case PMBUS_ERR_ARG:
+        default:
+            return false;
+    }
 }
 
 /*******************************************************************************
@@ -363,54 +438,76 @@ static void poll_telemetry(const device_cfg_t *dev, device_state_t *state)
     uint8_t total_retries = 0u;
     uint16_t raw;
     bool any_ok = false;
+    pmbus_status_t last_st = PMBUS_OK;
 
     /* READ_VIN (Linear11) */
-    if (read_cmd(addr, PMBUS_CMD_READ_VIN, &raw, &total_retries))
+    if (read_cmd(addr, PMBUS_CMD_READ_VIN, &raw, &total_retries, &last_st))
     {
         rec.raw_vin    = raw;
         rec.vin_mV     = pmbus_linear11_to_milli(raw);
         rec.valid_mask |= TELEM_VALID_VIN;
         any_ok = true;
     }
+    else if (should_abort_device_cycle(last_st))
+    {
+        goto telemetry_done;
+    }
 
     /* READ_VOUT (Linear16) */
-    if (read_cmd(addr, PMBUS_CMD_READ_VOUT, &raw, &total_retries))
+    if (read_cmd(addr, PMBUS_CMD_READ_VOUT, &raw, &total_retries, &last_st))
     {
         rec.raw_vout   = raw;
         rec.vout_mV    = pmbus_linear16_to_mv(raw, state->vout_exponent);
         rec.valid_mask |= TELEM_VALID_VOUT;
         any_ok = true;
     }
+    else if (should_abort_device_cycle(last_st))
+    {
+        goto telemetry_done;
+    }
 
     /* READ_IIN (Linear11) */
-    if (read_cmd(addr, PMBUS_CMD_READ_IIN, &raw, &total_retries))
+    if (read_cmd(addr, PMBUS_CMD_READ_IIN, &raw, &total_retries, &last_st))
     {
         rec.raw_iin    = raw;
         rec.iin_mA     = pmbus_linear11_to_milli(raw);
         rec.valid_mask |= TELEM_VALID_IIN;
         any_ok = true;
     }
+    else if (should_abort_device_cycle(last_st))
+    {
+        goto telemetry_done;
+    }
 
     /* READ_IOUT (Linear11) */
-    if (read_cmd(addr, PMBUS_CMD_READ_IOUT, &raw, &total_retries))
+    if (read_cmd(addr, PMBUS_CMD_READ_IOUT, &raw, &total_retries, &last_st))
     {
         rec.raw_iout   = raw;
         rec.iout_mA    = pmbus_linear11_to_milli(raw);
         rec.valid_mask |= TELEM_VALID_IOUT;
         any_ok = true;
     }
+    else if (should_abort_device_cycle(last_st))
+    {
+        goto telemetry_done;
+    }
 
     /* READ_TEMPERATURE_1 (Linear11) */
-    if (read_cmd(addr, PMBUS_CMD_READ_TEMPERATURE_1, &raw, &total_retries))
+    if (read_cmd(addr, PMBUS_CMD_READ_TEMPERATURE_1, &raw, &total_retries,
+                 &last_st))
     {
         rec.raw_temp1  = raw;
         rec.temp1_mC   = pmbus_linear11_to_milli(raw);
         rec.valid_mask |= TELEM_VALID_TEMP1;
         any_ok = true;
     }
+    else if (should_abort_device_cycle(last_st))
+    {
+        goto telemetry_done;
+    }
 
     /* READ_POUT (Linear11) */
-    if (read_cmd(addr, PMBUS_CMD_READ_POUT, &raw, &total_retries))
+    if (read_cmd(addr, PMBUS_CMD_READ_POUT, &raw, &total_retries, &last_st))
     {
         rec.raw_pout   = raw;
         rec.pout_mW    = pmbus_linear11_to_milli(raw);
@@ -418,6 +515,7 @@ static void poll_telemetry(const device_cfg_t *dev, device_state_t *state)
         any_ok = true;
     }
 
+telemetry_done:
     TickType_t t_end = xTaskGetTickCount();
     uint32_t read_ms = (uint32_t)(t_end - t_start) * portTICK_PERIOD_MS;
 
@@ -484,36 +582,51 @@ static void poll_status(const device_cfg_t *dev, device_state_t *state)
     memset(&rec, 0, sizeof(rec));
 
     uint16_t raw;
+    pmbus_status_t last_st = PMBUS_OK;
 
     /* STATUS_WORD (16-bit — Read Word) */
-    if (read_cmd(addr, PMBUS_CMD_STATUS_WORD, &raw, NULL))
+    if (read_cmd(addr, PMBUS_CMD_STATUS_WORD, &raw, NULL, &last_st))
     {
         rec.status_word = raw;
         rec.valid_mask |= STATUS_VALID_WORD;
     }
+    else if (should_abort_device_cycle(last_st))
+    {
+        goto status_done;
+    }
 
     /* STATUS_VOUT (8-bit — Read Byte) */
     uint8_t raw8;
-    if (read_byte_cmd(addr, PMBUS_CMD_STATUS_VOUT, &raw8, NULL))
+    if (read_byte_cmd(addr, PMBUS_CMD_STATUS_VOUT, &raw8, NULL, &last_st))
     {
         rec.status_vout = raw8;
         rec.valid_mask |= STATUS_VALID_VOUT;
     }
+    else if (should_abort_device_cycle(last_st))
+    {
+        goto status_done;
+    }
 
     /* STATUS_IOUT (8-bit — Read Byte) */
-    if (read_byte_cmd(addr, PMBUS_CMD_STATUS_IOUT, &raw8, NULL))
+    if (read_byte_cmd(addr, PMBUS_CMD_STATUS_IOUT, &raw8, NULL, &last_st))
     {
         rec.status_iout = raw8;
         rec.valid_mask |= STATUS_VALID_IOUT;
     }
+    else if (should_abort_device_cycle(last_st))
+    {
+        goto status_done;
+    }
 
     /* STATUS_TEMPERATURE (8-bit — Read Byte) */
-    if (read_byte_cmd(addr, PMBUS_CMD_STATUS_TEMPERATURE, &raw8, NULL))
+    if (read_byte_cmd(addr, PMBUS_CMD_STATUS_TEMPERATURE, &raw8, NULL,
+                      &last_st))
     {
         rec.status_temperature = raw8;
         rec.valid_mask |= STATUS_VALID_TEMP;
     }
 
+status_done:
     /* Don't queue empty status records when device is offline */
     if (rec.valid_mask == 0u)
     {
