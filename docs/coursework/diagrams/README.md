@@ -20,13 +20,12 @@ Store exports in:
 ## Required diagrams
 
 1. `functional_electrical_scheme.drawio`
-2. `simplified_principle_wiring.drawio`
-3. `uml_component.puml`
-4. `uml_sequence_pmbus_to_mqtt.puml`
-5. `flow_polling_loop.puml`
-6. `flow_publish_flush.puml`
-7. `flow_reconnect_backoff.puml`
-8. `flow_init_main_to_scheduler.puml`
+2. `uml_component.puml`
+3. `uml_sequence_pmbus_to_mqtt.puml`
+4. `flow_polling_loop.puml`
+5. `flow_publish_flush.puml`
+6. `flow_reconnect_backoff.puml`
+7. `flow_init_main_to_scheduler.puml`
 
 ## Notes
 
