@@ -4,7 +4,8 @@
  * Description: Metrics collection, ring buffer statistics, JSON encoding.
  *
  *              Architecture:
- *                - Delta counters: simple uint32 increments, reset on snapshot
+ *                - Delta counters: critical-section protected increments,
+ *                  reset on snapshot
  *                - Gauges: written by setter, read on snapshot
  *                - Timing: 3 ring buffers (read-to-pub, pmbus txn, mqtt pub)
  *                  Each holds METRICS_LATENCY_RING_SIZE samples.
@@ -149,22 +150,27 @@ void metrics_init(void)
 /*******************************************************************************
  * Counter increments
  ******************************************************************************/
-void metrics_inc_pmbus_reads_ok(void)    { s_counters.pmbus_reads_ok++;    }
-void metrics_inc_pmbus_reads_fail(void)  { s_counters.pmbus_reads_fail++;  }
-void metrics_inc_pmbus_retries(void)     { s_counters.pmbus_retries++;     }
-void metrics_inc_pmbus_timeouts(void)    { s_counters.pmbus_timeouts++;    }
-void metrics_inc_pmbus_nack(void)        { s_counters.pmbus_nack++;        }
-void metrics_inc_pmbus_pec_fail(void)    { s_counters.pmbus_crc_pec_fail++;}
-void metrics_inc_mqtt_pub_ok(void)       { s_counters.mqtt_pub_ok++;       }
-void metrics_inc_mqtt_pub_fail(void)     { s_counters.mqtt_pub_fail++;     }
-void metrics_inc_mqtt_reconnects(void)   { s_counters.mqtt_reconnects++;   }
-void metrics_inc_buffer_enqueued(void)   { s_counters.buffer_enqueued++;   }
-void metrics_inc_buffer_dequeued(void)   { s_counters.buffer_dequeued++;   }
-void metrics_inc_buffer_dropped(void)    { s_counters.buffer_dropped++;    }
-void metrics_inc_queue_drops(void)       { taskENTER_CRITICAL();
-                                           s_counters.queue_drops++;
-                                           taskEXIT_CRITICAL(); }
-void metrics_inc_telemetry_enqueued(void){ s_counters.telemetry_enqueued++;}
+static void counter_inc(volatile uint32_t *counter)
+{
+    taskENTER_CRITICAL();
+    (*counter)++;
+    taskEXIT_CRITICAL();
+}
+
+void metrics_inc_pmbus_reads_ok(void)    { counter_inc(&s_counters.pmbus_reads_ok);     }
+void metrics_inc_pmbus_reads_fail(void)  { counter_inc(&s_counters.pmbus_reads_fail);   }
+void metrics_inc_pmbus_retries(void)     { counter_inc(&s_counters.pmbus_retries);      }
+void metrics_inc_pmbus_timeouts(void)    { counter_inc(&s_counters.pmbus_timeouts);     }
+void metrics_inc_pmbus_nack(void)        { counter_inc(&s_counters.pmbus_nack);         }
+void metrics_inc_pmbus_pec_fail(void)    { counter_inc(&s_counters.pmbus_crc_pec_fail); }
+void metrics_inc_mqtt_pub_ok(void)       { counter_inc(&s_counters.mqtt_pub_ok);        }
+void metrics_inc_mqtt_pub_fail(void)     { counter_inc(&s_counters.mqtt_pub_fail);      }
+void metrics_inc_mqtt_reconnects(void)   { counter_inc(&s_counters.mqtt_reconnects);    }
+void metrics_inc_buffer_enqueued(void)   { counter_inc(&s_counters.buffer_enqueued);    }
+void metrics_inc_buffer_dequeued(void)   { counter_inc(&s_counters.buffer_dequeued);    }
+void metrics_inc_buffer_dropped(void)    { counter_inc(&s_counters.buffer_dropped);     }
+void metrics_inc_queue_drops(void)       { counter_inc(&s_counters.queue_drops);        }
+void metrics_inc_telemetry_enqueued(void){ counter_inc(&s_counters.telemetry_enqueued); }
 
 /*******************************************************************************
  * Gauge setters

@@ -9,8 +9,7 @@
  *   2. **Gauges** — point-in-time values (buffer depth, RSSI, uptime)
  *   3. **Timing** — ring buffer of latency samples for avg/p95/max
  *
- * The metrics module uses a single-writer pattern: only one task
- * calls the increment functions, so no mutex is required for counters.
+ * Counter increments use one shared critical-section policy for consistency.
  * The publish function atomically snapshots and resets counters.
  *
  * @see agent.md §7, docs/mqtt_topics.md §4.3
@@ -113,13 +112,11 @@ void metrics_init(void);
 /*******************************************************************************
  * Counter increment functions (called from various tasks)
  *
- * Most counters follow a single-writer pattern (one task per counter),
- * so bare ++ is safe on Cortex-M4 without additional synchronisation.
+ * All `metrics_inc_*()` functions use the same short critical section.
+ * This keeps the policy uniform across counters and avoids relying on
+ * task-topology assumptions for correctness.
  *
- * Exception: `metrics_inc_queue_drops()` may be called from both
- * pmbus_poll_task and mqtt_gw_task, so it uses a critical section.
- *
- * The snapshot/reset path (`metrics_snapshot_and_reset`) already uses a
+ * The snapshot/reset path (`metrics_snapshot_and_reset`) also uses a
  * critical section for the copy + clear, so no counter update is lost
  * across a window boundary.
  *****************************************************************************/

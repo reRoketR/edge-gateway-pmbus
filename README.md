@@ -238,6 +238,25 @@ Full design: [`docs/architecture.md`](docs/architecture.md)
 
 ---
 
+## Coursework Limitations
+
+The current repository is suitable for coursework and lab validation, but the
+current freeze deliberately leaves several production-level concerns unresolved:
+
+- During a long broker outage, live telemetry can still be lost if the
+  FreeRTOS telemetry queue fills before records are drained into the
+  store-and-forward buffer. The current coursework evidence validates normal
+  online operation; a controlled long outage/recovery stress run is still a
+  follow-up task.
+- The current I2C recovery path (`timeout`/`retry` plus optional `9x SCL`
+  recovery) is lab-grade and intended for single-master PMBus/SMBus setups. It
+  is not positioned as a robust hot-plug or multi-master recovery solution.
+- MQTT security is lab-only by default: plaintext transport, local Wi-Fi
+  credential headers, and development broker settings such as anonymous access
+  are acceptable for the coursework stand, but not for deployment.
+
+---
+
 ## Documentation
 
 | Document | Description |
