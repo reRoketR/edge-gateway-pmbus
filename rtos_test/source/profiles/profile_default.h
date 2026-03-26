@@ -38,7 +38,7 @@ static const device_cfg_t k_devices[] = {
 #define PROFILE_NAME   "default"
 
 #define PROFILE_CONFIG ((config_t){                                             \
-    .gw_id = "gw01",                                                           \
+    .gw_id = "thesis_gw01",                                                           \
                                                                                \
     .i2c = {                                                                   \
         .bus            = 0,                                                   \
@@ -50,10 +50,10 @@ static const device_cfg_t k_devices[] = {
     },                                                                         \
                                                                                \
     .mqtt = {                                                                  \
-        .host           = "172.20.10.3",                                      \
+        .host           = "broker.hivemq.com",                                      \
         .port           = 1883,                                                \
-        .client_id      = "pmbus-gw01",                                        \
-        .base_topic     = "pmbus/gw01",                                        \
+        .client_id      = "pmbus-thesis-gw01",                                        \
+        .base_topic     = "pmbus/thesis_gw01",                                        \
         .qos_telemetry  = 0,            /* latency-sensitive stream */          \
         .qos_control    = 1,            /* status/events must be reliable */    \
         .qos_metrics    = 0,            /* metrics: fire-and-forget */          \
