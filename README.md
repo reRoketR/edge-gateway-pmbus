@@ -161,7 +161,7 @@ The dashboard is a static web app hosted via GitHub Pages.
 
 #### Option A: Public Internet Broker
 If your gateway is connected to a public broker (e.g., HiveMQ Public):
-1. **Open in browser**: [https://reroketr.github.io/pmbus-dashboard/](https://reroketr.github.io/pmbus-dashboard/)
+1. **Open in browser**: [https://reroketr.github.io/edge-gateway-pmbus/](https://reroketr.github.io/edge-gateway-pmbus/)
 2. Configure settings for your public broker and connect.
 
 #### Option B: Local Broker (localhost)
