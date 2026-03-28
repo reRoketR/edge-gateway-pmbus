@@ -260,6 +260,11 @@ current freeze deliberately leaves several production-level concerns unresolved:
 - MQTT security is lab-only by default: plaintext transport, local Wi-Fi
   credential headers, and development broker settings such as anonymous access
   are acceptable for the coursework stand, but not for deployment.
+- The flash-backed store-and-forward buffer uses the internal Em_EEPROM
+  emulation region (32 KB), which limits capacity to **63 records**. The
+  metadata row (head/tail/count) is rewritten on every flush cycle with no
+  wear-leveling, restricting practical endurance to lab-duration experiments.
+  Migration to external QSPI flash is planned for the diploma phase.
 
 ---
 

@@ -149,6 +149,21 @@ void metrics_init(void)
 
 /*******************************************************************************
  * Counter increments
+ *
+ * Atomicity policy (CW-3):
+ *   All delta counters use taskENTER/EXIT_CRITICAL around the increment.
+ *   This is required because metrics_snapshot_and_reset() copies AND zeroes
+ *   s_counters inside its own critical section.  Without matching protection
+ *   on the increment side, an increment that lands between the copy and the
+ *   memset would be silently lost.
+ *
+ *   In practice most counters have a single writer (the poll task or the
+ *   MQTT task), so a bare ++ would usually be safe for the increment itself.
+ *   The critical section is still needed to guard against the copy-then-reset
+ *   race in the snapshot path.
+ *
+ *   Gauges are written by a single setter and only read (never reset) by the
+ *   snapshot, so they do not need critical sections.
  ******************************************************************************/
 static void counter_inc(volatile uint32_t *counter)
 {
