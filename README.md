@@ -176,7 +176,7 @@ Modern browsers block HTTPS websites from connecting to insecure local WebSocket
    - **Host**: `127.0.0.1` (or your broker IP)
    - **WS Port**: `9001` (Mosquitto default)
    - **WS Path**: `/mqtt`
-   - **GW ID**: `gw01`
+   - **GW ID**: `thesis_gw01`
    - Click **Connect** to see live telemetry and charts.
 
 #### Troubleshooting
@@ -210,10 +210,10 @@ make build TOOLCHAIN=GCC_ARM CONFIG=Debug GW_PROFILE=exp1_fast
 
 | Topic | QoS | Content |
 |-------|-----|---------|
-| `pmbus/gw01/dev/0x58/telemetry` | 0 | Voltage, current, temperature, power |
-| `pmbus/gw01/dev/0x58/status` | 1 | STATUS_WORD, STATUS_VOUT/IOUT/TEMP |
-| `pmbus/gw01/metrics` | 0 | Counters, gauges, timing, rates |
-| `pmbus/gw01/events` | 1 | State changes (connect/disconnect) |
+| `pmbus/thesis_gw01/dev/0x58/telemetry` | 0 | Voltage, current, temperature, power |
+| `pmbus/thesis_gw01/dev/0x58/status` | 1 | STATUS_WORD, STATUS_VOUT/IOUT/TEMP |
+| `pmbus/thesis_gw01/metrics` | 0 | Counters, gauges, timing, rates |
+| `pmbus/thesis_gw01/events` | 1 | State changes (connect/disconnect) |
 
 The current `default` profile publishes telemetry for two devices (`0x58`, `0x59`).
 

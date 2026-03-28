@@ -98,7 +98,11 @@ static void test_telemetry_json(void)
     TEST_ASSERT_TRUE(json_contains(buf, "\"ts_ms\":1730000000000"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"time_synced\":true"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"seq\":12345"));
-    TEST_ASSERT_TRUE(json_contains(buf, "\"gw_id\":\"gw01\""));
+
+    char expected_gw_id[64];
+    snprintf(expected_gw_id, sizeof(expected_gw_id), "\"gw_id\":\"%s\"", g_config.gw_id);
+    TEST_ASSERT_TRUE(json_contains(buf, expected_gw_id));
+
     TEST_ASSERT_TRUE(json_contains(buf, "\"addr\":\"0x58\""));
     TEST_ASSERT_TRUE(json_contains(buf, "\"label\":\"psu_a\""));
     TEST_ASSERT_TRUE(json_contains(buf, "\"pec\":true"));
@@ -208,7 +212,10 @@ static void test_status_json(void)
     TEST_ASSERT_TRUE(json_contains(buf, "\"status_vout\":\"0x00\""));
     TEST_ASSERT_TRUE(json_contains(buf, "\"status_iout\":\"0x12\""));
     TEST_ASSERT_TRUE(json_contains(buf, "\"status_temperature\":\"0x00\""));
-    TEST_ASSERT_TRUE(json_contains(buf, "\"gw_id\":\"gw01\""));
+    
+    char expected_gw_id[64];
+    snprintf(expected_gw_id, sizeof(expected_gw_id), "\"gw_id\":\"%s\"", g_config.gw_id);
+    TEST_ASSERT_TRUE(json_contains(buf, expected_gw_id));
 }
 
 /*******************************************************************************
@@ -262,29 +269,34 @@ static void test_topic_builders(void)
     printf("--- test_topic_builders ---\n");
 
     char buf[128];
+    char expected_topic[128];
 
     /* Device telemetry topic */
     int len = build_device_topic(buf, sizeof(buf), 0x58, "telemetry");
     TEST_ASSERT_MSG(len > 0, "build_device_topic returned %d", len);
-    TEST_ASSERT_MSG(strcmp(buf, "pmbus/gw01/dev/0x58/telemetry") == 0,
-                    "got: %s", buf);
+    snprintf(expected_topic, sizeof(expected_topic), "%s/dev/0x58/telemetry", g_config.mqtt.base_topic);
+    TEST_ASSERT_MSG(strcmp(buf, expected_topic) == 0,
+                    "got: %s, expected: %s", buf, expected_topic);
 
     /* Device status topic */
     len = build_device_topic(buf, sizeof(buf), 0x59, "status");
-    TEST_ASSERT_MSG(strcmp(buf, "pmbus/gw01/dev/0x59/status") == 0,
-                    "got: %s", buf);
+    snprintf(expected_topic, sizeof(expected_topic), "%s/dev/0x59/status", g_config.mqtt.base_topic);
+    TEST_ASSERT_MSG(strcmp(buf, expected_topic) == 0,
+                    "got: %s, expected: %s", buf, expected_topic);
 
     /* Events topic */
     len = build_events_topic(buf, sizeof(buf));
     TEST_ASSERT_MSG(len > 0, "build_events_topic returned %d", len);
-    TEST_ASSERT_MSG(strcmp(buf, "pmbus/gw01/events") == 0,
-                    "got: %s", buf);
+    snprintf(expected_topic, sizeof(expected_topic), "%s/events", g_config.mqtt.base_topic);
+    TEST_ASSERT_MSG(strcmp(buf, expected_topic) == 0,
+                    "got: %s, expected: %s", buf, expected_topic);
 
     /* Metrics topic */
     len = build_metrics_topic(buf, sizeof(buf));
     TEST_ASSERT_MSG(len > 0, "build_metrics_topic returned %d", len);
-    TEST_ASSERT_MSG(strcmp(buf, "pmbus/gw01/metrics") == 0,
-                    "got: %s", buf);
+    snprintf(expected_topic, sizeof(expected_topic), "%s/metrics", g_config.mqtt.base_topic);
+    TEST_ASSERT_MSG(strcmp(buf, expected_topic) == 0,
+                    "got: %s, expected: %s", buf, expected_topic);
 }
 
 /*******************************************************************************
