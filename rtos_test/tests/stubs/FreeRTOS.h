@@ -13,6 +13,8 @@ typedef void*     TaskHandle_t;
 #define pdPASS   pdTRUE
 
 #define portMAX_DELAY  0xFFFFFFFFUL
+#define portTICK_PERIOD_MS 1u
+#define pdMS_TO_TICKS(ms)  ((TickType_t)(ms))
 
 #define taskENTER_CRITICAL()  do {} while(0)
 #define taskEXIT_CRITICAL()   do {} while(0)

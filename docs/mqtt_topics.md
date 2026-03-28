@@ -129,7 +129,9 @@ Topic: `.../metrics`
     "buffer_dequeued": 80,
     "buffer_dropped": 0,
     "queue_drops": 0,
-    "telemetry_enqueued": 98
+    "telemetry_enqueued": 98,
+    "i2c_controller_resets": 0,
+    "i2c_bus_recoveries": 0
   },
   "gauges": {
     "buffer_depth_ram": 120,
@@ -177,6 +179,7 @@ Event types (MVP):
 - `MQTT_CONNECTED`, `MQTT_DISCONNECTED`
 - `PMBUS_DEVICE_OFFLINE`, `PMBUS_DEVICE_ONLINE` (include addr in detail or add field)
 - `PMBUS_BUS_RECOVERY`, `PMBUS_BUS_RECOVERY_FAILED`
+- `I2C_CONTROLLER_RESET` (D1-2: SCB disable/re-enable path on timeout/not-ready)
 - `BUFFER_OVERFLOW`, `QUEUE_OVERFLOW`
 
 ---

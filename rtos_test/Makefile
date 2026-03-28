@@ -199,19 +199,30 @@ CY_COMPILER_GCC_ARM_DIR=
 #        make test CC=gcc-13  (with a specific compiler)
 ################################################################################
 TEST_CC ?= gcc
-TEST_CFLAGS := -Wall -Wextra -Werror -Isource -Isource/profiles -Itests/stubs
+TEST_CFLAGS := -Wall -Wextra -Werror -Itests/stubs -Isource -Isource/profiles
+
+ifeq ($(OS),Windows_NT)
+TEST_EXEEXT := .exe
+TEST_RUN :=
+else
+TEST_EXEEXT :=
+TEST_RUN := ./
+endif
 
 .PHONY: test
 test:
-	$(TEST_CC) $(TEST_CFLAGS) -o test_buffer_ring \
-		tests/test_buffer_ring.c && ./test_buffer_ring
-	$(TEST_CC) $(TEST_CFLAGS) -o test_pmbus_decode \
+	$(TEST_CC) $(TEST_CFLAGS) -o test_buffer_ring$(TEST_EXEEXT) \
+		tests/test_buffer_ring.c && $(TEST_RUN)test_buffer_ring$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_pmbus_decode$(TEST_EXEEXT) \
 		tests/test_pmbus_decode.c source/pmbus_decode.c -lm \
-		&& ./test_pmbus_decode
-	$(TEST_CC) $(TEST_CFLAGS) -o test_json_encode \
+		&& $(TEST_RUN)test_pmbus_decode$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_json_encode$(TEST_EXEEXT) \
 		tests/test_json_encode.c source/telemetry.c source/events.c \
 		source/metrics.c source/gateway_config.c source/pmbus_decode.c \
-		source/gw_util.c -lm && ./test_json_encode
+		source/gw_util.c -lm && $(TEST_RUN)test_json_encode$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -DPMBUS_TEST_HOOKS -o test_i2c_recovery$(TEST_EXEEXT) \
+		tests/test_i2c_recovery.c tests/stubs/i2c_mock.c source/pmbus_master.c \
+		&& $(TEST_RUN)test_i2c_recovery$(TEST_EXEEXT)
 	@echo "All host-side tests passed."
 
 # When the goal is only 'test', skip ModusToolbox include entirely

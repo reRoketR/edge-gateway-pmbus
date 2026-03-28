@@ -132,7 +132,9 @@ try:
                     "pmbus_nack": 0,
                     "pmbus_timeouts": 0,
                     "pmbus_retries": 1 if random.random() < 0.2 else 0,
-                    "mqtt_reconnects": 0
+                    "mqtt_reconnects": 0,
+                    "i2c_controller_resets": 0,
+                    "i2c_bus_recoveries": 0
                 }
             }
             client.publish(f"pmbus/{GW_ID}/metrics", json.dumps(obj))

@@ -49,6 +49,8 @@ typedef struct {
     uint32_t buffer_dropped;
     uint32_t queue_drops;           /**< Records lost due to full FreeRTOS queue */
     uint32_t telemetry_enqueued;    /**< Telemetry records successfully enqueued  */
+    uint32_t i2c_controller_resets; /**< D1-2: SCB disable/re-enable count       */
+    uint32_t i2c_bus_recoveries;    /**< D1-2: 9×SCL bus recovery count           */
 } metrics_counters_t;
 
 /*******************************************************************************
@@ -135,6 +137,8 @@ void metrics_inc_buffer_dequeued(void);
 void metrics_inc_buffer_dropped(void);
 void metrics_inc_queue_drops(void);
 void metrics_inc_telemetry_enqueued(void);
+void metrics_inc_i2c_controller_resets(void);
+void metrics_inc_i2c_bus_recoveries(void);
 
 /*******************************************************************************
  * Gauge setters (called from various tasks)

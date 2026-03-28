@@ -11,6 +11,7 @@
  *   - MQTT_CONNECTED / MQTT_DISCONNECTED
  *   - PMBUS_DEVICE_OFFLINE / PMBUS_DEVICE_ONLINE
  *   - PMBUS_BUS_RECOVERY / PMBUS_BUS_RECOVERY_FAILED
+ *   - I2C_CONTROLLER_RESET (D1-2: SCB disable/re-enable path)
  *   - BUFFER_OVERFLOW / QUEUE_OVERFLOW
  *
  * @see agent.md §4, docs/mqtt_topics.md §4.4
@@ -38,6 +39,7 @@ typedef enum {
     EVT_PMBUS_BUS_RECOVERY_FAIL = 5,
     EVT_BUFFER_OVERFLOW         = 6,
     EVT_QUEUE_OVERFLOW          = 7,
+    EVT_I2C_CONTROLLER_RESET    = 8,  /**< D1-2: SCB disable/re-enable path */
 } event_type_t;
 
 /*******************************************************************************

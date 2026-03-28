@@ -4,6 +4,7 @@
 
 #include "FreeRTOS.h"
 
-static inline TickType_t xTaskGetTickCount(void) { return 0; }
+TickType_t xTaskGetTickCount(void);
+void vTaskDelay(TickType_t ticks);
 
 #endif /* TASK_STUB_H */

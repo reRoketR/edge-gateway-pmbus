@@ -32,6 +32,7 @@ static const char *event_type_names[] = {
     [EVT_PMBUS_BUS_RECOVERY_FAIL] = "PMBUS_BUS_RECOVERY_FAILED",
     [EVT_BUFFER_OVERFLOW]         = "BUFFER_OVERFLOW",
     [EVT_QUEUE_OVERFLOW]          = "QUEUE_OVERFLOW",
+    [EVT_I2C_CONTROLLER_RESET]    = "I2C_CONTROLLER_RESET",
 };
 
 #define NUM_EVENT_TYPES (sizeof(event_type_names) / sizeof(event_type_names[0]))
