@@ -5,9 +5,6 @@
 # ModusToolbox library repos (restored by `make getlibs`)
 libs/
 
-# ModusToolbox BSP (auto-generated, not customised)
-bsps/
-
 # ModusToolbox build output & caches
 build/
 Debug/

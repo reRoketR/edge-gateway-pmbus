@@ -157,21 +157,27 @@ python mock_gateway.py
 
 ### 9. Launch the Web UI
 
-The dashboard is a static web app located in `scripts/dashboard/index.html`.
+The dashboard is a static web app hosted via GitHub Pages.
 
+#### Option A: Public Internet Broker
+If your gateway is connected to a public broker (e.g., HiveMQ Public):
+1. **Open in browser**: [https://reroketr.github.io/pmbus-dashboard/](https://reroketr.github.io/pmbus-dashboard/)
+2. Configure settings for your public broker and connect.
+
+#### Option B: Local Broker (localhost)
+Modern browsers block HTTPS websites from connecting to insecure local WebSockets (`ws://localhost`). To view data from a local Mosquitto broker, you must serve the dashboard locally:
 1. **Serve the files**:
    ```bash
-   cd scripts/dashboard
+   cd pmbus-dashboard-public
    python -m http.server 8080
    ```
 2. **Open in browser**: [http://localhost:8080](http://localhost:8080)
 3. **Configure & Connect**: 
-   Click **Settings** and use:
    - **Host**: `127.0.0.1` (or your broker IP)
    - **WS Port**: `9001` (Mosquitto default)
    - **WS Path**: `/mqtt`
    - **GW ID**: `gw01`
-   - Then click **Connect** to see live telemetry and charts.
+   - Click **Connect** to see live telemetry and charts.
 
 #### Troubleshooting
 - **No data appears**: Verify broker WebSocket listener and topic path.

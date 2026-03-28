@@ -63,7 +63,7 @@
 
 /** Enable per-device telemetry cycle start logging for I2C fault diagnosis */
 #ifndef GW_DEBUG_LOG_POLL_CYCLE
-#define GW_DEBUG_LOG_POLL_CYCLE   1
+#define GW_DEBUG_LOG_POLL_CYCLE   0
 #endif
 
 /*******************************************************************************
