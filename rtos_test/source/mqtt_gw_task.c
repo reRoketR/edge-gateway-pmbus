@@ -106,6 +106,7 @@ static void mqtt_event_cb(cy_mqtt_t handle, cy_mqtt_event_t event,
 static void process_telemetry_queue(void);
 static void process_status_queue(void);
 static void process_event_queue(void);
+static void drain_queues_to_buffer(void);
 static void flush_buffered_records(void);
 static void publish_metrics_if_due(void);
 static uint8_t qos_for_topic(const char *topic);
@@ -159,6 +160,9 @@ void mqtt_gw_task(void *pvParameters)
     backoff_reset();
     for (;;)
     {
+        /* D1-1: drain queues at the top of each connect-loop iteration */
+        drain_queues_to_buffer();
+
         /* Step 1: Wi-Fi */
         if (cy_wcm_is_connected_to_ap() == 0)
         {
@@ -169,6 +173,9 @@ void mqtt_gw_task(void *pvParameters)
                 continue;
             }
         }
+
+        /* D1-1: drain again after potentially long wifi_connect() */
+        drain_queues_to_buffer();
 
         /* Step 1b: SNTP wall-clock — start once after first Wi-Fi connect */
         wallclock_sntp_init();
@@ -184,6 +191,9 @@ void mqtt_gw_task(void *pvParameters)
             }
             mqtt_lib_ready = true;
         }
+
+        /* D1-1: drain before potentially long broker connect */
+        drain_queues_to_buffer();
 
         /* Step 3: Connect to broker */
         if (!mqtt_broker_connect())
@@ -219,8 +229,12 @@ void mqtt_gw_task(void *pvParameters)
         /* Check if we're still connected */
         if (!gateway_ipc_is_mqtt_online())
         {
+            /* D1-1: drain queues into buffer at every transition point
+             * so queue_drops == 0 even during long reconnect sequences. */
+            drain_queues_to_buffer();
+
             /* Attempt reconnect */
-            printf("[MQTT] Connection lost — reconnecting...\n");
+            printf("[MQTT] Connection lost \xe2\x80\x94 reconnecting...\n");
 
             /* Disconnect cleanly first (ignore errors) */
             (void)cy_mqtt_disconnect(mqtt_connection);
@@ -235,6 +249,9 @@ void mqtt_gw_task(void *pvParameters)
                     continue;  /* retry from top of loop */
                 }
             }
+
+            /* D1-1: drain again after potentially long wifi_connect() */
+            drain_queues_to_buffer();
 
             /* Reconnect MQTT */
             if (mqtt_broker_connect())
@@ -294,10 +311,10 @@ static bool wifi_connect(void)
 
     printf("[MQTT] Wi-Fi connecting to '%s'...\n", WIFI_SSID);
 
-    /* Use a small retry count per attempt; the outer task loop provides
-     * additional retries with exponential backoff.  3 tries × 5 s = 15 s max
-     * before we return false and let the caller decide.                     */
-    const uint32_t tries_per_attempt = 3u;
+    /* D1-1: Reduced from 3 to 1 inner retry so wifi_connect() blocks
+     * at most ~5s before returning.  The outer task loop provides
+     * additional retries with backoff and queue draining. */
+    const uint32_t tries_per_attempt = 1u;
 
     for (uint32_t retry = 0; retry < tries_per_attempt; retry++)
     {
@@ -320,10 +337,9 @@ static bool wifi_connect(void)
         printf("[MQTT] Wi-Fi failed (0x%lX), retry %lu/%lu\n",
                (unsigned long)res, (unsigned long)(retry + 1),
                (unsigned long)tries_per_attempt);
-        vTaskDelay(pdMS_TO_TICKS(WIFI_CONN_RETRY_INTERVAL_MS));
     }
 
-    printf("[MQTT] Wi-Fi connect failed after all retries\n");
+    printf("[MQTT] Wi-Fi connect failed\n");
     return false;
 }
 
@@ -540,6 +556,47 @@ static void process_event_queue(void)
 }
 
 /*******************************************************************************
+ * Offline queue drain — dequeue all records into buffer_mgr (D1-1)
+ *
+ * Called during backoff waits and when MQTT is offline to prevent queue_drops.
+ * Records are JSON-encoded and stored in buffer_mgr for later flush.
+ ******************************************************************************/
+static void drain_queues_to_buffer(void)
+{
+    telemetry_record_t telem;
+    while (xQueueReceive(gateway_ipc_telemetry_queue(), &telem, 0) == pdTRUE)
+    {
+        int len = encode_telemetry_json(&telem, s_json_buf, JSON_BUF_SIZE);
+        if (len <= 0) continue;
+        int tl = build_device_topic(s_topic_buf, TOPIC_BUF_SIZE,
+                                     telem.addr_7bit, "telemetry");
+        if (tl <= 0) continue;
+        buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)len);
+    }
+
+    status_record_t stat;
+    while (xQueueReceive(gateway_ipc_status_queue(), &stat, 0) == pdTRUE)
+    {
+        int len = encode_status_json(&stat, s_json_buf, JSON_BUF_SIZE);
+        if (len <= 0) continue;
+        int tl = build_device_topic(s_topic_buf, TOPIC_BUF_SIZE,
+                                     stat.addr_7bit, "status");
+        if (tl <= 0) continue;
+        buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)len);
+    }
+
+    event_record_t evt;
+    while (xQueueReceive(gateway_ipc_event_queue(), &evt, 0) == pdTRUE)
+    {
+        int len = encode_event_json(&evt, s_json_buf, JSON_BUF_SIZE);
+        if (len <= 0) continue;
+        int tl = build_events_topic(s_topic_buf, TOPIC_BUF_SIZE);
+        if (tl <= 0) continue;
+        buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)len);
+    }
+}
+
+/*******************************************************************************
  * Buffer flush — all MQTT publishing happens here (single publisher)
  *
  * Uses peek/consume pattern to preserve FIFO ordering.
@@ -724,8 +781,20 @@ static void backoff_reset(void)
 
 static void backoff_wait(void)
 {
-    printf("[MQTT] Backoff %lu ms\n", (unsigned long)s_backoff_ms);
-    vTaskDelay(pdMS_TO_TICKS(s_backoff_ms));
+    printf("[MQTT] Backoff %lu ms (draining queues)\n",
+           (unsigned long)s_backoff_ms);
+
+    /* D1-1: Instead of a single vTaskDelay(s_backoff_ms) that blocks queue
+     * draining, loop in QUEUE_POLL_TIMEOUT_MS increments and drain queues
+     * into buffer_mgr on each iteration.  This ensures queue_drops == 0
+     * even during long backoff periods. */
+    TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(s_backoff_ms);
+
+    while ((int32_t)(xTaskGetTickCount() - deadline) < 0)
+    {
+        drain_queues_to_buffer();
+        vTaskDelay(pdMS_TO_TICKS(QUEUE_POLL_TIMEOUT_MS));
+    }
 
     /* Exponential backoff: double, cap at max */
     s_backoff_ms *= 2u;
