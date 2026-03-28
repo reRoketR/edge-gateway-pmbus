@@ -225,7 +225,7 @@ Event types (MVP):
 
 ### 5.2 Required config fields (MVP)
 - `gw_id`
-- I2C/SMBus: `bus`, `speed_hz`, `timeout_ms`, `retries`, `bus_recovery`, `pec_enabled`
+- I2C/SMBus: `bus`, `speed_hz`, `transaction_timeout_ms`, `retries`, `bus_recovery`, `pec_enabled`
 - Devices: list of `{addr_7bit, label, poll_period_ms, status_period_ms}`
 - MQTT: `host`, `port`, `client_id`, `base_topic`, `qos`, reconnect backoff min/max
 - Buffer: `enabled`, `ram_max_records`, `flash_max_records`, `flush_batch_size`, `flush_interval_ms`, `drop_oldest`, `persist_seq`
@@ -252,7 +252,7 @@ typedef struct {
   struct {
     uint8_t  bus;
     uint32_t speed_hz;
-    uint32_t timeout_ms;
+    uint32_t transaction_timeout_ms;
     uint8_t  retries;
     bool     bus_recovery;
     bool     pec_enabled;
@@ -308,7 +308,7 @@ static const device_cfg_t k_devices[] = {
 };
 
 #define PROFILE_NAME "default"
-#define PROFILE_CONFIG ((config_t){   .gw_id = "gw01",   .i2c = {.bus=0, .speed_hz=100000, .timeout_ms=20, .retries=2, .bus_recovery=true, .pec_enabled=true},   .mqtt = {.host="192.168.1.10", .port=1883, .client_id="pmbus-gw01", .base_topic="pmbus/gw01", .qos=1,            .backoff_min_ms=500, .backoff_max_ms=10000},   .buffer = {.enabled=true, .ram_max_records=256, .flash_max_records=20000, .flush_batch_size=50,              .flush_interval_ms=200, .drop_oldest=true, .persist_seq=true},   .devices = k_devices, .num_devices = 2,   .metrics_period_ms = 2000 })
+#define PROFILE_CONFIG ((config_t){   .gw_id = "gw01",   .i2c = {.bus=0, .speed_hz=100000, .transaction_timeout_ms=20, .retries=2, .bus_recovery=true, .pec_enabled=true},   .mqtt = {.host="192.168.1.10", .port=1883, .client_id="pmbus-gw01", .base_topic="pmbus/gw01", .qos=1,            .backoff_min_ms=500, .backoff_max_ms=10000},   .buffer = {.enabled=true, .ram_max_records=256, .flash_max_records=20000, .flush_batch_size=50,              .flush_interval_ms=200, .drop_oldest=true, .persist_seq=true},   .devices = k_devices, .num_devices = 2,   .metrics_period_ms = 2000 })
 ```
 
 ### 5.4 Reproducibility requirement (thesis-critical)

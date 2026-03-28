@@ -77,7 +77,7 @@ status/events, QoS `0` для metrics, RAM-буфер на `256` записів 
 ```c
 .i2c = {
     .speed_hz     = 100000,
-    .timeout_ms   = 20,
+    .transaction_timeout_ms = 20,
     .retries      = 2,
     .pec_enabled  = true,
 },

@@ -338,7 +338,7 @@ offset  field           size
 ## 8 Відкладене future work (поза scope курсової)
 
 1. **SMBus SCL-low timeout recovery через hardware timer.**
-   Ідея полягає в тому, щоб не опиратися лише на software `timeout_ms` та
+   Ідея полягає в тому, щоб не опиратися лише на software `transaction_timeout_ms` та
    `9xSCL` recovery, а мати окремий hardware monitor лінії `SCL`. Таймер має
    відліковувати timeout лише поки `SCL` утримується low, а після спрацювання
    ISR має abort-ити локальну транзакцію, відновлювати SCB state і дозволяти

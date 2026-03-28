@@ -43,10 +43,11 @@ static const device_cfg_t k_devices[] = {
     .i2c = {                                                                   \
         .bus            = 0,                                                   \
         .speed_hz       = 100000,       /* 100 kHz standard SMBus */           \
-        .timeout_ms     = 20,                                                  \
+        .transaction_timeout_ms = 20,                                          \
         .retries        = 2,                                                   \
-        .bus_recovery   = false,                                                \
+        .bus_recovery   = false,                                               \
         .pec_enabled    = true,                                                \
+        .recovery_settle_ms = 5,        /* D1-3: settle after recovery */      \
     },                                                                         \
                                                                                \
     .mqtt = {                                                                  \

@@ -42,10 +42,11 @@ static const device_cfg_t k_devices[] = {
     .i2c = {                                                                   \
         .bus            = 0,                                                   \
         .speed_hz       = 100000,                                              \
-        .timeout_ms     = 20,                                                  \
+        .transaction_timeout_ms = 20,                                          \
         .retries        = 2,                                                   \
         .bus_recovery   = true,                                                \
         .pec_enabled    = false,        /* <<< PEC disabled for Exp4 */        \
+        .recovery_settle_ms = 5,                                               \
     },                                                                         \
                                                                                \
     .mqtt = {                                                                  \

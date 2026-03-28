@@ -253,8 +253,7 @@ Cy_SCB_I2C_Enable(PMBUS_CONTROLLER_HW);
 ```
 
 У штатному профілі система опитує два PMBus-пристрої за адресами `0x58` і
-`0x59`, а параметри шини беруться з конфігурації профілю (`speed_hz`,
-`timeout_ms`, `retries`, `pec_enabled`).
+`0x59`, а параметри шини беруться  - `I2C`: конфігурація шини (`speed_hz`, `transaction_timeout_ms`, `retries`, `pec_enabled`).
 
 Базова операція драйвера - SMBus Read Word. Вона виконується у два етапи
 (`write cmd` + repeated-start `read data`) з тайм-аутом, а за увімкненого PEC -
@@ -266,11 +265,11 @@ Cy_SCB_I2C_Enable(PMBUS_CONTROLLER_HW);
 ```c
 /* Phase 1: write command without STOP */
 pdl_st = Cy_SCB_I2C_MasterWrite(PMBUS_CONTROLLER_HW, &wr_cfg, &pmbus_i2c_ctx);
-result = wait_for_completion(pmbus_timeout_ms);
+result = wait_for_completion(pmbus_transaction_timeout_ms);
 
 /* Phase 2: read 2 bytes (+PEC if enabled) */
 pdl_st = Cy_SCB_I2C_MasterRead(PMBUS_CONTROLLER_HW, &rd_cfg, &pmbus_i2c_ctx);
-result = wait_for_completion(pmbus_timeout_ms);
+result = wait_for_completion(pmbus_transaction_timeout_ms);
 
 if (pec)
 {
