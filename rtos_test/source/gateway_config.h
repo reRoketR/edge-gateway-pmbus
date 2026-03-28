@@ -41,10 +41,11 @@ typedef struct {
     struct {
         uint8_t  bus;               /**< I2C bus index (0 = CYBSP_I2C)       */
         uint32_t speed_hz;          /**< Bus clock: 100000 or 400000         */
-        uint32_t timeout_ms;        /**< Per-transaction timeout             */
+        uint32_t transaction_timeout_ms;/**< Per-transaction timeout             */
         uint8_t  retries;           /**< Max retries per command             */
         bool     bus_recovery;      /**< Attempt clock-stretching recovery   */
         bool     pec_enabled;       /**< SMBus PEC (CRC-8) on every txn     */
+        uint32_t recovery_settle_ms;/**< Delay (ms) after any I2C recovery   */
     } i2c;
 
     /* ---- MQTT broker ---- */

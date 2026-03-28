@@ -59,7 +59,7 @@ typedef enum {
  * and enables the SCB interrupt.
  *
  * Must be called once before any pmbus_read_* or pmbus_write_* calls.
- * Uses configuration from g_config.i2c (speed_hz, timeout_ms, etc.).
+ * Uses configuration from g_config.i2c (speed_hz, transaction_timeout_ms, etc.).
  *
  * @return PMBUS_OK on success, PMBUS_ERR_INIT on controller init failure.
  */
@@ -172,5 +172,17 @@ bool pmbus_bus_backoff_active(uint32_t *out_remaining_ms);
  * @return Computed CRC-8 value.
  */
 uint8_t pmbus_crc8(const uint8_t *data, uint8_t len);
+
+#ifdef PMBUS_TEST_HOOKS
+/*******************************************************************************
+ * Host-test hooks
+ *
+ * Expose narrow wrappers around internal recovery helpers so host-side tests
+ * can verify the routing logic without changing the production API.
+ ******************************************************************************/
+bool pmbus_test_should_attempt_bus_recovery(pmbus_status_t status);
+bool pmbus_test_should_attempt_controller_reset(pmbus_status_t status);
+bool pmbus_test_reset_controller_if_idle(const char *reason);
+#endif
 
 /** @} */  /* end of pmbus_master */

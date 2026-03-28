@@ -23,6 +23,7 @@
 #include "pmbus_master.h"
 #include "gateway_config.h"
 #include "gateway_ipc.h"
+#include "metrics.h"
 
 /* PDL I2C driver */
 #include "cy_scb_i2c.h"
@@ -56,7 +57,7 @@ static cy_stc_scb_i2c_context_t pmbus_i2c_ctx;
 static bool pmbus_initialized = false;
 
 /** Timeout for PDL high-level transfer, set from g_config at init */
-static uint32_t pmbus_timeout_ms;
+static uint32_t pmbus_transaction_timeout_ms;
 
 /** Give abort a short chance to complete before resetting the SCB block. */
 #define PMBUS_ABORT_SETTLE_MS (2u)
@@ -90,6 +91,7 @@ static void arm_bus_backoff(const char *reason);
 static void wait_for_bus_backoff(void);
 static bool wait_for_master_not_busy(uint32_t timeout_ms);
 static bool pmbus_reset_controller_if_idle(const char *reason);
+static void apply_recovery_settle_delay(void);
 
 /**
  * @brief Wait for a PDL I2C master transfer to complete.
@@ -305,8 +307,15 @@ static void wait_for_bus_backoff(void)
 
     while (pmbus_bus_backoff_active(&remaining_ms))
     {
-        (void)remaining_ms;
         vTaskDelay(pdMS_TO_TICKS(1u));
+    }
+}
+
+static void apply_recovery_settle_delay(void)
+{
+    if (g_config.i2c.recovery_settle_ms != 0u)
+    {
+        vTaskDelay(pdMS_TO_TICKS(g_config.i2c.recovery_settle_ms));
     }
 }
 
@@ -357,9 +366,19 @@ static bool pmbus_reset_controller_if_idle(const char *reason)
                          Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
                                                     &pmbus_i2c_ctx));
 
-    return (0u == (Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
-                                              &pmbus_i2c_ctx) &
-                    CY_SCB_I2C_MASTER_BUSY));
+    bool reset_ok = (0u == (Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
+                                                       &pmbus_i2c_ctx) &
+                            CY_SCB_I2C_MASTER_BUSY));
+
+    if (reset_ok)
+    {
+        /* D1-2: distinct event + metric for the controller-reset path */
+        gateway_ipc_post_event(EVT_I2C_CONTROLLER_RESET, reason);
+        metrics_inc_i2c_controller_resets();
+        apply_recovery_settle_delay();
+    }
+
+    return reset_ok;
 }
 
 static void log_i2c_error(const char *op, const char *phase,
@@ -458,7 +477,7 @@ pmbus_status_t pmbus_init(void)
         return PMBUS_OK;
     }
 
-    pmbus_timeout_ms = g_config.i2c.timeout_ms;
+    pmbus_transaction_timeout_ms = g_config.i2c.transaction_timeout_ms;
     pmbus_bus_backoff_until = 0u;
 
     /* 1. Initialize SCB3 as I2C master using Device Configurator config */
@@ -535,7 +554,7 @@ pmbus_status_t pmbus_init(void)
     pmbus_initialized = true;
 
     printf("[PMBUS] Init OK: timeout=%lums retries=%u pec=%d recovery=%d\n",
-           (unsigned long)g_config.i2c.timeout_ms,
+           (unsigned long)g_config.i2c.transaction_timeout_ms,
            (unsigned)g_config.i2c.retries,
            (int)g_config.i2c.pec_enabled,
            (int)g_config.i2c.bus_recovery);
@@ -616,8 +635,27 @@ pmbus_status_t pmbus_bus_recovery(void)
 
     printf("[PMBUS] Bus recovery OK\n");
     gateway_ipc_post_event(EVT_PMBUS_BUS_RECOVERY, NULL);
+    metrics_inc_i2c_bus_recoveries();  /* D1-2: count successful bus recoveries */
+    apply_recovery_settle_delay();
     return PMBUS_OK;
 }
+
+#ifdef PMBUS_TEST_HOOKS
+bool pmbus_test_should_attempt_bus_recovery(pmbus_status_t status)
+{
+    return should_attempt_bus_recovery(status);
+}
+
+bool pmbus_test_should_attempt_controller_reset(pmbus_status_t status)
+{
+    return should_attempt_controller_reset(status);
+}
+
+bool pmbus_test_reset_controller_if_idle(const char *reason)
+{
+    return pmbus_reset_controller_if_idle(reason);
+}
+#endif
 
 /*******************************************************************************
  * SMBus Read Word (with retries + optional PEC)
@@ -670,7 +708,7 @@ pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd,
             goto retry;
         }
 
-        result = wait_for_completion(pmbus_timeout_ms);
+        result = wait_for_completion(pmbus_transaction_timeout_ms);
         if (PMBUS_OK != result)
         {
             scb_status = Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
@@ -706,7 +744,7 @@ pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd,
             goto retry;
         }
 
-        result = wait_for_completion(pmbus_timeout_ms);
+        result = wait_for_completion(pmbus_transaction_timeout_ms);
         if (PMBUS_OK != result)
         {
             scb_status = Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
@@ -819,7 +857,7 @@ pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd,
             goto retry_byte;
         }
 
-        result = wait_for_completion(pmbus_timeout_ms);
+        result = wait_for_completion(pmbus_transaction_timeout_ms);
         if (PMBUS_OK != result)
         {
             scb_status = Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
@@ -855,7 +893,7 @@ pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd,
             goto retry_byte;
         }
 
-        result = wait_for_completion(pmbus_timeout_ms);
+        result = wait_for_completion(pmbus_transaction_timeout_ms);
         if (PMBUS_OK != result)
         {
             scb_status = Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
@@ -955,7 +993,7 @@ pmbus_status_t pmbus_send_byte(uint8_t addr_7bit, uint8_t cmd)
             goto send_retry;
         }
 
-        result = wait_for_completion(pmbus_timeout_ms);
+        result = wait_for_completion(pmbus_transaction_timeout_ms);
         if (PMBUS_OK == result)
         {
             return PMBUS_OK;

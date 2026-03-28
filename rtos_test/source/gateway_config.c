@@ -52,7 +52,7 @@ const config_t g_config      = PROFILE_CONFIG;
  *
  *   Example output:
  *     [SYS] profile=default pec=1 mqtt=192.168.1.10:1883 q_telem=0 q_ctrl=1 q_metrics=0
- *     [SYS] i2c: speed=100000 timeout=20ms retries=2 recovery=1
+ *     [SYS] i2c: speed=100000 timeout=20ms retries=2 recovery=1 settle=5ms
  *     [SYS] buffer: ram=256 flash=0 batch=50 drop_oldest=1
  *     [SYS] devices: 2
  *     [SYS]   [0] 0x58 "psu_a" poll=200ms status=1000ms
@@ -72,11 +72,13 @@ void config_print_boot_banner(void)
            (unsigned)c->mqtt.qos_control,
            (unsigned)c->mqtt.qos_metrics);
 
-    printf("[SYS] i2c: speed=%lu  timeout=%lums  retries=%u  recovery=%d\n",
+    printf("[SYS] i2c: speed=%lu  transaction_timeout=%lums  retries=%u  recovery=%d  "
+           "settle=%lums\n",
            (unsigned long)c->i2c.speed_hz,
-           (unsigned long)c->i2c.timeout_ms,
+           (unsigned long)c->i2c.transaction_timeout_ms,
            (unsigned)c->i2c.retries,
-           (int)c->i2c.bus_recovery);
+           (int)c->i2c.bus_recovery,
+           (unsigned long)c->i2c.recovery_settle_ms);
 
     printf("[SYS] buffer: enabled=%d  ram=%u  flash=%lu  batch=%u  "
            "flush=%lums  drop_oldest=%d\n",
