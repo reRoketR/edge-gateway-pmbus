@@ -112,7 +112,7 @@ static void mqtt_event_cb(cy_mqtt_t handle, cy_mqtt_event_t event,
 static void process_telemetry_queue(void);
 static void process_status_queue(void);
 static void process_event_queue(void);
-static void drain_queues_to_buffer(void);
+
 static void flush_buffered_records(void);
 static void publish_metrics_if_due(void);
 static uint8_t qos_for_topic(const char *topic);
@@ -171,8 +171,6 @@ void mqtt_gw_task(void *pvParameters)
     backoff_reset();
     for (;;)
     {
-        /* D1-1: drain queues at the top of each connect-loop iteration */
-        drain_queues_to_buffer();
 
         /* Step 1: Wi-Fi */
         if (cy_wcm_is_connected_to_ap() == 0)
@@ -185,8 +183,6 @@ void mqtt_gw_task(void *pvParameters)
             }
         }
 
-        /* D1-1: drain again after potentially long wifi_connect() */
-        drain_queues_to_buffer();
 
         /* Step 1b: SNTP wall-clock — start once after first Wi-Fi connect */
         wallclock_sntp_init();
@@ -203,8 +199,6 @@ void mqtt_gw_task(void *pvParameters)
             mqtt_lib_ready = true;
         }
 
-        /* D1-1: drain before potentially long broker connect */
-        drain_queues_to_buffer();
 
         /* Step 3: Connect to broker */
         if (!mqtt_broker_connect())
@@ -254,9 +248,6 @@ void mqtt_gw_task(void *pvParameters)
         /* Check if we're still connected */
         if (!gateway_ipc_is_mqtt_online())
         {
-            /* D1-1: drain queues into buffer at every transition point
-             * so queue_drops == 0 even during long reconnect sequences. */
-            drain_queues_to_buffer();
 
             /* Attempt reconnect */
             printf("[MQTT] Connection lost \xe2\x80\x94 reconnecting...\n");
@@ -275,8 +266,6 @@ void mqtt_gw_task(void *pvParameters)
                 }
             }
 
-            /* D1-1: drain again after potentially long wifi_connect() */
-            drain_queues_to_buffer();
 
             /* Reconnect MQTT */
             if (mqtt_broker_connect())
@@ -618,60 +607,8 @@ static void process_event_queue(void)
     }
 }
 
-/*******************************************************************************
- * Offline queue drain — dequeue all records into buffer_mgr (D1-1)
- *
- * Called during backoff waits and when MQTT is offline to prevent queue_drops.
- * Records are JSON-encoded and stored in buffer_mgr for later flush.
- ******************************************************************************/
-static void drain_queues_to_buffer(void)
-{
-    telemetry_record_t telem;
-
-    /* 1) Drain rescued emergency ring records */
-    while (emergency_ring_get(&telem))
-    {
-        int len = encode_telemetry_json(&telem, s_json_buf, JSON_BUF_SIZE);
-        if (len <= 0) continue;
-        int tl = build_device_topic(s_topic_buf, TOPIC_BUF_SIZE,
-                                     telem.addr_7bit, "telemetry");
-        if (tl <= 0) continue;
-        buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)len);
-    }
-
-    /* 2) Drain regular queue */
-    while (xQueueReceive(gateway_ipc_telemetry_queue(), &telem, 0) == pdTRUE)
-    {
-        int len = encode_telemetry_json(&telem, s_json_buf, JSON_BUF_SIZE);
-        if (len <= 0) continue;
-        int tl = build_device_topic(s_topic_buf, TOPIC_BUF_SIZE,
-                                     telem.addr_7bit, "telemetry");
-        if (tl <= 0) continue;
-        buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)len);
-    }
-
-    status_record_t stat;
-    while (xQueueReceive(gateway_ipc_status_queue(), &stat, 0) == pdTRUE)
-    {
-        int len = encode_status_json(&stat, s_json_buf, JSON_BUF_SIZE);
-        if (len <= 0) continue;
-        int tl = build_device_topic(s_topic_buf, TOPIC_BUF_SIZE,
-                                     stat.addr_7bit, "status");
-        if (tl <= 0) continue;
-        buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)len);
-    }
-
-    event_record_t evt;
-    while (!s_disconnect_pending &&
-           xQueueReceive(gateway_ipc_event_queue(), &evt, 0) == pdTRUE)
-    {
-        int len = encode_event_json(&evt, s_json_buf, JSON_BUF_SIZE);
-        if (len <= 0) continue;
-        int tl = build_events_topic(s_topic_buf, TOPIC_BUF_SIZE);
-        if (tl <= 0) continue;
-        buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)len);
-    }
-}
+/* drain_queues_to_buffer() removed — now handled by the dedicated
+ * spill task (buffer_task in buffer_mgr.c).  See T-6 fix. */
 
 /*******************************************************************************
  * Buffer flush — all MQTT publishing happens here (single publisher)
@@ -902,20 +839,12 @@ static void backoff_reset(void)
 
 static void backoff_wait(void)
 {
-    printf("[MQTT] Backoff %lu ms (draining queues)\n",
+    printf("[MQTT] Backoff %lu ms\n",
            (unsigned long)s_backoff_ms);
 
-    /* D1-1: Instead of a single vTaskDelay(s_backoff_ms) that blocks queue
-     * draining, loop in QUEUE_POLL_TIMEOUT_MS increments and drain queues
-     * into buffer_mgr on each iteration.  This ensures queue_drops == 0
-     * even during long backoff periods. */
-    TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(s_backoff_ms);
-
-    while ((int32_t)(xTaskGetTickCount() - deadline) < 0)
-    {
-        drain_queues_to_buffer();
-        vTaskDelay(pdMS_TO_TICKS(QUEUE_POLL_TIMEOUT_MS));
-    }
+    /* Queue draining is now handled by the dedicated spill task
+     * (buffer_task).  We just wait here. */
+    vTaskDelay(pdMS_TO_TICKS(s_backoff_ms));
 
     /* Exponential backoff: double, cap at max */
     s_backoff_ms *= 2u;

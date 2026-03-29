@@ -60,6 +60,16 @@ typedef struct {
  */
 bool buffer_mgr_init(void);
 
+/**
+ * @brief Initialise the persistent flash tier after the scheduler starts.
+ *
+ * Required for backends whose erase/write paths rely on RTOS primitives
+ * (for example the QSPI serial-flash middleware mutex).
+ *
+ * Safe to call multiple times; initialization runs at most once.
+ */
+void buffer_mgr_late_init(void);
+
 /*******************************************************************************
  * Put / Get / Depth
  ******************************************************************************/
@@ -129,7 +139,7 @@ bool buffer_mgr_consume(void);
 void buffer_task(void *pvParameters);
 
 /** Task stack size (increased for flash I/O + printf in flash_buffer.c) */
-#define BUFFER_TASK_STACK_SIZE   (1024u)
+#define BUFFER_TASK_STACK_SIZE   (1536u)
 #define BUFFER_TASK_PRIORITY     (2u)
 
 /** @} */  /* end of buffer_mgr */

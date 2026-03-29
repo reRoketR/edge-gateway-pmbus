@@ -6,6 +6,17 @@
 #include <string.h>
 #include <stdio.h>
 
+#ifndef QSPI_BUF_HOST_TEST
+#include "FreeRTOS.h"
+#include "semphr.h"
+static SemaphoreHandle_t s_qspi_mutex = NULL;
+#define QSPI_LOCK()    do { if (s_qspi_mutex) xSemaphoreTake(s_qspi_mutex, portMAX_DELAY); } while(0)
+#define QSPI_UNLOCK()  do { if (s_qspi_mutex) xSemaphoreGive(s_qspi_mutex); } while(0)
+#else
+#define QSPI_LOCK()    ((void)0)
+#define QSPI_UNLOCK()  ((void)0)
+#endif
+
 /*******************************************************************************
  * INTERNAL STATE
  ******************************************************************************/
@@ -17,6 +28,57 @@ static bool              s_is_initialized = false;
 
 // Forward declaration
 static bool qspi_buffer_consume_internal(bool is_drop);
+
+static bool qspi_set_xip_enabled(bool enable)
+{
+#if defined(QSPI_BUF_HOST_TEST)
+    (void)enable;
+    return true;
+#else
+    cy_rslt_t result = cy_serial_flash_qspi_enable_xip(enable);
+    if (result != CY_RSLT_SUCCESS) {
+        printf("[QSPI_BUF] WARNING: failed to %s XIP (0x%08lX)\n",
+               enable ? "enable" : "disable",
+               (unsigned long)result);
+        return false;
+    }
+    return true;
+#endif
+}
+
+static bool qspi_flash_erase_sync(uint32_t addr, size_t length)
+{
+    cy_rslt_t result;
+
+    if (!qspi_set_xip_enabled(false)) {
+        return false;
+    }
+
+    result = cy_serial_flash_qspi_erase(addr, length);
+
+    if (!qspi_set_xip_enabled(true)) {
+        return false;
+    }
+
+    return (result == CY_RSLT_SUCCESS);
+}
+
+static bool qspi_flash_write_sync(uint32_t addr, size_t length, const uint8_t *data)
+{
+    cy_rslt_t result;
+
+    if (!qspi_set_xip_enabled(false)) {
+        return false;
+    }
+
+    result = cy_serial_flash_qspi_write(addr, length, data);
+
+    if (!qspi_set_xip_enabled(true)) {
+        return false;
+    }
+
+    return (result == CY_RSLT_SUCCESS);
+}
 
 // Simple software CRC32 polynomial 0xEDB88320
 static uint32_t crc32_compute(const uint8_t *data, size_t length)
@@ -48,13 +110,13 @@ static bool metadata_append(void)
         uint32_t new_sec_offset = QSPI_BUF_REGION_START + (next_sector * QSPI_BUF_SECTOR_SIZE);
         
         printf("[QSPI_BUF] Journal full, ping-ponging to Sector %lu...\n", (unsigned long)next_sector);
-        if (cy_serial_flash_qspi_erase(new_sec_offset, QSPI_BUF_SECTOR_SIZE) != CY_RSLT_SUCCESS) {
+        if (!qspi_flash_erase_sync(new_sec_offset, QSPI_BUF_SECTOR_SIZE)) {
             printf("[QSPI_BUF] WARNING: Failed to erase new journal sector!\n");
             return false;
         }
         
         // Write the entry to the new sector first
-        if (cy_serial_flash_qspi_write(new_sec_offset, sizeof(qspi_meta_entry_t), (const uint8_t*)&s_meta_cache) != CY_RSLT_SUCCESS) {
+        if (!qspi_flash_write_sync(new_sec_offset, sizeof(qspi_meta_entry_t), (const uint8_t*)&s_meta_cache)) {
             printf("[QSPI_BUF] WARNING: Ping-pong metadata write failed!\n");
             return false;
         }
@@ -69,7 +131,7 @@ static bool metadata_append(void)
     uint32_t write_addr = active_base + (s_meta_index * sizeof(qspi_meta_entry_t));
     
     // Write the entry
-    if (cy_serial_flash_qspi_write(write_addr, sizeof(qspi_meta_entry_t), (const uint8_t*)&s_meta_cache) != CY_RSLT_SUCCESS) {
+    if (!qspi_flash_write_sync(write_addr, sizeof(qspi_meta_entry_t), (const uint8_t*)&s_meta_cache)) {
         printf("[QSPI_BUF] WARNING: metadata append IO write failed at %lu\n", (unsigned long)write_addr);
         return false;
     }
@@ -81,11 +143,11 @@ static bool metadata_append(void)
 static bool metadata_reset(void)
 {
     printf("[QSPI_BUF] Re-initializing metadata journal...\n");
-    if (cy_serial_flash_qspi_erase(QSPI_BUF_REGION_START + QSPI_BUF_JOURNAL_0_OFFSET, QSPI_BUF_SECTOR_SIZE) != CY_RSLT_SUCCESS) return false;
-    if (cy_serial_flash_qspi_erase(QSPI_BUF_REGION_START + QSPI_BUF_JOURNAL_1_OFFSET, QSPI_BUF_SECTOR_SIZE) != CY_RSLT_SUCCESS) return false;
+    if (!qspi_flash_erase_sync(QSPI_BUF_REGION_START + QSPI_BUF_JOURNAL_0_OFFSET, QSPI_BUF_SECTOR_SIZE)) return false;
+    if (!qspi_flash_erase_sync(QSPI_BUF_REGION_START + QSPI_BUF_JOURNAL_1_OFFSET, QSPI_BUF_SECTOR_SIZE)) return false;
     
     // Erase the first data sector as well to ensure clean start
-    if (cy_serial_flash_qspi_erase(QSPI_BUF_REGION_START + QSPI_BUF_DATA_START, QSPI_BUF_SECTOR_SIZE) != CY_RSLT_SUCCESS) return false;
+    if (!qspi_flash_erase_sync(QSPI_BUF_REGION_START + QSPI_BUF_DATA_START, QSPI_BUF_SECTOR_SIZE)) return false;
 
     s_meta_cache.magic = QSPI_META_MAGIC;
     s_meta_cache.seq = 1;
@@ -163,6 +225,20 @@ static bool metadata_recover(void)
 
 bool qspi_buffer_init(void)
 {
+#ifndef QSPI_BUF_HOST_TEST
+    if (s_qspi_mutex == NULL) {
+        s_qspi_mutex = xSemaphoreCreateMutex();
+        if (s_qspi_mutex == NULL) {
+            printf("[QSPI_BUF] ERROR: Failed to create mutex\n");
+            return false;
+        }
+    }
+#endif
+
+    if (!qspi_set_xip_enabled(true)) {
+        return false;
+    }
+
     if (metadata_recover()) {
         s_is_initialized = true;
         return true;
@@ -202,6 +278,8 @@ bool qspi_buffer_put(const char *topic, const char *payload, uint16_t payload_le
     if (!s_is_initialized) return false;
     if (topic == NULL || payload == NULL || payload_len == 0) return false;
 
+    QSPI_LOCK();
+
     uint32_t topic_len = strlen(topic);
     
     // Truncate sizes so they are naturally valid during peek() and read_record_header()
@@ -214,6 +292,7 @@ bool qspi_buffer_put(const char *topic, const char *payload, uint16_t payload_le
     while (!room_available(s_meta_cache.head_offset, s_meta_cache.tail_offset, req_size)) {
         if (!qspi_buffer_consume_internal(true)) {
             printf("[QSPI_BUF] Error: Failed to drop oldest record!\n");
+            QSPI_UNLOCK();
             return false;
         }
     }
@@ -228,14 +307,18 @@ bool qspi_buffer_put(const char *topic, const char *payload, uint16_t payload_le
         if (h >= QSPI_BUF_REGION_SIZE) h = QSPI_BUF_DATA_START;
         
         // Erase the new sector before writing
-        if (cy_serial_flash_qspi_erase(h, QSPI_BUF_SECTOR_SIZE) != CY_RSLT_SUCCESS) {
+        if (!qspi_flash_erase_sync(h, QSPI_BUF_SECTOR_SIZE)) {
+            QSPI_UNLOCK();
             return false;
         }
     }
 
     // Prepare buffer to write memory efficiently
     uint8_t write_buf[1024]; // Safe bound since max topic/payload < 600
-    if (req_size > sizeof(write_buf)) return false;
+    if (req_size > sizeof(write_buf)) {
+        QSPI_UNLOCK();
+        return false;
+    }
 
     qspi_data_header_t hdr;
     hdr.magic = QSPI_RECORD_MAGIC;
@@ -250,8 +333,9 @@ bool qspi_buffer_put(const char *topic, const char *payload, uint16_t payload_le
     uint32_t record_crc = crc32_compute(write_buf, sizeof(hdr) + topic_len + payload_len);
     memcpy(write_buf + sizeof(hdr) + topic_len + payload_len, &record_crc, 4);
 
-    if (cy_serial_flash_qspi_write(h, req_size, write_buf) != CY_RSLT_SUCCESS) {
+    if (!qspi_flash_write_sync(h, req_size, write_buf)) {
         printf("[QSPI_BUF] Write failed at offset %lu\n", (unsigned long)h);
+        QSPI_UNLOCK();
         return false;
     }
 
@@ -269,6 +353,7 @@ bool qspi_buffer_put(const char *topic, const char *payload, uint16_t payload_le
         printf("[QSPI_BUF] WARNING: put metadata append failed\n");
     }
     
+    QSPI_UNLOCK();
     metrics_inc_buffer_enqueued();
     return true;
 }
@@ -315,12 +400,15 @@ bool qspi_buffer_peek(buffer_record_t *out)
 {
     if (!s_is_initialized || s_meta_cache.count == 0 || out == NULL) return false;
 
+    QSPI_LOCK();
+
     uint32_t t = s_meta_cache.tail_offset;
     qspi_data_header_t hdr;
     
     if (!read_record_header(&t, &hdr)) {
         printf("[QSPI_BUF] Peek corruption (invalid magic or OOB fields) at %lu\n", (unsigned long)t);
         qspi_buffer_consume_internal(true); // Drop corrupted record
+        QSPI_UNLOCK();
         return false;
     }
 
@@ -335,6 +423,7 @@ bool qspi_buffer_peek(buffer_record_t *out)
     if (computed_crc != stored_crc) {
         printf("[QSPI_BUF] CRC mismatch at offset %lu\n", (unsigned long)t);
         qspi_buffer_consume_internal(true); // Drop corrupted record
+        QSPI_UNLOCK();
         return false;
     }
     
@@ -346,6 +435,7 @@ bool qspi_buffer_peek(buffer_record_t *out)
     out->payload[hdr.payload_len] = '\0';
     out->payload_len = hdr.payload_len;
     
+    QSPI_UNLOCK();
     return true;
 }
 
@@ -386,7 +476,10 @@ static bool qspi_buffer_consume_internal(bool is_drop)
 
 bool qspi_buffer_consume(void)
 {
-    return qspi_buffer_consume_internal(false);
+    QSPI_LOCK();
+    bool result = qspi_buffer_consume_internal(false);
+    QSPI_UNLOCK();
+    return result;
 }
 
 uint32_t qspi_buffer_depth(void)
@@ -406,7 +499,7 @@ bool qspi_buffer_erase_all(void)
     printf("[QSPI_BUF] Erasing completely...\n");
     for (uint32_t i = 2; i < QSPI_BUF_TOTAL_SECTORS; i++) { // Start at 2 to spare 0/1 journal
         uint32_t offset = QSPI_BUF_REGION_START + (i * QSPI_BUF_SECTOR_SIZE);
-        if (cy_serial_flash_qspi_erase(offset, QSPI_BUF_SECTOR_SIZE) != CY_RSLT_SUCCESS) {
+        if (!qspi_flash_erase_sync(offset, QSPI_BUF_SECTOR_SIZE)) {
             return false;
         }
     }

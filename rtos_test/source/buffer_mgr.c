@@ -4,20 +4,18 @@
  * Description: Two-tier store-and-forward buffer implementation.
  *
  *              Tier 1: RAM ring buffer (fast, volatile)
- *              Tier 2: Flash-backed persistent buffer (Em_EEPROM, survives reboot)
+ *              Tier 2: Optional persistent buffer backend
  *
  *              The RAM ring buffer stores pre-encoded JSON + topic strings.
  *              Size is determined by g_config.buffer.ram_max_records.
  *
  *              When flash_max_records > 0, records that cannot fit in RAM
- *              are spilled to flash.  On boot, any records recovered from
- *              flash are flushed before new RAM records.
+ *              are spilled to the persistent tier. On boot, any records
+ *              recovered from the persistent tier are flushed before new RAM
+ *              records.
  *
  *              Thread safety: taskENTER_CRITICAL / taskEXIT_CRITICAL
- *              (short critical sections — only pointer manipulation).
- *              Flash writes happen outside critical sections (they block ~16ms).
- *
- * Related Document: agent.md §6 (Task C), §8, docs/persistent_buffer.md
+ *              (short critical sections, only pointer manipulation).
  *
  ******************************************************************************/
 
@@ -26,12 +24,36 @@
 #include "gateway_config.h"
 #include "gateway_ipc.h"
 #include "metrics.h"
+#include "telemetry.h"
+#include "events.h"
+#include "emergency_ring.h"
+#if defined(BUFFER_BACKEND_QSPI)
+#include "qspi_flash.h"
+#endif
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 
 #include <stdio.h>
 #include <string.h>
+
+/*******************************************************************************
+ * Spill task constants and scratch buffers
+ ******************************************************************************/
+
+/** How often the spill task polls upstream queues (ms) */
+#define SPILL_POLL_MS   50u
+
+/** JSON encoding buffer (max observed telemetry ~232 bytes) */
+#define SPILL_JSON_BUF_SIZE   512u
+
+/** Topic string buffer */
+#define SPILL_TOPIC_BUF_SIZE  80u
+
+/** Scratch buffers — owned exclusively by buffer_task, no concurrency risk */
+static char s_spill_json[SPILL_JSON_BUF_SIZE];
+static char s_spill_topic[SPILL_TOPIC_BUF_SIZE];
 
 /*******************************************************************************
  * Private data
@@ -50,6 +72,44 @@ static uint16_t s_tail = 0u;
 /** Current count of records in the buffer */
 static uint16_t s_count = 0u;
 
+/** Persistent tier configuration/state */
+static bool s_persistent_requested = false;
+static bool s_persistent_ready = false;
+static bool s_persistent_init_attempted = false;
+
+static void buffer_mgr_try_init_persistent(void)
+{
+    if (!s_persistent_requested || s_persistent_ready || s_persistent_init_attempted)
+    {
+        return;
+    }
+
+#if defined(BUFFER_BACKEND_QSPI)
+    if (qspi_flash_get_size() == 0u)
+    {
+        printf("[BUF] WARNING: QSPI backend selected but QSPI flash is not ready, persistent tier disabled\n");
+        s_persistent_requested = false;
+        return;
+    }
+#endif
+
+    if (xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED)
+    {
+        return;
+    }
+
+    s_persistent_init_attempted = true;
+
+    if (!persistent_buffer_init())
+    {
+        printf("[BUF] WARNING: Persistent buffer init failed, flash tier disabled\n");
+        return;
+    }
+
+    s_persistent_ready = true;
+    printf("[BUF] Persistent backend: %s\n", PERSISTENT_BACKEND_NAME);
+}
+
 /*******************************************************************************
  * Initialization
  ******************************************************************************/
@@ -58,7 +118,7 @@ bool buffer_mgr_init(void)
     if (!g_config.buffer.enabled)
     {
         printf("[BUF] Buffer disabled in config\n");
-        return true;  /* Not an error — just nothing to do */
+        return true;
     }
 
     s_capacity = g_config.buffer.ram_max_records;
@@ -68,40 +128,47 @@ bool buffer_mgr_init(void)
         return true;
     }
 
-    s_ring = (buffer_record_t *)pvPortMalloc(
-        (size_t)s_capacity * sizeof(buffer_record_t));
-
+    s_ring = (buffer_record_t *)pvPortMalloc((size_t)s_capacity * sizeof(buffer_record_t));
     if (s_ring == NULL)
     {
-        printf("[BUF] ERROR: Failed to allocate %u × %u bytes for ring buffer\n",
-               (unsigned)s_capacity, (unsigned)sizeof(buffer_record_t));
+        printf("[BUF] ERROR: Failed to allocate %u x %u bytes for ring buffer\n",
+               (unsigned)s_capacity,
+               (unsigned)sizeof(buffer_record_t));
         return false;
     }
 
-    s_head  = 0u;
-    s_tail  = 0u;
+    s_head = 0u;
+    s_tail = 0u;
     s_count = 0u;
 
-    printf("[BUF] Ring buffer initialised: %u records × %u bytes = %u bytes\n",
+    printf("[BUF] Ring buffer initialised: %u records x %u bytes = %u bytes\n",
            (unsigned)s_capacity,
            (unsigned)sizeof(buffer_record_t),
            (unsigned)((uint32_t)s_capacity * sizeof(buffer_record_t)));
 
-    /* Initialise flash tier (if configured) */
-    if (g_config.buffer.flash_max_records > 0u)
+    s_persistent_requested = (g_config.buffer.flash_max_records > 0u);
+    s_persistent_ready = false;
+    s_persistent_init_attempted = false;
+
+    /* Defer persistent tier init until the scheduler is running because
+     * some backends (QSPI serial-flash) use RTOS mutexes for erase/write.
+     */
+    if (s_persistent_requested &&
+        xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED)
     {
-        if (!persistent_buffer_init())
-        {
-            printf("[BUF] WARNING: Persistent buffer init failed, flash tier disabled\n");
-            /* Continue with RAM-only — not a fatal error */
-        }
-        else
-        {
-            printf("[BUF] Persistent backend: %s\n", PERSISTENT_BACKEND_NAME);
-        }
+        printf("[BUF] Persistent backend deferred until scheduler start\n");
+    }
+    else
+    {
+        buffer_mgr_try_init_persistent();
     }
 
     return true;
+}
+
+void buffer_mgr_late_init(void)
+{
+    buffer_mgr_try_init_persistent();
 }
 
 /*******************************************************************************
@@ -120,29 +187,22 @@ bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len
     {
         taskEXIT_CRITICAL();
 
-        /* RAM full — try to spill to flash if enabled.
-         * NOTE: flash_buffer_put() blocks ~16ms but is called outside
-         * the critical section.  This is acceptable because buffer_mgr_put
-         * is called from mqtt_gw_task (medium priority) and the flash write
-         * does not hold any mutex needed by other tasks. */
-        if (g_config.buffer.flash_max_records > 0u)
+        if (s_persistent_ready)
         {
             bool spilled = persistent_buffer_put(topic, payload, payload_len);
             if (spilled)
             {
-                return true;  /* Metrics already updated by flash_buffer_put */
+                return true; /* Metrics are updated by the persistent backend */
             }
-            /* Flash also full — fall through to drop policy */
         }
 
         taskENTER_CRITICAL();
 
-        /* Re-check (another task may have consumed) */
+        /* Re-check after leaving the critical section */
         if (s_count >= s_capacity)
         {
             if (g_config.buffer.drop_oldest)
             {
-                /* Overwrite oldest: advance tail */
                 s_tail = (s_tail + 1u) % s_capacity;
                 s_count--;
                 metrics_inc_buffer_dropped();
@@ -152,7 +212,6 @@ bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len
             }
             else
             {
-                /* Drop new record */
                 taskEXIT_CRITICAL();
                 metrics_inc_buffer_dropped();
                 gateway_ipc_post_event(EVT_BUFFER_OVERFLOW, "drop_newest");
@@ -161,13 +220,15 @@ bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len
         }
     }
 
-    /* Write at head */
     buffer_record_t *rec = &s_ring[s_head];
     strncpy(rec->topic, topic, BUFFER_TOPIC_MAX - 1u);
     rec->topic[BUFFER_TOPIC_MAX - 1u] = '\0';
 
     uint16_t copy_len = payload_len;
-    if (copy_len > BUFFER_PAYLOAD_MAX - 1u) copy_len = BUFFER_PAYLOAD_MAX - 1u;
+    if (copy_len > BUFFER_PAYLOAD_MAX - 1u)
+    {
+        copy_len = BUFFER_PAYLOAD_MAX - 1u;
+    }
     memcpy(rec->payload, payload, copy_len);
     rec->payload[copy_len] = '\0';
     rec->payload_len = copy_len;
@@ -182,7 +243,7 @@ bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len
 }
 
 /*******************************************************************************
- * Peek (read without removing — preserves FIFO ordering)
+ * Peek / Consume
  ******************************************************************************/
 bool buffer_mgr_peek(buffer_record_t *out)
 {
@@ -205,9 +266,6 @@ bool buffer_mgr_peek(buffer_record_t *out)
     return true;
 }
 
-/*******************************************************************************
- * Consume (remove the record previously returned by peek)
- ******************************************************************************/
 bool buffer_mgr_consume(void)
 {
     if (s_ring == NULL)
@@ -244,41 +302,109 @@ uint32_t buffer_mgr_depth(void)
 }
 
 /*******************************************************************************
- * Buffer flush task (Task C)
+ * Spill task — drain helpers
  *
- * This task no longer publishes to MQTT directly (P0 fix: all cy_mqtt_publish
- * calls are serialised through mqtt_gw_task).  Instead, it:
- *   - Updates buffer depth gauges periodically
- *   - Could be extended for flash spill management in the future
- *
- * The actual flush (peek → publish → consume) is done inside mqtt_gw_task
- * after draining the telemetry/status/event queues.
+ * These functions evacuate upstream FreeRTOS queues and the emergency ring
+ * into buffer_mgr.  They run exclusively inside buffer_task (single writer).
  ******************************************************************************/
 
+static void drain_emergency_ring(void)
+{
+    telemetry_record_t rec;
+    while (emergency_ring_get(&rec))
+    {
+        int len = encode_telemetry_json(&rec, s_spill_json, SPILL_JSON_BUF_SIZE);
+        if (len <= 0) continue;
+        int tl = build_device_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE,
+                                     rec.addr_7bit, "telemetry");
+        if (tl <= 0) continue;
+        buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len);
+    }
+}
+
+static void drain_telemetry_queue(void)
+{
+    telemetry_record_t rec;
+    while (xQueueReceive(gateway_ipc_telemetry_queue(), &rec, 0) == pdTRUE)
+    {
+        int len = encode_telemetry_json(&rec, s_spill_json, SPILL_JSON_BUF_SIZE);
+        if (len <= 0) continue;
+        int tl = build_device_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE,
+                                     rec.addr_7bit, "telemetry");
+        if (tl <= 0) continue;
+        buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len);
+    }
+}
+
+static void drain_status_queue(void)
+{
+    status_record_t rec;
+    while (xQueueReceive(gateway_ipc_status_queue(), &rec, 0) == pdTRUE)
+    {
+        int len = encode_status_json(&rec, s_spill_json, SPILL_JSON_BUF_SIZE);
+        if (len <= 0) continue;
+        int tl = build_device_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE,
+                                     rec.addr_7bit, "status");
+        if (tl <= 0) continue;
+        buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len);
+    }
+}
+
+static void drain_event_queue(void)
+{
+    event_record_t evt;
+    while (xQueueReceive(gateway_ipc_event_queue(), &evt, 0) == pdTRUE)
+    {
+        int len = encode_event_json(&evt, s_spill_json, SPILL_JSON_BUF_SIZE);
+        if (len <= 0) continue;
+        int tl = build_events_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE);
+        if (tl <= 0) continue;
+        buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len);
+    }
+}
+
+/*******************************************************************************
+ * Spill task (Task C) — continuous queue evacuation
+ *
+ * Decouples queue draining from the MQTT task.  This task is the ONLY writer
+ * to buffer_mgr, while the MQTT task is the ONLY reader (peek/consume/flush).
+ ******************************************************************************/
 void buffer_task(void *pvParameters)
 {
     (void)pvParameters;
 
-    printf("[BUF] Buffer task started\n");
+    printf("[BUF] Spill task started\n");
 
     if (!g_config.buffer.enabled || s_capacity == 0u)
     {
-        printf("[BUF] Buffering disabled, task idle\n");
-        for (;;) vTaskDelay(pdMS_TO_TICKS(10000));
+        printf("[BUF] Buffering disabled, spill task idle\n");
+        for (;;)
+        {
+            vTaskDelay(pdMS_TO_TICKS(10000));
+        }
     }
-
-    const bool flash_enabled = (g_config.buffer.flash_max_records > 0u);
 
     for (;;)
     {
-        vTaskDelay(pdMS_TO_TICKS(g_config.buffer.flush_interval_ms));
+        /* Drain all upstream queues into buffer_mgr */
+        drain_emergency_ring();
+        drain_telemetry_queue();
+        drain_status_queue();
+        drain_event_queue();
 
-        /* Update gauges for metrics reporting */
+        /* Update gauge metrics */
         metrics_set_buffer_depth_ram(buffer_mgr_depth());
-        if (flash_enabled)
+        if (s_persistent_ready)
         {
             metrics_set_buffer_depth_flash(persistent_buffer_depth());
         }
+        else
+        {
+            metrics_set_buffer_depth_flash(0u);
+        }
+
+        /* Sleep — queues accumulate while we sleep, drained on next wake */
+        vTaskDelay(pdMS_TO_TICKS(SPILL_POLL_MS));
     }
 }
 
