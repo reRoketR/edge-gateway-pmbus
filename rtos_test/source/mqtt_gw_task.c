@@ -50,7 +50,7 @@
 #include "metrics.h"
 #include "wallclock.h"
 #include "buffer_mgr.h"
-#include "flash_buffer.h"
+#include "persistent_buffer.h"
 #include "emergency_ring.h"
 
 #include <stdio.h>
@@ -694,13 +694,13 @@ static void flush_buffered_records(void)
     if (flash_enabled)
     {
         while (flushed < g_config.buffer.flush_batch_size &&
-               flash_buffer_peek(&rec))
+               persistent_buffer_peek(&rec))
         {
             if (!publish_buffered_json(rec.topic, rec.payload, rec.payload_len))
             {
                 break;  /* Stop flushing on first failure */
             }
-            flash_buffer_consume();
+            persistent_buffer_consume();
             flushed++;
         }
     }
@@ -741,7 +741,7 @@ static void publish_metrics_if_due(void)
     metrics_set_buffer_depth_ram(buffer_mgr_depth());
     if (g_config.buffer.flash_max_records > 0u)
     {
-        metrics_set_buffer_depth_flash(flash_buffer_depth());
+        metrics_set_buffer_depth_flash(persistent_buffer_depth());
     }
     else
     {

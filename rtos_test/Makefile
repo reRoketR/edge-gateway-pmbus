@@ -119,6 +119,13 @@ ifneq ($(GW_PROFILE),)
 DEFINES+= GW_PROFILE_HEADER='"profiles/profile_$(GW_PROFILE).h"'
 endif
 
+# Persistent buffer backend selection.
+# Usage:  make build BUFFER_BACKEND=QSPI
+# Default (no flag): Em_EEPROM (internal flash).
+ifeq ($(BUFFER_BACKEND),QSPI)
+DEFINES+= BUFFER_BACKEND_QSPI
+endif
+
 # Select softfp or hardfp floating point. Default is softfp.
 VFP_SELECT=
 

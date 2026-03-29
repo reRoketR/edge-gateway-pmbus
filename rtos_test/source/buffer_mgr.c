@@ -22,7 +22,7 @@
  ******************************************************************************/
 
 #include "buffer_mgr.h"
-#include "flash_buffer.h"
+#include "persistent_buffer.h"
 #include "gateway_config.h"
 #include "gateway_ipc.h"
 #include "metrics.h"
@@ -90,10 +90,14 @@ bool buffer_mgr_init(void)
     /* Initialise flash tier (if configured) */
     if (g_config.buffer.flash_max_records > 0u)
     {
-        if (!flash_buffer_init())
+        if (!persistent_buffer_init())
         {
-            printf("[BUF] WARNING: Flash buffer init failed, flash tier disabled\n");
+            printf("[BUF] WARNING: Persistent buffer init failed, flash tier disabled\n");
             /* Continue with RAM-only — not a fatal error */
+        }
+        else
+        {
+            printf("[BUF] Persistent backend: %s\n", PERSISTENT_BACKEND_NAME);
         }
     }
 
@@ -123,7 +127,7 @@ bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len
          * does not hold any mutex needed by other tasks. */
         if (g_config.buffer.flash_max_records > 0u)
         {
-            bool spilled = flash_buffer_put(topic, payload, payload_len);
+            bool spilled = persistent_buffer_put(topic, payload, payload_len);
             if (spilled)
             {
                 return true;  /* Metrics already updated by flash_buffer_put */
@@ -273,7 +277,7 @@ void buffer_task(void *pvParameters)
         metrics_set_buffer_depth_ram(buffer_mgr_depth());
         if (flash_enabled)
         {
-            metrics_set_buffer_depth_flash(flash_buffer_depth());
+            metrics_set_buffer_depth_flash(persistent_buffer_depth());
         }
     }
 }
