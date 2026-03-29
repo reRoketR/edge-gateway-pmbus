@@ -33,7 +33,6 @@
 #include "gateway_ipc.h"
 #include "wallclock.h"
 #include "emergency_ring.h"
-#include "buffer_mgr.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -566,22 +565,15 @@ telemetry_done:
         /* Queue is full! Transition zone likely. Rescue to emergency RAM ring. */
         if (!emergency_ring_put(&rec))
         {
-            /* Queue + ring full: direct spill to buffer_mgr.
-             * This bypasses the MQTT task drain pipeline and writes
-             * the record straight into the RAM/QSPI persistent tier.
-             * Eliminates the T-6 queue-overflow data loss. */
-            static char spill_json[512];
-            static char spill_topic[80];
-            int len = encode_telemetry_json(&rec, spill_json, sizeof(spill_json));
-            if (len > 0)
+            /* Even the emergency ring is full. We must drop the record. */
+            TickType_t now_t = xTaskGetTickCount();
+            if ((int32_t)(now_t - state->last_telem_warn) >= (int32_t)WARN_THROTTLE_TICKS)
             {
-                int tl = build_device_topic(spill_topic, sizeof(spill_topic),
-                                            rec.addr_7bit, "telemetry");
-                if (tl > 0)
-                {
-                    buffer_mgr_put(spill_topic, spill_json, (uint16_t)len);
-                }
+                printf("[POLL] WARN: telemetry queue and emergency ring full (addr=0x%02X)\n", addr);
+                state->last_telem_warn = now_t;
+                gateway_ipc_post_event(EVT_QUEUE_OVERFLOW, "telemetry_queue");
             }
+            metrics_inc_queue_drops();
         }
         else
         {
