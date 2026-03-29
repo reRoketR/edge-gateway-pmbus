@@ -10,6 +10,10 @@ formalized recovery split in `pmbus_master.c` and proving that:
 3. distinct events and metrics are produced for each successful path
 4. `recovery_settle_ms` is applied after each recovery path
 
+Validated result note:
+
+- [t2_host_i2c_recovery_results_2026-03-29.md](/E:/mtb_workspace/thesis_proj/docs/experiments/notes/t2_host_i2c_recovery_results_2026-03-29.md#L1)
+
 ---
 
 ## Scope
@@ -171,4 +175,3 @@ Store:
 - If the implementation keeps the historical event name `EVT_PMBUS_BUS_RECOVERY`
   instead of renaming it to `EVT_I2C_BUS_RECOVERY`, the test should follow the
   actual codebase contract consistently.
-

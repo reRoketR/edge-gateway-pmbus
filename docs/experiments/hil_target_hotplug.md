@@ -1,4 +1,4 @@
-# T-4 - HIL Target Hot-Plug
+  # T-4 - HIL Target Hot-Plug
 
 ## Objective
 
@@ -28,6 +28,8 @@ References:
 
 - `OFFLINE_FAIL_THRESHOLD` in `pmbus_poll_task.c`
 - `profile_default.h`
+- validated clean reset-method example:
+  `docs/experiments/notes/t4_xres_single_target_results_2026-03-29.md`
 
 Use Target B (`0x59`) as the hot-plugged device and keep Target A (`0x58`)
 powered the whole time.
@@ -54,6 +56,12 @@ Before the run:
 - broker is reachable and capture is working
 - UART console is open on the gateway
 - you can safely remove and restore power to Target B only
+
+Method note:
+
+- if true USB power removal drags the shared PMBus lines and disturbs both
+  targets, use target-local `XRES` as the clean method and document the run as
+  `single-target reset / logical unavailability`
 
 If you already prepared the controlled local broker setup for `T-3`, reuse it.
 
@@ -227,4 +235,3 @@ If the run fails:
 - if no offline event appears, check whether the target outage was long enough to cross the
   `OFFLINE_FAIL_THRESHOLD`
 - if the gateway hangs, preserve UART logs and recovery event / metrics evidence for analysis
-

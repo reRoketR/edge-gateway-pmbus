@@ -1,0 +1,143 @@
+============================================================
+  PMBus-MQTT Edge Gateway  |  CY8CKIT-062S2-43012
+============================================================
+  Build: Mar 29 2026 12:35:24
+============================================================
+
+[SYS] profile=default  pec=1  mqtt=192.168.1.6:1883  q_telem=0  q_ctrl=1  q_metrics=0
+[SYS] i2c: speed=100000  transaction_timeout=20ms  retries=2  recovery=0  settle=5ms
+[SYS] buffer: enabled=1  ram=256  flash=0  batch=50  flush=200ms  drop_oldest=1
+[SYS] metrics_period=10000ms
+[SYS] devices: 2
+[SYS]   [0] 0x58 "psu_a"  poll=500ms  status=10000ms
+[SYS]   [1] 0x59 "psu_b"  poll=500ms  status=10000ms
+
+[SYS] Wi-Fi SSID=Tenda_F459E0
+
+[SYS] Metrics initialised
+[IPC] Queues created: telem=64 status=16 event=16
+[BUF] Ring buffer initialised: 256 records × 594 bytes = 152064 bytes
+[SYS] All tasks created — starting scheduler
+
+[POLL] PMBus poll task started
+[PMBUS] I2C init: requested=100000 Hz, actual=99206 Hz, SCB_CLK=1587301 Hz (div=63)
+[PMBUS] Init OK: timeout=20ms retries=2 pec=1 recovery=0
+[POLL] Polling 2 device(s), tick=10 ms
+[MQTT] Gateway MQTT task started
+[BUF] Buffer task started
+[POLL] 0x58 VOUT_MODE exp=-12
+[POLL] Device 0x58 "psu_a" ONLINE
+[POLL] 0x59 VOUT_MODE exp=-12
+[POLL] Device 0x59 "psu_b" ONLINE
+WLAN MAC Address : C4:AC:59:9C:6A:9E
+WLAN Firmware    : wl0: Jul 31 2023 06:07:24 version 13.10.271.305 (f2b5c53 CY) FWID 01-e6b954e
+WLAN CLM         : API: 18.2 Data: 9.10.0 Compiler: 1.36.1 ClmImport: 1.34.1 Creation: 2022-08-16 03:35:21
+WHD VERSION      : 3.3.3.26314 : WIFI5-v3.3.3 : GCC 14.2 : 2025-03-17 02:09:47 -0500
+[MQTT] WCM initialised
+[MQTT] Wi-Fi connecting to 'Tenda_F459E0'...
+[MQTT] Wi-Fi connected, IP=192.168.1.10
+[WALLCLOCK] Starting SNTP client...
+[MQTT] MQTT library initialised, instance created
+[MQTT] Connecting to broker 192.168.1.6:1883...
+[WALLCLOCK] SNTP synced — UTC 10:58:55  (offset ld ms)
+[MQTT] Connected to broker
+[MQTT] Flushed 48 buffered records
+[MQTT] First publish OK: pmbus/thesis_gw01/dev/0x58/telemetry
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[POLL] Device 0x58 "psu_a" OFFLINE (after 3 fails)
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x79 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x79 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x79 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x58 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[POLL] Device 0x58 "psu_a" ONLINE
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[POLL] Device 0x59 "psu_b" OFFLINE (after 3 fails)
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x79 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x79 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x79 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=1/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=2/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[PMBUS] ERROR: read_word write-complete addr=0x59 cmd=0x88 attempt=3/3 status=NACK scb=0x00120000 scl=0 sda=1 hsiom_scl=19 hsiom_sda=19
+[POLL] Device 0x59 "psu_b" ONLINE
+

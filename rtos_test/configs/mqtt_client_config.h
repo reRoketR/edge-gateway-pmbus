@@ -30,7 +30,7 @@
 #define MQTT_TIMEOUT_MS                   (5000)
 
 /* The keep-alive interval in seconds used for MQTT ping request. */
-#define MQTT_KEEP_ALIVE_SECONDS           (60)
+#define MQTT_KEEP_ALIVE_SECONDS           (15)
 
 /* Generate unique client ID by appending timestamp. */
 #define GENERATE_UNIQUE_CLIENT_ID         (1)

@@ -6,7 +6,7 @@ Validate story `T-3` from the backlog by running the gateway on the `default`
 profile, forcing a 60-second MQTT broker outage, and verifying that:
 
 1. `queue_drops == 0` during the outage
-2. `buffer_depth_ram` grows during the outage
+2. records are buffered during the outage
 3. buffered records flush after reconnect
 4. no manual gateway reset is needed
 
@@ -43,6 +43,39 @@ Recommended setup:
 - set `mqtt.host` in `profile_default.h` to the PC's LAN IP address
 - keep device table, polling periods, queue settings, topics, and JSON schema
   unchanged
+
+---
+
+## Important note about observability
+
+For this repository's current capture setup, `T-3` must be judged from a
+**combined artifact set** (`UART + metrics.jsonl + events.jsonl`), not from
+`events.jsonl` alone.
+
+Why:
+
+- `capture.py` is itself an MQTT client on the same broker and only resubscribes
+  after its own reconnect completes. A short-lived buffered event can therefore
+  be missed even if the gateway published it correctly.
+- `metrics.jsonl` is published only while MQTT is online, and metrics are not
+  buffered. A transient `buffer_depth_ram > 0` during the outage may therefore
+  be invisible in the saved metrics windows even when buffering did happen.
+- The broker LWT payload `GATEWAY_UNEXPECTED_DISCONNECT` may appear on the
+  `/events` topic, but it is broker-generated and should be treated as
+  supplemental evidence, not as a replacement for the gateway event
+  `MQTT_DISCONNECTED`.
+
+Because of those constraints, this runbook treats:
+
+- `queue_drops`, `buffer_enqueued`, `buffer_dequeued`, `buffer_dropped` from
+  `metrics.jsonl` as the primary buffering evidence
+- UART lines as the primary disconnect/reconnect evidence
+- `events.jsonl` as supporting evidence when the capture client manages to
+  observe the transient event messages
+
+Example of a validated run using this combined-artifact method:
+
+- [T-3a selective block results (2026-03-29)](notes/t3a_selective_block_results_2026-03-29.md)
 
 ---
 
@@ -148,7 +181,8 @@ docker compose stop
 
 During this window, the gateway should:
 
-- post `MQTT_DISCONNECTED`
+- log a disconnect on UART (`Disconnected (callback)` and
+  `Connection lost — reconnecting...`)
 - keep polling PMBus devices
 - drain IPC queues into the RAM buffer
 
@@ -171,7 +205,7 @@ docker compose start
 During recovery, the gateway should:
 
 - reconnect automatically
-- post `MQTT_CONNECTED`
+- log a successful reconnect on UART and usually post `MQTT_CONNECTED`
 - flush buffered records
 
 ### 6. Let capture finish
@@ -185,17 +219,28 @@ Keep the system running until the 180-second capture completes.
 The run is a PASS if all conditions below are true:
 
 1. `queue_drops == 0` in every `metrics.jsonl` window
-2. `gauges.buffer_depth_ram` rises above zero during the 60-second outage
-3. `counters_delta.buffer_dequeued` becomes non-zero after reconnect
-4. `gauges.buffer_depth_ram` returns to zero or near zero after flush
-5. `events.jsonl` contains both `MQTT_DISCONNECTED` and `MQTT_CONNECTED`
+2. `sum(counters_delta.buffer_enqueued) > 0` for the run
+3. `sum(counters_delta.buffer_dequeued) > 0` after reconnect
+4. `sum(counters_delta.buffer_dropped) == 0` for a 60-second outage
+5. UART shows the disconnect/reconnect path:
+   `Disconnected (callback)` and `Connected to broker`
 6. gateway does not require a manual reset
+
+Supporting evidence that strengthens the PASS decision, but is not mandatory in
+this capture setup:
+
+- `events.jsonl` contains `MQTT_DISCONNECTED`
+- `events.jsonl` contains `MQTT_CONNECTED`
+- `gauges.buffer_depth_ram` rises above zero in at least one saved metrics
+  window
+- `events.jsonl` contains the broker LWT payload `GATEWAY_UNEXPECTED_DISCONNECT`
 
 The run is a FAIL if any of these happen:
 
 - `queue_drops` becomes non-zero
-- buffer never grows during outage
+- `sum(buffer_enqueued) == 0`
 - buffered records never flush after reconnect
+- `buffer_dropped` becomes non-zero for the 60 s outage
 - gateway hangs or needs reboot
 
 ---
@@ -226,6 +271,7 @@ p = pathlib.Path(r'E:\mtb_workspace\thesis_proj\scripts\logs\t3_default\events.j
 types = [json.loads(x)["type"] for x in p.open(encoding="utf-8")]
 print("MQTT_DISCONNECTED =", types.count("MQTT_DISCONNECTED"))
 print("MQTT_CONNECTED    =", types.count("MQTT_CONNECTED"))
+print("GATEWAY_UNEXPECTED_DISCONNECT =", types.count("GATEWAY_UNEXPECTED_DISCONNECT"))
 '@ | python -
 ```
 
@@ -234,11 +280,17 @@ print("MQTT_CONNECTED    =", types.count("MQTT_CONNECTED"))
 Expected good result:
 
 - `max queue_drops delta = 0`
-- `max buffer_depth_ram > 0`
 - `sum buffer_enqueued > 0`
 - `sum buffer_dequeued > 0`
 - `sum buffer_dropped = 0` for a 60 s outage
-- at least one `MQTT_DISCONNECTED` and one `MQTT_CONNECTED`
+- UART clearly shows disconnect and reconnect without manual reset
+
+Nice to have, but not required for PASS in this setup:
+
+- `max buffer_depth_ram > 0`
+- at least one `MQTT_DISCONNECTED`
+- at least one `MQTT_CONNECTED`
+- `GATEWAY_UNEXPECTED_DISCONNECT` from broker LWT
 
 ---
 
@@ -265,4 +317,3 @@ If the run fails:
 - if `queue_drops` is non-zero, note the exact outage duration and save the log
 - if `buffer_dropped` is non-zero, confirm that the outage did not exceed the
   practical RAM buffer capacity for the active traffic rate
-

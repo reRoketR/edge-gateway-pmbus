@@ -32,6 +32,7 @@
 #include "gateway_config.h"
 #include "gateway_ipc.h"
 #include "wallclock.h"
+#include "emergency_ring.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -561,14 +562,23 @@ telemetry_done:
     }
     else
     {
-        TickType_t now_t = xTaskGetTickCount();
-        if ((int32_t)(now_t - state->last_telem_warn) >= (int32_t)WARN_THROTTLE_TICKS)
+        /* Queue is full! Transition zone likely. Rescue to emergency RAM ring. */
+        if (!emergency_ring_put(&rec))
         {
-            printf("[POLL] WARN: telemetry queue full (addr=0x%02X)\n", addr);
-            state->last_telem_warn = now_t;
-            gateway_ipc_post_event(EVT_QUEUE_OVERFLOW, "telemetry_queue");
+            /* Even the emergency ring is full. We must drop the record. */
+            TickType_t now_t = xTaskGetTickCount();
+            if ((int32_t)(now_t - state->last_telem_warn) >= (int32_t)WARN_THROTTLE_TICKS)
+            {
+                printf("[POLL] WARN: telemetry queue and emergency ring full (addr=0x%02X)\n", addr);
+                state->last_telem_warn = now_t;
+                gateway_ipc_post_event(EVT_QUEUE_OVERFLOW, "telemetry_queue");
+            }
+            metrics_inc_queue_drops();
         }
-        metrics_inc_queue_drops();
+        else
+        {
+            /* Record saved to emergency ring! We avoid polluting UART during outage. */
+        }
     }
 }
 

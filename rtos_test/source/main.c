@@ -34,6 +34,7 @@
 #include "buffer_mgr.h"
 #include "pmbus_poll_task.h"
 #include "mqtt_gw_task.h"
+#include "emergency_ring.h"
 
 /******************************************************************************
 * Defines
@@ -114,6 +115,7 @@ int main(void)
         CY_ASSERT(0);  /* breakpoint in Debug */
         for (;;) { __WFI(); }  /* halt in Release */
     }
+    emergency_ring_init();
 
     /* Store-and-forward buffer (RAM ring buffer) */
     if (!buffer_mgr_init())

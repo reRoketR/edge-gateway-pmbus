@@ -51,6 +51,7 @@
 #include "wallclock.h"
 #include "buffer_mgr.h"
 #include "flash_buffer.h"
+#include "emergency_ring.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -73,6 +74,11 @@
 
 /** MQTT handle descriptor */
 #define MQTT_HANDLE_DESCRIPTOR      "MQTThandleID"
+
+/** Detail strings for forced/offline MQTT transitions */
+#define MQTT_DISCONNECT_DETAIL_CALLBACK       "broker_disconnect"
+#define MQTT_DISCONNECT_DETAIL_PUBLISH_FAIL   "publish_fail"
+#define MQTT_DISCONNECT_DETAIL_NOT_CONNECTED  "not_connected"
 
 /*******************************************************************************
  * Private data
@@ -112,6 +118,8 @@ static void publish_metrics_if_due(void);
 static uint8_t qos_for_topic(const char *topic);
 static bool publish_json_qos(const char *topic, const char *payload,
                              size_t payload_len, uint8_t qos);
+static bool mqtt_publish_failure_requires_offline(cy_rslt_t res, uint32_t consec_fails);
+static void mqtt_request_disconnect(const char *detail);
 static inline bool publish_telemetry_json(const char *topic, const char *payload,
                                           size_t payload_len)
 {
@@ -134,6 +142,9 @@ static void backoff_wait(void);
 
 /** Volatile flag set from callback context, handled in main task loop. */
 static volatile bool s_disconnect_pending = false;
+/** Detail string for the next disconnect event posted from the main loop. */
+static const char * volatile s_disconnect_detail =
+    MQTT_DISCONNECT_DETAIL_CALLBACK;
 
 /*******************************************************************************
  * Task entry point
@@ -220,10 +231,24 @@ void mqtt_gw_task(void *pvParameters)
         /* Check for disconnect signalled by callback */
         if (s_disconnect_pending)
         {
+            const char *detail = s_disconnect_detail;
             s_disconnect_pending = false;
-            printf("[MQTT] Disconnected (callback)\n");
-            gateway_ipc_set_mqtt_online(false);
-            gateway_ipc_post_event(EVT_MQTT_DISCONNECTED, "broker_disconnect");
+            s_disconnect_detail = MQTT_DISCONNECT_DETAIL_CALLBACK;
+
+            if (gateway_ipc_is_mqtt_online())
+            {
+                if (strcmp(detail, MQTT_DISCONNECT_DETAIL_CALLBACK) == 0)
+                {
+                    printf("[MQTT] Disconnected (callback)\n");
+                }
+                else
+                {
+                    printf("[MQTT] Disconnected (%s)\n", detail);
+                }
+
+                gateway_ipc_set_mqtt_online(false);
+                gateway_ipc_post_event(EVT_MQTT_DISCONNECTED, detail);
+            }
         }
 
         /* Check if we're still connected */
@@ -270,11 +295,15 @@ void mqtt_gw_task(void *pvParameters)
 
         /* Drain queues */
         process_telemetry_queue();
+        if (s_disconnect_pending) continue;
         process_status_queue();
+        if (s_disconnect_pending) continue;
         process_event_queue();
+        if (s_disconnect_pending) continue;
 
         /* Flush buffered records (all MQTT publishing in one task) */
         flush_buffered_records();
+        if (s_disconnect_pending) continue;
 
         /* Metrics */
         publish_metrics_if_due();
@@ -455,7 +484,7 @@ static void mqtt_event_cb(cy_mqtt_t handle, cy_mqtt_event_t event,
         case CY_MQTT_EVENT_TYPE_DISCONNECT:
             /* Only touch volatile flag — no FreeRTOS API / printf here.
              * The main task loop will post the event and update IPC. */
-            s_disconnect_pending = true;
+            mqtt_request_disconnect(MQTT_DISCONNECT_DETAIL_CALLBACK);
             break;
 
         case CY_MQTT_EVENT_TYPE_SUBSCRIPTION_MESSAGE_RECEIVE:
@@ -474,7 +503,39 @@ static void process_telemetry_queue(void)
 {
     telemetry_record_t rec;
 
-    while (xQueueReceive(gateway_ipc_telemetry_queue(), &rec, 0) == pdTRUE)
+    /* 1) Drain rescued records from the emergency ring first */
+    while (!s_disconnect_pending && emergency_ring_get(&rec))
+    {
+        int json_len = encode_telemetry_json(&rec, s_json_buf, JSON_BUF_SIZE);
+        if (json_len > 0)
+        {
+            int topic_len = build_device_topic(s_topic_buf, TOPIC_BUF_SIZE,
+                                               rec.addr_7bit, "telemetry");
+            if (topic_len > 0)
+            {
+                if (!publish_telemetry_json(s_topic_buf, s_json_buf, (size_t)json_len))
+                {
+                    buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)json_len);
+                }
+                else
+                {
+                    static bool s_first_pub_rescue = false;
+                    if (!s_first_pub_rescue)
+                    {
+                        printf("[MQTT] First publish OK (rescued): %s\n", s_topic_buf);
+                        s_first_pub_rescue = true;
+                    }
+                    uint32_t now_ms = gateway_ipc_monotonic_ms();
+                    uint32_t latency_ms = now_ms - rec.read_start_ms;
+                    metrics_record_read_to_publish_us(latency_ms * 1000u);
+                }
+            }
+        }
+    }
+
+    /* 2) Process normally enqueued records */
+    while (!s_disconnect_pending &&
+           xQueueReceive(gateway_ipc_telemetry_queue(), &rec, 0) == pdTRUE)
     {
         /* Encode JSON */
         int json_len = encode_telemetry_json(&rec, s_json_buf, JSON_BUF_SIZE);
@@ -517,7 +578,8 @@ static void process_status_queue(void)
 {
     status_record_t rec;
 
-    while (xQueueReceive(gateway_ipc_status_queue(), &rec, 0) == pdTRUE)
+    while (!s_disconnect_pending &&
+           xQueueReceive(gateway_ipc_status_queue(), &rec, 0) == pdTRUE)
     {
         int json_len = encode_status_json(&rec, s_json_buf, JSON_BUF_SIZE);
         if (json_len <= 0) continue;
@@ -540,7 +602,8 @@ static void process_event_queue(void)
 {
     event_record_t evt;
 
-    while (xQueueReceive(gateway_ipc_event_queue(), &evt, 0) == pdTRUE)
+    while (!s_disconnect_pending &&
+           xQueueReceive(gateway_ipc_event_queue(), &evt, 0) == pdTRUE)
     {
         int json_len = encode_event_json(&evt, s_json_buf, JSON_BUF_SIZE);
         if (json_len <= 0) continue;
@@ -564,6 +627,19 @@ static void process_event_queue(void)
 static void drain_queues_to_buffer(void)
 {
     telemetry_record_t telem;
+
+    /* 1) Drain rescued emergency ring records */
+    while (emergency_ring_get(&telem))
+    {
+        int len = encode_telemetry_json(&telem, s_json_buf, JSON_BUF_SIZE);
+        if (len <= 0) continue;
+        int tl = build_device_topic(s_topic_buf, TOPIC_BUF_SIZE,
+                                     telem.addr_7bit, "telemetry");
+        if (tl <= 0) continue;
+        buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)len);
+    }
+
+    /* 2) Drain regular queue */
     while (xQueueReceive(gateway_ipc_telemetry_queue(), &telem, 0) == pdTRUE)
     {
         int len = encode_telemetry_json(&telem, s_json_buf, JSON_BUF_SIZE);
@@ -586,7 +662,8 @@ static void drain_queues_to_buffer(void)
     }
 
     event_record_t evt;
-    while (xQueueReceive(gateway_ipc_event_queue(), &evt, 0) == pdTRUE)
+    while (!s_disconnect_pending &&
+           xQueueReceive(gateway_ipc_event_queue(), &evt, 0) == pdTRUE)
     {
         int len = encode_event_json(&evt, s_json_buf, JSON_BUF_SIZE);
         if (len <= 0) continue;
@@ -736,6 +813,8 @@ static uint8_t qos_for_topic(const char *topic)
     return g_config.mqtt.qos_control;
 }
 
+static uint32_t s_consec_pub_fails = 0;
+
 static bool publish_json_qos(const char *topic, const char *payload,
                              size_t payload_len, uint8_t qos)
 {
@@ -760,6 +839,7 @@ static bool publish_json_qos(const char *topic, const char *payload,
     if (res == CY_RSLT_SUCCESS)
     {
         metrics_inc_mqtt_pub_ok();
+        s_consec_pub_fails = 0;
         return true;
     }
     else
@@ -767,8 +847,49 @@ static bool publish_json_qos(const char *topic, const char *payload,
         metrics_inc_mqtt_pub_fail();
         printf("[MQTT] Publish failed (0x%lX) topic=%s\n",
                (unsigned long)res, topic);
+
+        if (res == CY_RSLT_MODULE_MQTT_PUBLISH_FAIL)
+        {
+            s_consec_pub_fails++;
+        }
+
+        if (gateway_ipc_is_mqtt_online() &&
+            !s_disconnect_pending &&
+            mqtt_publish_failure_requires_offline(res, s_consec_pub_fails))
+        {
+            const char *detail =
+                (res == CY_RSLT_MODULE_MQTT_NOT_CONNECTED ||
+                 res == CY_RSLT_MODULE_MQTT_CLOSED) ?
+                MQTT_DISCONNECT_DETAIL_NOT_CONNECTED :
+                MQTT_DISCONNECT_DETAIL_PUBLISH_FAIL;
+            printf("[MQTT] WARN: forcing offline after publish failure\n");
+            mqtt_request_disconnect(detail);
+        }
         return false;
     }
+}
+
+static bool mqtt_publish_failure_requires_offline(cy_rslt_t res, uint32_t consec_fails)
+{
+    if (res == CY_RSLT_MODULE_MQTT_NOT_CONNECTED ||
+        res == CY_RSLT_MODULE_MQTT_CLOSED)
+    {
+        return true;
+    }
+
+    if (res == CY_RSLT_MODULE_MQTT_PUBLISH_FAIL && consec_fails >= 3u)
+    {
+        return true;
+    }
+
+    return false;
+}
+
+static void mqtt_request_disconnect(const char *detail)
+{
+    s_disconnect_detail = (detail != NULL) ?
+        detail : MQTT_DISCONNECT_DETAIL_CALLBACK;
+    s_disconnect_pending = true;
 }
 
 /*******************************************************************************
