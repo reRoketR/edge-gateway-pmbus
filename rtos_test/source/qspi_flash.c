@@ -30,6 +30,21 @@
 static size_t s_flash_size  = 0;
 static size_t s_sector_size = 0;
 
+static bool qspi_flash_set_xip(bool enable)
+{
+    cy_rslt_t result = cy_serial_flash_qspi_enable_xip(enable);
+
+    if (result != CY_RSLT_SUCCESS)
+    {
+        printf("[QSPI] ERROR: %s XIP failed (0x%08lX)\n",
+               enable ? "enable" : "disable",
+               (unsigned long)result);
+        return false;
+    }
+
+    return true;
+}
+
 /*******************************************************************************
  * qspi_flash_init
  ******************************************************************************/
@@ -67,6 +82,11 @@ cy_rslt_t qspi_flash_init(void)
            (unsigned long)(s_flash_size / (1024u * 1024u)),
            (unsigned long)s_sector_size);
 
+    if (!qspi_flash_set_xip(true))
+    {
+        return 1u;
+    }
+
     return CY_RSLT_SUCCESS;
 }
 
@@ -75,9 +95,16 @@ cy_rslt_t qspi_flash_init(void)
  ******************************************************************************/
 bool qspi_flash_self_test(void)
 {
+    bool success = false;
+
     if (s_flash_size == 0u || s_sector_size == 0u)
     {
         printf("[QSPI] Self-test: SKIP (not initialized)\n");
+        return false;
+    }
+
+    if (!qspi_flash_set_xip(false))
+    {
         return false;
     }
 
@@ -102,7 +129,7 @@ bool qspi_flash_self_test(void)
     if (res != CY_RSLT_SUCCESS)
     {
         printf("[QSPI] Self-test: FAIL (erase 0x%08lX)\n", (unsigned long)res);
-        return false;
+        goto cleanup;
     }
     printf("[QSPI] Self-test step 1/5: erase OK\n");
 
@@ -114,7 +141,7 @@ bool qspi_flash_self_test(void)
     {
         printf("[QSPI] Self-test: FAIL (read-after-erase 0x%08lX)\n",
                (unsigned long)res);
-        return false;
+        goto cleanup;
     }
     for (uint32_t i = 0; i < SELF_TEST_PATTERN_LEN; i++)
     {
@@ -122,7 +149,7 @@ bool qspi_flash_self_test(void)
         {
             printf("[QSPI] Self-test: FAIL (erase verify at offset %lu, got 0x%02X)\n",
                    (unsigned long)i, read_buf[i]);
-            return false;
+            goto cleanup;
         }
     }
     printf("[QSPI] Self-test step 2/5: erase verify OK\n");
@@ -133,7 +160,7 @@ bool qspi_flash_self_test(void)
     if (res != CY_RSLT_SUCCESS)
     {
         printf("[QSPI] Self-test: FAIL (write 0x%08lX)\n", (unsigned long)res);
-        return false;
+        goto cleanup;
     }
     printf("[QSPI] Self-test step 3/5: write OK\n");
 
@@ -145,12 +172,12 @@ bool qspi_flash_self_test(void)
     {
         printf("[QSPI] Self-test: FAIL (read-after-write 0x%08lX)\n",
                (unsigned long)res);
-        return false;
+        goto cleanup;
     }
     if (memcmp(write_buf, read_buf, SELF_TEST_PATTERN_LEN) != 0)
     {
         printf("[QSPI] Self-test: FAIL (data mismatch)\n");
-        return false;
+        goto cleanup;
     }
     printf("[QSPI] Self-test step 4/5: data match OK\n");
 
@@ -161,7 +188,7 @@ bool qspi_flash_self_test(void)
     {
         printf("[QSPI] Self-test: FAIL (final erase 0x%08lX)\n",
                (unsigned long)res);
-        return false;
+        goto cleanup;
     }
     printf("[QSPI] Self-test step 5/6: final erase OK\n");
 
@@ -173,7 +200,7 @@ bool qspi_flash_self_test(void)
     {
         printf("[QSPI] Self-test: FAIL (read-after-final-erase 0x%08lX)\n",
                (unsigned long)res);
-        return false;
+        goto cleanup;
     }
     for (uint32_t i = 0; i < SELF_TEST_PATTERN_LEN; i++)
     {
@@ -181,13 +208,21 @@ bool qspi_flash_self_test(void)
         {
             printf("[QSPI] Self-test: FAIL (final erase verify at offset %lu, got 0x%02X)\n",
                    (unsigned long)i, read_buf[i]);
-            return false;
+            goto cleanup;
         }
     }
     printf("[QSPI] Self-test step 6/6: final verify OK\n");
 
     printf("[QSPI] Self-test: PASS\n");
-    return true;
+    success = true;
+
+cleanup:
+    if (!qspi_flash_set_xip(true))
+    {
+        return false;
+    }
+
+    return success;
 }
 
 /*******************************************************************************

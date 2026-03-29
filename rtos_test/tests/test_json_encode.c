@@ -23,6 +23,7 @@
 #include "../source/events.h"
 #include "../source/metrics.h"
 #include "../source/gateway_config.h"
+#include "../source/buffer_mgr.h"
 
 /*******************************************************************************
  * Minimal test framework
@@ -389,6 +390,51 @@ static void test_metrics_json(void)
                     "window_ms=%u", (unsigned)snap2.window_ms);
 }
 
+static void test_same_boot_latency_helper(void)
+{
+    printf("--- test_same_boot_latency_helper ---\n");
+
+    buffer_record_t rec = {0};
+    uint32_t latency_us = 0u;
+    metrics_snapshot_t snap;
+
+    strcpy(rec.topic, "pmbus/test/dev/0x58/telemetry");
+    strcpy(rec.payload, "{\"v\":1.0}");
+    rec.payload_len = (uint16_t)strlen(rec.payload);
+    rec.origin_read_start_ms = 100u;
+    rec.origin_boot_gen = 7u;
+
+    metrics_init();
+    TEST_ASSERT_TRUE(buffer_record_same_boot_latency_us(&rec, 7u, 145u, &latency_us));
+    TEST_ASSERT_MSG(latency_us == 45000u,
+                    "latency_us=%u", (unsigned)latency_us);
+    metrics_record_read_to_publish_us(latency_us);
+    metrics_snapshot_and_reset(&snap, 1000u, 1000u);
+    TEST_ASSERT_MSG(snap.timing.read_to_publish_avg_us == 45000u,
+                    "same-boot avg=%u", (unsigned)snap.timing.read_to_publish_avg_us);
+    TEST_ASSERT_MSG(snap.timing.read_to_publish_p95_us == 45000u,
+                    "same-boot p95=%u", (unsigned)snap.timing.read_to_publish_p95_us);
+    TEST_ASSERT_MSG(snap.timing.read_to_publish_max_us == 45000u,
+                    "same-boot max=%u", (unsigned)snap.timing.read_to_publish_max_us);
+
+    metrics_init();
+    TEST_ASSERT_TRUE(!buffer_record_same_boot_latency_us(&rec, 8u, 145u, &latency_us));
+    metrics_snapshot_and_reset(&snap, 2000u, 2000u);
+    TEST_ASSERT_MSG(snap.timing.read_to_publish_avg_us == 0u,
+                    "mismatch avg=%u", (unsigned)snap.timing.read_to_publish_avg_us);
+    TEST_ASSERT_MSG(snap.timing.read_to_publish_p95_us == 0u,
+                    "mismatch p95=%u", (unsigned)snap.timing.read_to_publish_p95_us);
+    TEST_ASSERT_MSG(snap.timing.read_to_publish_max_us == 0u,
+                    "mismatch max=%u", (unsigned)snap.timing.read_to_publish_max_us);
+
+    metrics_init();
+    rec.origin_read_start_ms = 0u;
+    TEST_ASSERT_TRUE(!buffer_record_same_boot_latency_us(&rec, 7u, 145u, &latency_us));
+    metrics_snapshot_and_reset(&snap, 3000u, 3000u);
+    TEST_ASSERT_MSG(snap.timing.read_to_publish_avg_us == 0u,
+                    "no-origin avg=%u", (unsigned)snap.timing.read_to_publish_avg_us);
+}
+
 /*******************************************************************************
  * Main
  ******************************************************************************/
@@ -404,6 +450,7 @@ int main(void)
     test_event_type_strings();
     test_topic_builders();
     test_metrics_json();
+    test_same_boot_latency_helper();
 
     printf("\n=== Results: %d passed, %d failed, %d total ===\n",
            tests_passed, tests_failed, tests_run);

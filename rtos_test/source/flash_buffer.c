@@ -151,7 +151,7 @@ static bool meta_read_and_validate(void)
     }
 
     /* Check version */
-    if (flash_meta->version != 1u)
+    if (flash_meta->version != FLASH_META_VERSION)
     {
         return false;
     }
@@ -187,7 +187,7 @@ static bool meta_init_fresh(void)
     s_meta.head         = 0u;
     s_meta.tail         = 0u;
     s_meta.count        = 0u;
-    s_meta.version      = 1u;
+    s_meta.version      = FLASH_META_VERSION;
     s_meta.total_writes = 0u;
 
     return meta_write();
@@ -283,9 +283,9 @@ bool flash_buffer_init(void)
     return true;
 }
 
-bool flash_buffer_put(const char *topic, const char *payload, uint16_t payload_len)
+bool flash_buffer_put_record(const buffer_record_t *rec)
 {
-    if (!s_initialised || g_config.buffer.flash_max_records == 0u)
+    if (!s_initialised || g_config.buffer.flash_max_records == 0u || rec == NULL)
     {
         return false;
     }
@@ -321,17 +321,20 @@ bool flash_buffer_put(const char *topic, const char *payload, uint16_t payload_l
     row_buf.magic    = FLASH_RECORD_MAGIC;
     row_buf.reserved = 0u;
 
+    row_buf.origin_read_start_ms = rec->origin_read_start_ms;
+    row_buf.origin_boot_gen = rec->origin_boot_gen;
+
     /* Copy topic */
-    strncpy(row_buf.topic, topic, BUFFER_TOPIC_MAX - 1u);
+    strncpy(row_buf.topic, rec->topic, BUFFER_TOPIC_MAX - 1u);
     row_buf.topic[BUFFER_TOPIC_MAX - 1u] = '\0';
 
     /* Copy payload (truncate to FLASH_PAYLOAD_MAX) */
-    uint16_t copy_len = payload_len;
+    uint16_t copy_len = rec->payload_len;
     if (copy_len > FLASH_PAYLOAD_MAX - 1u)
     {
         copy_len = FLASH_PAYLOAD_MAX - 1u;
     }
-    memcpy(row_buf.payload, payload, copy_len);
+    memcpy(row_buf.payload, rec->payload, copy_len);
     row_buf.payload[copy_len] = '\0';
     row_buf.payload_len = copy_len;
 
@@ -363,6 +366,31 @@ bool flash_buffer_put(const char *topic, const char *payload, uint16_t payload_l
 
     metrics_inc_buffer_enqueued();
     return true;
+}
+
+bool flash_buffer_put(const char *topic, const char *payload, uint16_t payload_len)
+{
+    if (topic == NULL || payload == NULL || payload_len == 0u)
+    {
+        return false;
+    }
+
+    buffer_record_t rec;
+    memset(&rec, 0, sizeof(rec));
+
+    strncpy(rec.topic, topic, BUFFER_TOPIC_MAX - 1u);
+    rec.topic[BUFFER_TOPIC_MAX - 1u] = '\0';
+
+    uint16_t copy_len = payload_len;
+    if (copy_len > BUFFER_PAYLOAD_MAX - 1u)
+    {
+        copy_len = BUFFER_PAYLOAD_MAX - 1u;
+    }
+    memcpy(rec.payload, payload, copy_len);
+    rec.payload[copy_len] = '\0';
+    rec.payload_len = copy_len;
+
+    return flash_buffer_put_record(&rec);
 }
 
 bool flash_buffer_peek(buffer_record_t *out)
@@ -409,6 +437,8 @@ bool flash_buffer_peek(buffer_record_t *out)
     memcpy(out->payload, flash_rec->payload, len);
     out->payload[len] = '\0';
     out->payload_len = len;
+    out->origin_read_start_ms = flash_rec->origin_read_start_ms;
+    out->origin_boot_gen = flash_rec->origin_boot_gen;
 
     return true;
 }

@@ -21,6 +21,7 @@
   #include "qspi_buffer.h"
 
   #define persistent_buffer_init         qspi_buffer_init
+  #define persistent_buffer_put_record   qspi_buffer_put_record
   #define persistent_buffer_put          qspi_buffer_put
   #define persistent_buffer_peek         qspi_buffer_peek
   #define persistent_buffer_consume      qspi_buffer_consume
@@ -34,6 +35,7 @@
   #include "flash_buffer.h"
 
   #define persistent_buffer_init         flash_buffer_init
+  #define persistent_buffer_put_record   flash_buffer_put_record
   #define persistent_buffer_put          flash_buffer_put
   #define persistent_buffer_peek         flash_buffer_peek
   #define persistent_buffer_consume      flash_buffer_consume

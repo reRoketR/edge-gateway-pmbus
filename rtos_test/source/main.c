@@ -118,14 +118,6 @@ int main(void)
     }
     emergency_ring_init();
 
-    /* Store-and-forward buffer (RAM ring buffer) */
-    if (!buffer_mgr_init())
-    {
-        printf("[SYS] FATAL: Buffer manager init failed\n");
-        CY_ASSERT(0);
-        for (;;) { __WFI(); }
-    }
-
     /* QSPI external flash (S25FL512S) — D2a-1
      * NOTE: Only init here (no mutex needed for HAL + get_size).
      * Self-test uses erase/write which acquire a FreeRTOS mutex inside
@@ -135,6 +127,17 @@ int main(void)
     if (result != CY_RSLT_SUCCESS)
     {
         printf("[QSPI] WARNING: QSPI flash init failed, continuing without external flash\n");
+    }
+
+    /* Store-and-forward buffer (RAM ring buffer + optional persistent tier).
+     * QSPI backend recovery reads the memory-mapped external flash, so SMIF
+     * must already be initialized before buffer_mgr_init() runs.
+     */
+    if (!buffer_mgr_init())
+    {
+        printf("[SYS] FATAL: Buffer manager init failed\n");
+        CY_ASSERT(0);
+        for (;;) { __WFI(); }
     }
 
     /* ---- Create gateway tasks (agent.md §6) ---- */
@@ -212,6 +215,11 @@ void vApplicationDaemonTaskStartupHook(void)
     {
         qspi_flash_self_test();
     }
+
+    /* Persistent backend recovery/format may also need erase/write, so finish
+     * that step only after the scheduler is running.
+     */
+    buffer_mgr_late_init();
 }
 
 /* [] END OF FILE */

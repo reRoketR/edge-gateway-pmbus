@@ -28,8 +28,8 @@
  * Configuration
  ******************************************************************************/
 
-/** Ring buffer size for latency samples (current firmware uses 50 samples) */
-#define METRICS_LATENCY_RING_SIZE   50u
+/** Ring buffer size for latency samples (current firmware uses 100 samples) */
+#define METRICS_LATENCY_RING_SIZE   100u
 
 /*******************************************************************************
  * Delta counters (reset after each metrics publish)

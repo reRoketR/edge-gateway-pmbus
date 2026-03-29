@@ -76,6 +76,15 @@ static uint16_t s_count = 0u;
 static bool s_persistent_requested = false;
 static bool s_persistent_ready = false;
 static bool s_persistent_init_attempted = false;
+static uint32_t s_current_boot_gen = 1u;
+static TaskHandle_t s_flush_task_handle = NULL;
+
+static bool buffer_mgr_put_internal(const char *topic,
+                                    const char *payload,
+                                    uint16_t payload_len,
+                                    uint32_t origin_read_start_ms,
+                                    uint32_t origin_boot_gen);
+static void buffer_mgr_notify_flush_task(void);
 
 static void buffer_mgr_try_init_persistent(void)
 {
@@ -107,6 +116,11 @@ static void buffer_mgr_try_init_persistent(void)
     }
 
     s_persistent_ready = true;
+    s_current_boot_gen = persistent_buffer_total_writes() + 1u;
+    if (s_current_boot_gen == 0u)
+    {
+        s_current_boot_gen = 1u;
+    }
     printf("[BUF] Persistent backend: %s\n", PERSISTENT_BACKEND_NAME);
 }
 
@@ -149,6 +163,7 @@ bool buffer_mgr_init(void)
     s_persistent_requested = (g_config.buffer.flash_max_records > 0u);
     s_persistent_ready = false;
     s_persistent_init_attempted = false;
+    s_current_boot_gen = 1u;
 
     /* Defer persistent tier init until the scheduler is running because
      * some backends (QSPI serial-flash) use RTOS mutexes for erase/write.
@@ -171,15 +186,44 @@ void buffer_mgr_late_init(void)
     buffer_mgr_try_init_persistent();
 }
 
+void buffer_mgr_register_flush_task(TaskHandle_t handle)
+{
+    taskENTER_CRITICAL();
+    s_flush_task_handle = handle;
+    taskEXIT_CRITICAL();
+}
+
 /*******************************************************************************
  * Put
  ******************************************************************************/
-bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len)
+static bool buffer_mgr_put_internal(const char *topic,
+                                    const char *payload,
+                                    uint16_t payload_len,
+                                    uint32_t origin_read_start_ms,
+                                    uint32_t origin_boot_gen)
 {
-    if (s_ring == NULL || s_capacity == 0u)
+    if (s_ring == NULL || s_capacity == 0u ||
+        topic == NULL || payload == NULL || payload_len == 0u)
     {
         return false;
     }
+
+    buffer_record_t incoming;
+    memset(&incoming, 0, sizeof(incoming));
+
+    strncpy(incoming.topic, topic, BUFFER_TOPIC_MAX - 1u);
+    incoming.topic[BUFFER_TOPIC_MAX - 1u] = '\0';
+
+    uint16_t copy_len = payload_len;
+    if (copy_len > BUFFER_PAYLOAD_MAX - 1u)
+    {
+        copy_len = BUFFER_PAYLOAD_MAX - 1u;
+    }
+    memcpy(incoming.payload, payload, copy_len);
+    incoming.payload[copy_len] = '\0';
+    incoming.payload_len = copy_len;
+    incoming.origin_read_start_ms = origin_read_start_ms;
+    incoming.origin_boot_gen = origin_boot_gen;
 
     taskENTER_CRITICAL();
 
@@ -189,7 +233,7 @@ bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len
 
         if (s_persistent_ready)
         {
-            bool spilled = persistent_buffer_put(topic, payload, payload_len);
+            bool spilled = persistent_buffer_put_record(&incoming);
             if (spilled)
             {
                 return true; /* Metrics are updated by the persistent backend */
@@ -220,18 +264,7 @@ bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len
         }
     }
 
-    buffer_record_t *rec = &s_ring[s_head];
-    strncpy(rec->topic, topic, BUFFER_TOPIC_MAX - 1u);
-    rec->topic[BUFFER_TOPIC_MAX - 1u] = '\0';
-
-    uint16_t copy_len = payload_len;
-    if (copy_len > BUFFER_PAYLOAD_MAX - 1u)
-    {
-        copy_len = BUFFER_PAYLOAD_MAX - 1u;
-    }
-    memcpy(rec->payload, payload, copy_len);
-    rec->payload[copy_len] = '\0';
-    rec->payload_len = copy_len;
+    s_ring[s_head] = incoming;
 
     s_head = (s_head + 1u) % s_capacity;
     s_count++;
@@ -240,6 +273,16 @@ bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len
 
     metrics_inc_buffer_enqueued();
     return true;
+}
+
+bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len)
+{
+    return buffer_mgr_put_internal(topic, payload, payload_len, 0u, 0u);
+}
+
+uint32_t buffer_mgr_current_boot_gen(void)
+{
+    return s_current_boot_gen;
 }
 
 /*******************************************************************************
@@ -301,6 +344,20 @@ uint32_t buffer_mgr_depth(void)
     return depth;
 }
 
+static void buffer_mgr_notify_flush_task(void)
+{
+    TaskHandle_t flush_task_handle;
+
+    taskENTER_CRITICAL();
+    flush_task_handle = s_flush_task_handle;
+    taskEXIT_CRITICAL();
+
+    if (flush_task_handle != NULL)
+    {
+        (void)xTaskNotifyGive(flush_task_handle);
+    }
+}
+
 /*******************************************************************************
  * Spill task — drain helpers
  *
@@ -308,8 +365,9 @@ uint32_t buffer_mgr_depth(void)
  * into buffer_mgr.  They run exclusively inside buffer_task (single writer).
  ******************************************************************************/
 
-static void drain_emergency_ring(void)
+static bool drain_emergency_ring(void)
 {
+    bool did_enqueue = false;
     telemetry_record_t rec;
     while (emergency_ring_get(&rec))
     {
@@ -318,12 +376,19 @@ static void drain_emergency_ring(void)
         int tl = build_device_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE,
                                      rec.addr_7bit, "telemetry");
         if (tl <= 0) continue;
-        buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len);
+        if (buffer_mgr_put_internal(s_spill_topic, s_spill_json, (uint16_t)len,
+                                    rec.read_start_ms, s_current_boot_gen))
+        {
+            did_enqueue = true;
+        }
     }
+
+    return did_enqueue;
 }
 
-static void drain_telemetry_queue(void)
+static bool drain_telemetry_queue(void)
 {
+    bool did_enqueue = false;
     telemetry_record_t rec;
     while (xQueueReceive(gateway_ipc_telemetry_queue(), &rec, 0) == pdTRUE)
     {
@@ -332,12 +397,19 @@ static void drain_telemetry_queue(void)
         int tl = build_device_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE,
                                      rec.addr_7bit, "telemetry");
         if (tl <= 0) continue;
-        buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len);
+        if (buffer_mgr_put_internal(s_spill_topic, s_spill_json, (uint16_t)len,
+                                    rec.read_start_ms, s_current_boot_gen))
+        {
+            did_enqueue = true;
+        }
     }
+
+    return did_enqueue;
 }
 
-static void drain_status_queue(void)
+static bool drain_status_queue(void)
 {
+    bool did_enqueue = false;
     status_record_t rec;
     while (xQueueReceive(gateway_ipc_status_queue(), &rec, 0) == pdTRUE)
     {
@@ -346,12 +418,18 @@ static void drain_status_queue(void)
         int tl = build_device_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE,
                                      rec.addr_7bit, "status");
         if (tl <= 0) continue;
-        buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len);
+        if (buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len))
+        {
+            did_enqueue = true;
+        }
     }
+
+    return did_enqueue;
 }
 
-static void drain_event_queue(void)
+static bool drain_event_queue(void)
 {
+    bool did_enqueue = false;
     event_record_t evt;
     while (xQueueReceive(gateway_ipc_event_queue(), &evt, 0) == pdTRUE)
     {
@@ -359,8 +437,13 @@ static void drain_event_queue(void)
         if (len <= 0) continue;
         int tl = build_events_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE);
         if (tl <= 0) continue;
-        buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len);
+        if (buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len))
+        {
+            did_enqueue = true;
+        }
     }
+
+    return did_enqueue;
 }
 
 /*******************************************************************************
@@ -386,11 +469,18 @@ void buffer_task(void *pvParameters)
 
     for (;;)
     {
+        bool did_enqueue = false;
+
         /* Drain all upstream queues into buffer_mgr */
-        drain_emergency_ring();
-        drain_telemetry_queue();
-        drain_status_queue();
-        drain_event_queue();
+        did_enqueue |= drain_emergency_ring();
+        did_enqueue |= drain_telemetry_queue();
+        did_enqueue |= drain_status_queue();
+        did_enqueue |= drain_event_queue();
+
+        if (did_enqueue)
+        {
+            buffer_mgr_notify_flush_task();
+        }
 
         /* Update gauge metrics */
         metrics_set_buffer_depth_ram(buffer_mgr_depth());

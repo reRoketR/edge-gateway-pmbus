@@ -17,8 +17,10 @@
  *   - 4-byte magic (0xB1F0DA7A)
  *   - 2-byte payload_len
  *   - 2-byte reserved
+ *   - 4-byte origin_read_start_ms
+ *   - 4-byte origin_boot_gen
  *   - 80-byte topic
- *   - 420-byte payload (truncated from 512 to fit)
+ *   - 412-byte payload (truncated to leave room for timing metadata)
  *   - 4-byte CRC32 of the above
  *
  * Flash API used:
@@ -75,16 +77,18 @@
 /** Magic value identifying a valid flash record */
 #define FLASH_RECORD_MAGIC      (0xB1F0DA7AUL)
 
-/** Max payload size in flash record (512 - 8 header - 80 topic - 4 CRC) */
-#define FLASH_PAYLOAD_MAX       (420U)
+/** Max payload field size in flash record (512 - 16 metadata - 80 topic - 4 CRC) */
+#define FLASH_PAYLOAD_MAX       (412U)
 
 /** On-flash data record (exactly 512 bytes, packed into one row) */
 typedef struct __attribute__((packed)) {
     uint32_t magic;                          /**< FLASH_RECORD_MAGIC          */
     uint16_t payload_len;                    /**< Actual payload length       */
     uint16_t reserved;                       /**< Padding / future use        */
+    uint32_t origin_read_start_ms;           /**< Same-boot latency origin    */
+    uint32_t origin_boot_gen;                /**< Boot generation marker      */
     char     topic[BUFFER_TOPIC_MAX];        /**< MQTT topic (80 bytes)       */
-    char     payload[FLASH_PAYLOAD_MAX];     /**< JSON payload (420 bytes)    */
+    char     payload[FLASH_PAYLOAD_MAX];     /**< JSON payload (412 bytes)    */
     uint32_t crc32;                          /**< CRC32 of bytes 0..507       */
 } flash_data_row_t;
 
@@ -105,7 +109,7 @@ typedef struct __attribute__((packed)) {
     uint16_t head;               /**< Next write slot (0..MAX_DATA_ROWS-1)   */
     uint16_t tail;               /**< Next read slot  (0..MAX_DATA_ROWS-1)   */
     uint16_t count;              /**< Number of valid records                */
-    uint16_t version;            /**< Metadata format version (1)            */
+    uint16_t version;            /**< Metadata format version (2)            */
     uint32_t total_writes;       /**< Cumulative write counter (wear metric) */
     uint32_t crc32;              /**< CRC32 of bytes 0..15                   */
     uint8_t  _pad[FLASH_BUF_ROW_SIZE - 20]; /**< Pad to 512 bytes           */
@@ -128,6 +132,14 @@ _Static_assert(sizeof(flash_meta_row_t) == FLASH_BUF_ROW_SIZE,
  * @return true on success, false on flash I/O error.
  */
 bool flash_buffer_init(void);
+
+/**
+ * @brief Write a pre-built buffered record to flash.
+ *
+ * Preserves origin timing metadata used for same-boot read_to_publish
+ * latency calculation.
+ */
+bool flash_buffer_put_record(const buffer_record_t *rec);
 
 /**
  * @brief Write a record to flash.
@@ -191,3 +203,5 @@ uint32_t flash_buffer_total_writes(void);
  * @return true on success, false on erase error.
  */
 bool flash_buffer_erase_all(void);
+/** Current flash metadata format version */
+#define FLASH_META_VERSION      (2u)

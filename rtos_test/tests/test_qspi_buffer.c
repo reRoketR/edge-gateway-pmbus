@@ -68,6 +68,8 @@ static void test_normal_put_peek_consume(void)
     TEST_ASSERT_EQ_STR("topic/a", rec.topic);
     TEST_ASSERT_EQ_STR("{\"v\":1}", rec.payload);
     TEST_ASSERT_EQ_U32(7u, rec.payload_len);
+    TEST_ASSERT_EQ_U32(0u, rec.origin_read_start_ms);
+    TEST_ASSERT_EQ_U32(0u, rec.origin_boot_gen);
     TEST_ASSERT_TRUE(qspi_buffer_consume());
     TEST_ASSERT_EQ_U32(0u, qspi_buffer_depth());
     TEST_ASSERT_EQ_U32(1u, qspi_mock_metric_buffer_enqueued());
@@ -170,6 +172,32 @@ static void test_recovery_from_metadata_journal(void)
     TEST_ASSERT_EQ_STR("bravo", rec.payload);
 }
 
+static void test_origin_metadata_survives_reinit(void)
+{
+    buffer_record_t in = {0};
+    buffer_record_t out;
+
+    printf("--- test_origin_metadata_survives_reinit ---\n");
+    reset_and_init();
+
+    strcpy(in.topic, "telem/58");
+    strcpy(in.payload, "{\"v\":1.23}");
+    in.payload_len = (uint16_t)strlen(in.payload);
+    in.origin_read_start_ms = 4321u;
+    in.origin_boot_gen = 99u;
+
+    TEST_ASSERT_TRUE(qspi_buffer_put_record(&in));
+    TEST_ASSERT_TRUE(qspi_buffer_peek(&out));
+    TEST_ASSERT_EQ_U32(4321u, out.origin_read_start_ms);
+    TEST_ASSERT_EQ_U32(99u, out.origin_boot_gen);
+
+    TEST_ASSERT_TRUE(qspi_buffer_init());
+    TEST_ASSERT_TRUE(qspi_buffer_peek(&out));
+    TEST_ASSERT_EQ_U32(4321u, out.origin_read_start_ms);
+    TEST_ASSERT_EQ_U32(99u, out.origin_boot_gen);
+    TEST_ASSERT_EQ_STR("telem/58", out.topic);
+}
+
 static void test_corrupted_latest_metadata_falls_back(void)
 {
     buffer_record_t rec;
@@ -232,6 +260,7 @@ int main(void)
     test_sector_boundary_crossing_erases_next_sector();
     test_ring_wraparound_stays_operational();
     test_recovery_from_metadata_journal();
+    test_origin_metadata_survives_reinit();
     test_corrupted_latest_metadata_falls_back();
     test_ping_pong_journal_rollover_recovers();
 

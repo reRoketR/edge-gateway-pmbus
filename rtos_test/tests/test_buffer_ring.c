@@ -37,6 +37,8 @@ typedef struct {
     char     topic[BUF_TOPIC_MAX];
     char     payload[BUF_PAYLOAD_MAX];
     uint16_t payload_len;
+    uint32_t origin_read_start_ms;
+    uint32_t origin_boot_gen;
 } test_record_t;
 
 typedef struct {
@@ -67,8 +69,10 @@ static void ring_free(test_ring_t *r)
 }
 
 /** @return true if accepted, false if dropped */
-static bool ring_put(test_ring_t *r, const char *topic,
-                     const char *payload, uint16_t payload_len)
+static bool ring_put_ex(test_ring_t *r, const char *topic,
+                        const char *payload, uint16_t payload_len,
+                        uint32_t origin_read_start_ms,
+                        uint32_t origin_boot_gen)
 {
     if (r->count >= r->capacity)
     {
@@ -93,10 +97,18 @@ static bool ring_put(test_ring_t *r, const char *topic,
     memcpy(rec->payload, payload, copy_len);
     rec->payload[copy_len] = '\0';
     rec->payload_len = copy_len;
+    rec->origin_read_start_ms = origin_read_start_ms;
+    rec->origin_boot_gen = origin_boot_gen;
 
     r->head = (r->head + 1u) % r->capacity;
     r->count++;
     return true;
+}
+
+static bool ring_put(test_ring_t *r, const char *topic,
+                     const char *payload, uint16_t payload_len)
+{
+    return ring_put_ex(r, topic, payload, payload_len, 0u, 0u);
 }
 
 static bool ring_get(test_ring_t *r, test_record_t *out)
@@ -172,6 +184,24 @@ static void test_basic_put_get(void)
     ASSERT_EQ_INT(r.count, 0, "count after 2 gets");
 
     ASSERT_TRUE(!ring_get(&r, &out), "get on empty should fail");
+
+    ring_free(&r);
+}
+
+static void test_timing_metadata_survives_put_get(void)
+{
+    printf("test_timing_metadata_survives_put_get\n");
+    test_ring_t r;
+    ring_init(&r, 2, true);
+
+    ASSERT_TRUE(ring_put_ex(&r, "topic/t", "payload_t", 9, 1234u, 77u),
+                "put with origin metadata");
+
+    test_record_t out;
+    ASSERT_TRUE(ring_get(&r, &out), "get should succeed");
+    ASSERT_EQ_INT(out.payload_len, 9, "payload_len matches");
+    ASSERT_EQ_INT(out.origin_read_start_ms, 1234, "origin_read_start_ms preserved");
+    ASSERT_EQ_INT(out.origin_boot_gen, 77, "origin_boot_gen preserved");
 
     ring_free(&r);
 }
@@ -408,6 +438,7 @@ int main(void)
     printf("=== Buffer Ring Buffer Tests ===\n\n");
 
     test_basic_put_get();
+    test_timing_metadata_survives_put_get();
     test_fill_exact();
     test_drop_oldest_overflow();
     test_drop_newest_overflow();

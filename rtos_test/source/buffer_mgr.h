@@ -29,6 +29,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "FreeRTOS.h"
+#include "task.h"
 
 /*******************************************************************************
  * Buffered record format
@@ -44,6 +46,10 @@ typedef struct {
     char     topic[BUFFER_TOPIC_MAX];       /**< MQTT topic string           */
     char     payload[BUFFER_PAYLOAD_MAX];   /**< Pre-encoded JSON payload    */
     uint16_t payload_len;                   /**< Actual payload length       */
+    uint32_t origin_read_start_ms;          /**< PMBus read-start monotonic ms;
+                                                 0 when not telemetry-backed  */
+    uint32_t origin_boot_gen;               /**< Boot generation that created
+                                                 origin_read_start_ms         */
 } buffer_record_t;
 
 /*******************************************************************************
@@ -70,6 +76,14 @@ bool buffer_mgr_init(void);
  */
 void buffer_mgr_late_init(void);
 
+/**
+ * @brief Register the task that should be notified when buffered data becomes
+ *        available for flushing.
+ *
+ * Passing NULL disables notifications.
+ */
+void buffer_mgr_register_flush_task(TaskHandle_t handle);
+
 /*******************************************************************************
  * Put / Get / Depth
  ******************************************************************************/
@@ -94,6 +108,15 @@ void buffer_mgr_late_init(void);
  * @return true if the record was accepted, false if dropped.
  */
 bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len);
+
+/**
+ * @brief Get the current boot generation used for buffered latency tracking.
+ *
+ * This value is compared against `buffer_record_t.origin_boot_gen` so that
+ * read-to-publish latency is only recorded for records created in the same
+ * boot session.
+ */
+uint32_t buffer_mgr_current_boot_gen(void);
 
 /**
  * @brief Get the current number of records in the buffer.
@@ -123,14 +146,56 @@ bool buffer_mgr_peek(buffer_record_t *out);
  */
 bool buffer_mgr_consume(void);
 
+/**
+ * @brief Compute read-to-publish latency for a buffered record if it belongs
+ *        to the current boot session.
+ *
+ * @param[in]  rec               Buffered record metadata
+ * @param[in]  current_boot_gen  Current boot generation
+ * @param[in]  now_ms            Current monotonic time in milliseconds
+ * @param[out] out_latency_us    Computed latency in microseconds
+ *
+ * @return true if the record contributes a valid same-boot sample, false
+ *         otherwise.
+ */
+static inline bool buffer_record_same_boot_latency_us(
+    const buffer_record_t *rec,
+    uint32_t current_boot_gen,
+    uint32_t now_ms,
+    uint32_t *out_latency_us)
+{
+    if (rec == NULL || out_latency_us == NULL)
+    {
+        return false;
+    }
+
+    if (rec->origin_read_start_ms == 0u || rec->origin_boot_gen == 0u)
+    {
+        return false;
+    }
+
+    if (rec->origin_boot_gen != current_boot_gen)
+    {
+        return false;
+    }
+
+    if (now_ms < rec->origin_read_start_ms)
+    {
+        return false;
+    }
+
+    *out_latency_us = (now_ms - rec->origin_read_start_ms) * 1000u;
+    return true;
+}
+
 /*******************************************************************************
  * Buffer task (Task C)
  ******************************************************************************/
 
 /**
- * @brief FreeRTOS housekeeping task for the offline buffer.
+ * @brief FreeRTOS spill task for the offline buffer.
  *
- * Periodically updates `buffer_depth_ram` / `buffer_depth_flash` gauge
+ * Drains upstream queues into buffer_mgr, updates
  * metrics.  Does NOT call cy_mqtt_publish() — all publish operations are
  * serialised through mqtt_gw_task (see flush_buffered_records()).
  *

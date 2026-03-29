@@ -8,7 +8,8 @@
  *                2. Connect to Wi-Fi AP
  *                3. Initialise MQTT library, create MQTT instance
  *                4. Connect to MQTT broker
- *                5. Main loop: drain queues → publish → handle disconnect
+ *                5. Main loop: flush buffered records → publish metrics →
+ *                   handle disconnect
  *
  *              Reconnect strategy:
  *                - Exponential backoff (backoff_min_ms … backoff_max_ms)
@@ -59,11 +60,8 @@
  * Constants
  ******************************************************************************/
 
-/** How long to wait for queue items before looping (ms) */
-#define QUEUE_POLL_TIMEOUT_MS       50u
-
-/** JSON encoding buffer for telemetry/status/event (max observed ~232 bytes) */
-#define JSON_BUF_SIZE               512u
+/** Max idle wait when no spill-task notification arrives (ms) */
+#define MQTT_IDLE_WAIT_MAX_MS       1000u
 
 /** JSON encoding buffer for metrics (643+ bytes with all fields) */
 #define METRICS_JSON_BUF_SIZE       768u
@@ -90,7 +88,6 @@ cy_mqtt_t mqtt_connection;
 static uint8_t *s_mqtt_net_buf = NULL;
 
 /** Reusable buffers (only used inside this task — no mutex needed) */
-static char s_json_buf[JSON_BUF_SIZE];
 static char s_metrics_json_buf[METRICS_JSON_BUF_SIZE];
 static char s_topic_buf[TOPIC_BUF_SIZE];
 
@@ -99,6 +96,9 @@ static uint32_t s_backoff_ms;
 
 /** Metrics publish timer */
 static TickType_t s_next_metrics_tick;
+
+/** Handle of this task, used for notification-based wakeups. */
+static TaskHandle_t s_mqtt_task_handle = NULL;
 
 /*******************************************************************************
  * Forward declarations
@@ -109,7 +109,8 @@ static bool mqtt_broker_connect(void);
 static void mqtt_event_cb(cy_mqtt_t handle, cy_mqtt_event_t event,
                           void *user_data);
 
-static void flush_buffered_records(void);
+static uint16_t flush_buffered_records(void);
+static TickType_t mqtt_idle_wait_ticks(void);
 static void publish_metrics_if_due(void);
 static uint8_t qos_for_topic(const char *topic);
 static bool publish_json_qos(const char *topic, const char *payload,
@@ -150,6 +151,9 @@ void mqtt_gw_task(void *pvParameters)
     (void)pvParameters;
 
     printf("[MQTT] Gateway MQTT task started\n");
+
+    s_mqtt_task_handle = xTaskGetCurrentTaskHandle();
+    buffer_mgr_register_flush_task(s_mqtt_task_handle);
 
     /* ---- Wi-Fi ---- */
     cy_wcm_config_t wcm_cfg = { .interface = CY_WCM_INTERFACE_TYPE_STA };
@@ -280,14 +284,19 @@ void mqtt_gw_task(void *pvParameters)
 
         /* Flush buffered records (spill task feeds buffer_mgr,
          * this task is the sole publisher) */
-        flush_buffered_records();
+        uint16_t flushed = flush_buffered_records();
         if (s_disconnect_pending) continue;
 
         /* Metrics */
         publish_metrics_if_due();
 
-        /* Brief sleep to yield CPU */
-        vTaskDelay(pdMS_TO_TICKS(QUEUE_POLL_TIMEOUT_MS));
+        if (g_config.buffer.flush_batch_size > 0u &&
+            flushed == g_config.buffer.flush_batch_size)
+        {
+            continue;
+        }
+
+        (void)ulTaskNotifyTake(pdTRUE, mqtt_idle_wait_ticks());
     }
 
 fail:
@@ -486,14 +495,15 @@ static void mqtt_event_cb(cy_mqtt_t handle, cy_mqtt_event_t event,
  * Uses peek/consume pattern to preserve FIFO ordering.
  * Flash records are flushed first (oldest data), then RAM records.
  ******************************************************************************/
-static void flush_buffered_records(void)
+static uint16_t flush_buffered_records(void)
 {
     if (!g_config.buffer.enabled)
     {
-        return;
+        return 0u;
     }
 
     const bool flash_enabled = (g_config.buffer.flash_max_records > 0u);
+    const uint32_t current_boot_gen = buffer_mgr_current_boot_gen();
     uint16_t flushed = 0u;
     buffer_record_t rec;
 
@@ -506,6 +516,13 @@ static void flush_buffered_records(void)
             if (!publish_buffered_json(rec.topic, rec.payload, rec.payload_len))
             {
                 break;  /* Stop flushing on first failure */
+            }
+            uint32_t latency_us;
+            if (buffer_record_same_boot_latency_us(&rec, current_boot_gen,
+                                                   gateway_ipc_monotonic_ms(),
+                                                   &latency_us))
+            {
+                metrics_record_read_to_publish_us(latency_us);
             }
             persistent_buffer_consume();
             flushed++;
@@ -520,6 +537,13 @@ static void flush_buffered_records(void)
         {
             break;  /* Stop flushing on first failure */
         }
+        uint32_t latency_us;
+        if (buffer_record_same_boot_latency_us(&rec, current_boot_gen,
+                                               gateway_ipc_monotonic_ms(),
+                                               &latency_us))
+        {
+            metrics_record_read_to_publish_us(latency_us);
+        }
         buffer_mgr_consume();
         flushed++;
     }
@@ -528,6 +552,22 @@ static void flush_buffered_records(void)
     {
         printf("[MQTT] Flushed %u buffered records\n", (unsigned)flushed);
     }
+
+    return flushed;
+}
+
+static TickType_t mqtt_idle_wait_ticks(void)
+{
+    const TickType_t max_wait_ticks = pdMS_TO_TICKS(MQTT_IDLE_WAIT_MAX_MS);
+    TickType_t now = xTaskGetTickCount();
+
+    if ((int32_t)(now - s_next_metrics_tick) >= 0)
+    {
+        return 0u;
+    }
+
+    TickType_t until_metrics = s_next_metrics_tick - now;
+    return (until_metrics < max_wait_ticks) ? until_metrics : max_wait_ticks;
 }
 
 /*******************************************************************************
@@ -697,6 +737,11 @@ static void mqtt_request_disconnect(const char *detail)
     s_disconnect_detail = (detail != NULL) ?
         detail : MQTT_DISCONNECT_DETAIL_CALLBACK;
     s_disconnect_pending = true;
+
+    if (s_mqtt_task_handle != NULL)
+    {
+        (void)xTaskNotifyGive(s_mqtt_task_handle);
+    }
 }
 
 /*******************************************************************************

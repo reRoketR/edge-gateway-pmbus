@@ -51,7 +51,7 @@ static const device_cfg_t k_devices[] = {
     },                                                                         \
                                                                                \
     .mqtt = {                                                                  \
-        .host           = "broker.hivemq.com",                                      \
+        .host           = "192.168.1.6",                                      \
         .port           = 1883,                                                \
         .client_id      = "pmbus-thesis-gw01",                                        \
         .base_topic     = "pmbus/thesis_gw01",                                        \
@@ -65,7 +65,7 @@ static const device_cfg_t k_devices[] = {
     .buffer = {                                                                \
         .enabled          = true,                                              \
         .ram_max_records  = 256,                                               \
-        .flash_max_records = 0,         /* MVP: RAM-only */                    \
+        .flash_max_records = 2048,      /* Enable persistent tier (use QSPI build task) */\
         .flush_batch_size = 50,                                                \
         .flush_interval_ms = 200,                                              \
         .drop_oldest      = true,                                              \

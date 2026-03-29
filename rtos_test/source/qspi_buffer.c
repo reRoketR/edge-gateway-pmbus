@@ -273,14 +273,15 @@ static bool room_available(uint32_t h, uint32_t t, uint32_t req)
     return true;
 }
 
-bool qspi_buffer_put(const char *topic, const char *payload, uint16_t payload_len)
+bool qspi_buffer_put_record(const buffer_record_t *rec)
 {
     if (!s_is_initialized) return false;
-    if (topic == NULL || payload == NULL || payload_len == 0) return false;
+    if (rec == NULL || rec->topic[0] == '\0' || rec->payload_len == 0u) return false;
 
     QSPI_LOCK();
 
-    uint32_t topic_len = strlen(topic);
+    uint32_t topic_len = strlen(rec->topic);
+    uint16_t payload_len = rec->payload_len;
     
     // Truncate sizes so they are naturally valid during peek() and read_record_header()
     if (topic_len > BUFFER_TOPIC_MAX - 1) topic_len = BUFFER_TOPIC_MAX - 1;
@@ -325,10 +326,12 @@ bool qspi_buffer_put(const char *topic, const char *payload, uint16_t payload_le
     hdr.payload_len = payload_len;
     hdr.topic_len = topic_len;
     hdr.reserved = 0;
+    hdr.origin_read_start_ms = rec->origin_read_start_ms;
+    hdr.origin_boot_gen = rec->origin_boot_gen;
 
     memcpy(write_buf, &hdr, sizeof(hdr));
-    memcpy(write_buf + sizeof(hdr), topic, topic_len);
-    memcpy(write_buf + sizeof(hdr) + topic_len, payload, payload_len);
+    memcpy(write_buf + sizeof(hdr), rec->topic, topic_len);
+    memcpy(write_buf + sizeof(hdr) + topic_len, rec->payload, payload_len);
 
     uint32_t record_crc = crc32_compute(write_buf, sizeof(hdr) + topic_len + payload_len);
     memcpy(write_buf + sizeof(hdr) + topic_len + payload_len, &record_crc, 4);
@@ -356,6 +359,28 @@ bool qspi_buffer_put(const char *topic, const char *payload, uint16_t payload_le
     QSPI_UNLOCK();
     metrics_inc_buffer_enqueued();
     return true;
+}
+
+bool qspi_buffer_put(const char *topic, const char *payload, uint16_t payload_len)
+{
+    if (topic == NULL || payload == NULL || payload_len == 0u)
+    {
+        return false;
+    }
+
+    buffer_record_t rec;
+    memset(&rec, 0, sizeof(rec));
+
+    strncpy(rec.topic, topic, BUFFER_TOPIC_MAX - 1u);
+    rec.topic[BUFFER_TOPIC_MAX - 1u] = '\0';
+
+    uint16_t copy_len = payload_len;
+    if (copy_len > BUFFER_PAYLOAD_MAX - 1u) copy_len = BUFFER_PAYLOAD_MAX - 1u;
+    memcpy(rec.payload, payload, copy_len);
+    rec.payload[copy_len] = '\0';
+    rec.payload_len = copy_len;
+
+    return qspi_buffer_put_record(&rec);
 }
 
 // Helper safely reads and validates next record header and boundary wraps
@@ -434,6 +459,8 @@ bool qspi_buffer_peek(buffer_record_t *out)
     memcpy(out->payload, (const void*)(mapped_addr + sizeof(qspi_data_header_t) + hdr.topic_len), hdr.payload_len);
     out->payload[hdr.payload_len] = '\0';
     out->payload_len = hdr.payload_len;
+    out->origin_read_start_ms = hdr.origin_read_start_ms;
+    out->origin_boot_gen = hdr.origin_boot_gen;
     
     QSPI_UNLOCK();
     return true;
