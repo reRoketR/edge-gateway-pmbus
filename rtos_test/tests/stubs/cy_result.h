@@ -6,4 +6,8 @@
 
 typedef uint32_t cy_rslt_t;
 
+#ifndef CY_RSLT_SUCCESS
+#define CY_RSLT_SUCCESS ((cy_rslt_t)0u)
+#endif
+
 #endif /* CY_RESULT_STUB_H */

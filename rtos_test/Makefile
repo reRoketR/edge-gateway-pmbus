@@ -223,6 +223,9 @@ test:
 	$(TEST_CC) $(TEST_CFLAGS) -DPMBUS_TEST_HOOKS -o test_i2c_recovery$(TEST_EXEEXT) \
 		tests/test_i2c_recovery.c tests/stubs/i2c_mock.c source/pmbus_master.c \
 		&& $(TEST_RUN)test_i2c_recovery$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -DQSPI_BUF_HOST_TEST -o test_qspi_buffer$(TEST_EXEEXT) \
+		tests/test_qspi_buffer.c tests/stubs/qspi_mock.c source/qspi_buffer.c \
+		&& $(TEST_RUN)test_qspi_buffer$(TEST_EXEEXT)
 	@echo "All host-side tests passed."
 
 # When the goal is only 'test', skip ModusToolbox include entirely
