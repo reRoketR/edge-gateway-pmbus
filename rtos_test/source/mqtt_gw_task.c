@@ -51,7 +51,6 @@
 #include "wallclock.h"
 #include "buffer_mgr.h"
 #include "persistent_buffer.h"
-#include "emergency_ring.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -109,9 +108,6 @@ static bool mqtt_init_and_create(void);
 static bool mqtt_broker_connect(void);
 static void mqtt_event_cb(cy_mqtt_t handle, cy_mqtt_event_t event,
                           void *user_data);
-static void process_telemetry_queue(void);
-static void process_status_queue(void);
-static void process_event_queue(void);
 
 static void flush_buffered_records(void);
 static void publish_metrics_if_due(void);
@@ -282,15 +278,8 @@ void mqtt_gw_task(void *pvParameters)
             }
         }
 
-        /* Drain queues */
-        process_telemetry_queue();
-        if (s_disconnect_pending) continue;
-        process_status_queue();
-        if (s_disconnect_pending) continue;
-        process_event_queue();
-        if (s_disconnect_pending) continue;
-
-        /* Flush buffered records (all MQTT publishing in one task) */
+        /* Flush buffered records (spill task feeds buffer_mgr,
+         * this task is the sole publisher) */
         flush_buffered_records();
         if (s_disconnect_pending) continue;
 
@@ -485,130 +474,11 @@ static void mqtt_event_cb(cy_mqtt_t handle, cy_mqtt_event_t event,
     }
 }
 
-/*******************************************************************************
- * Queue processing — telemetry
- ******************************************************************************/
-static void process_telemetry_queue(void)
-{
-    telemetry_record_t rec;
-
-    /* 1) Drain rescued records from the emergency ring first */
-    while (!s_disconnect_pending && emergency_ring_get(&rec))
-    {
-        int json_len = encode_telemetry_json(&rec, s_json_buf, JSON_BUF_SIZE);
-        if (json_len > 0)
-        {
-            int topic_len = build_device_topic(s_topic_buf, TOPIC_BUF_SIZE,
-                                               rec.addr_7bit, "telemetry");
-            if (topic_len > 0)
-            {
-                if (!publish_telemetry_json(s_topic_buf, s_json_buf, (size_t)json_len))
-                {
-                    buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)json_len);
-                }
-                else
-                {
-                    static bool s_first_pub_rescue = false;
-                    if (!s_first_pub_rescue)
-                    {
-                        printf("[MQTT] First publish OK (rescued): %s\n", s_topic_buf);
-                        s_first_pub_rescue = true;
-                    }
-                    uint32_t now_ms = gateway_ipc_monotonic_ms();
-                    uint32_t latency_ms = now_ms - rec.read_start_ms;
-                    metrics_record_read_to_publish_us(latency_ms * 1000u);
-                }
-            }
-        }
-    }
-
-    /* 2) Process normally enqueued records */
-    while (!s_disconnect_pending &&
-           xQueueReceive(gateway_ipc_telemetry_queue(), &rec, 0) == pdTRUE)
-    {
-        /* Encode JSON */
-        int json_len = encode_telemetry_json(&rec, s_json_buf, JSON_BUF_SIZE);
-        if (json_len <= 0)
-        {
-            printf("[MQTT] WARN: telemetry JSON encode failed\n");
-            continue;
-        }
-
-        /* Build topic */
-        int topic_len = build_device_topic(s_topic_buf, TOPIC_BUF_SIZE,
-                                           rec.addr_7bit, "telemetry");
-        if (topic_len <= 0) continue;
-
-        if (!publish_telemetry_json(s_topic_buf, s_json_buf, (size_t)json_len))
-        {
-            /* Buffer for later */
-            buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)json_len);
-        }
-        else
-        {
-            static bool s_first_pub = false;
-            if (!s_first_pub)
-            {
-                printf("[MQTT] First publish OK: %s\n", s_topic_buf);
-                s_first_pub = true;
-            }
-            /* Record read-to-publish latency (PMBus read start -> publish done) */
-            uint32_t now_ms = gateway_ipc_monotonic_ms();
-            uint32_t latency_ms = now_ms - rec.read_start_ms;
-            metrics_record_read_to_publish_us(latency_ms * 1000u);
-        }
-    }
-}
-
-/*******************************************************************************
- * Queue processing — status
- ******************************************************************************/
-static void process_status_queue(void)
-{
-    status_record_t rec;
-
-    while (!s_disconnect_pending &&
-           xQueueReceive(gateway_ipc_status_queue(), &rec, 0) == pdTRUE)
-    {
-        int json_len = encode_status_json(&rec, s_json_buf, JSON_BUF_SIZE);
-        if (json_len <= 0) continue;
-
-        int topic_len = build_device_topic(s_topic_buf, TOPIC_BUF_SIZE,
-                                           rec.addr_7bit, "status");
-        if (topic_len <= 0) continue;
-
-        if (!publish_control_json(s_topic_buf, s_json_buf, (size_t)json_len))
-        {
-            buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)json_len);
-        }
-    }
-}
-
-/*******************************************************************************
- * Queue processing — events
- ******************************************************************************/
-static void process_event_queue(void)
-{
-    event_record_t evt;
-
-    while (!s_disconnect_pending &&
-           xQueueReceive(gateway_ipc_event_queue(), &evt, 0) == pdTRUE)
-    {
-        int json_len = encode_event_json(&evt, s_json_buf, JSON_BUF_SIZE);
-        if (json_len <= 0) continue;
-
-        int topic_len = build_events_topic(s_topic_buf, TOPIC_BUF_SIZE);
-        if (topic_len <= 0) continue;
-
-        if (!publish_control_json(s_topic_buf, s_json_buf, (size_t)json_len))
-        {
-            buffer_mgr_put(s_topic_buf, s_json_buf, (uint16_t)json_len);
-        }
-    }
-}
-
-/* drain_queues_to_buffer() removed — now handled by the dedicated
- * spill task (buffer_task in buffer_mgr.c).  See T-6 fix. */
+/* process_telemetry_queue(), process_status_queue(), process_event_queue()
+ * and drain_queues_to_buffer() removed — all upstream queue consumption is
+ * now handled exclusively by the dedicated spill task (buffer_task in
+ * buffer_mgr.c).  The MQTT task only reads from buffer_mgr.
+ * See T-6 spill task architecture note. */
 
 /*******************************************************************************
  * Buffer flush — all MQTT publishing happens here (single publisher)
