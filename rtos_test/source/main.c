@@ -35,6 +35,7 @@
 #include "pmbus_poll_task.h"
 #include "mqtt_gw_task.h"
 #include "emergency_ring.h"
+#include "qspi_flash.h"
 
 /******************************************************************************
 * Defines
@@ -125,6 +126,17 @@ int main(void)
         for (;;) { __WFI(); }
     }
 
+    /* QSPI external flash (S25FL512S) — D2a-1
+     * NOTE: Only init here (no mutex needed for HAL + get_size).
+     * Self-test uses erase/write which acquire a FreeRTOS mutex inside
+     * the serial-flash library, so it must run AFTER the scheduler starts.
+     */
+    result = qspi_flash_init();
+    if (result != CY_RSLT_SUCCESS)
+    {
+        printf("[QSPI] WARNING: QSPI flash init failed, continuing without external flash\n");
+    }
+
     /* ---- Create gateway tasks (agent.md §6) ---- */
 
     /* Task A — PMBus polling (high priority) */
@@ -191,7 +203,15 @@ static void blinky_task(void *pvParameters)
 *******************************************************************************/
 void vApplicationDaemonTaskStartupHook(void)
 {
-    /* Reserved for future use (e.g., Wi-Fi init, task creation). */
+    /* QSPI self-test — must run inside a task context because the
+     * serial-flash library uses a FreeRTOS mutex for thread safety.
+     * erase/write/read operations would deadlock if called from main()
+     * before vTaskStartScheduler().
+     */
+    if (qspi_flash_get_size() > 0u)
+    {
+        qspi_flash_self_test();
+    }
 }
 
 /* [] END OF FILE */
