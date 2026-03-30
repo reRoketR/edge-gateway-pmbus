@@ -175,7 +175,7 @@ static bool metadata_recover(void)
 
     // Scan Sector 0 and Sector 1
     for (uint32_t sec = 0; sec <= 1; sec++) {
-        uint32_t mapped_base = QSPI_MEM_MAPPED_BASE + QSPI_BUF_REGION_START + (sec * QSPI_BUF_SECTOR_SIZE);
+        uintptr_t mapped_base = QSPI_MEM_MAPPED_BASE + QSPI_BUF_REGION_START + (sec * QSPI_BUF_SECTOR_SIZE);
         const uint8_t* mapped_journal = (const uint8_t*)mapped_base;
 
         for (uint32_t i = 0; i < entries_per_sector; i++) {
@@ -437,13 +437,14 @@ bool qspi_buffer_peek(buffer_record_t *out)
         return false;
     }
 
-    uint32_t mapped_addr = QSPI_MEM_MAPPED_BASE + t;
+    uintptr_t mapped_addr = QSPI_MEM_MAPPED_BASE + t;
+    const uint8_t* mapped_ptr = (const uint8_t*)mapped_addr;
     uint32_t req_size = sizeof(qspi_data_header_t) + hdr.topic_len + hdr.payload_len + 4;
 
     // Validate CRC
-    uint32_t computed_crc = crc32_compute((const uint8_t*)mapped_addr, req_size - 4);
+    uint32_t computed_crc = crc32_compute(mapped_ptr, req_size - 4);
     uint32_t stored_crc;
-    memcpy(&stored_crc, (const void*)(mapped_addr + req_size - 4), 4);
+    memcpy(&stored_crc, mapped_ptr + req_size - 4, 4);
 
     if (computed_crc != stored_crc) {
         printf("[QSPI_BUF] CRC mismatch at offset %lu\n", (unsigned long)t);
@@ -453,10 +454,10 @@ bool qspi_buffer_peek(buffer_record_t *out)
     }
     
     // Extract
-    memcpy(out->topic, (const void*)(mapped_addr + sizeof(qspi_data_header_t)), hdr.topic_len);
+    memcpy(out->topic, mapped_ptr + sizeof(qspi_data_header_t), hdr.topic_len);
     out->topic[hdr.topic_len] = '\0';
 
-    memcpy(out->payload, (const void*)(mapped_addr + sizeof(qspi_data_header_t) + hdr.topic_len), hdr.payload_len);
+    memcpy(out->payload, mapped_ptr + sizeof(qspi_data_header_t) + hdr.topic_len, hdr.payload_len);
     out->payload[hdr.payload_len] = '\0';
     out->payload_len = hdr.payload_len;
     out->origin_read_start_ms = hdr.origin_read_start_ms;

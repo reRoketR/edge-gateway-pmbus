@@ -32,7 +32,7 @@ bool emergency_ring_put(const telemetry_record_t *rec);
 
 /**
  * @brief Get a telemetry record from the emergency ring.
- *        Called from mqtt_gw_task to drain the rescued records.
+ *        Called from buffer_task to drain the rescued records.
  * @param out_rec Pointer to the structure where the record will be copied.
  * @return true if a record was retrieved, false if the ring is empty.
  */

@@ -84,6 +84,22 @@ void buffer_mgr_late_init(void);
  */
 void buffer_mgr_register_flush_task(TaskHandle_t handle);
 
+/**
+ * @brief Register the task that should be notified when upstream producers
+ *        have work ready for spilling into the buffer manager.
+ *
+ * Passing NULL disables notifications.
+ */
+void buffer_mgr_register_spill_task(TaskHandle_t handle);
+
+/**
+ * @brief Wake the spill task after a successful producer-side enqueue/rescue.
+ *
+ * Safe to call when the spill task has not registered yet; in that case the
+ * signal is ignored.
+ */
+void buffer_mgr_signal_spill_task(void);
+
 /*******************************************************************************
  * Put / Get / Depth
  ******************************************************************************/
@@ -196,6 +212,8 @@ static inline bool buffer_record_same_boot_latency_us(
  * @brief FreeRTOS spill task for the offline buffer.
  *
  * Drains upstream queues into buffer_mgr, updates
+ * `buffer_depth_ram` / `buffer_depth_flash` gauges, and wakes the MQTT task
+ * when new buffered data becomes available.
  * metrics.  Does NOT call cy_mqtt_publish() — all publish operations are
  * serialised through mqtt_gw_task (see flush_buffered_records()).
  *

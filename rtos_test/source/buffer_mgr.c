@@ -42,8 +42,8 @@
  * Spill task constants and scratch buffers
  ******************************************************************************/
 
-/** How often the spill task polls upstream queues (ms) */
-#define SPILL_POLL_MS   50u
+/** Max idle wait when no producer notification arrives (ms) */
+#define SPILL_IDLE_WAIT_MAX_MS   1000u
 
 /** JSON encoding buffer (max observed telemetry ~232 bytes) */
 #define SPILL_JSON_BUF_SIZE   512u
@@ -78,6 +78,7 @@ static bool s_persistent_ready = false;
 static bool s_persistent_init_attempted = false;
 static uint32_t s_current_boot_gen = 1u;
 static TaskHandle_t s_flush_task_handle = NULL;
+static TaskHandle_t s_spill_task_handle = NULL;
 
 static bool buffer_mgr_put_internal(const char *topic,
                                     const char *payload,
@@ -85,6 +86,7 @@ static bool buffer_mgr_put_internal(const char *topic,
                                     uint32_t origin_read_start_ms,
                                     uint32_t origin_boot_gen);
 static void buffer_mgr_notify_flush_task(void);
+static void buffer_mgr_drain_once(void);
 
 static void buffer_mgr_try_init_persistent(void)
 {
@@ -191,6 +193,27 @@ void buffer_mgr_register_flush_task(TaskHandle_t handle)
     taskENTER_CRITICAL();
     s_flush_task_handle = handle;
     taskEXIT_CRITICAL();
+}
+
+void buffer_mgr_register_spill_task(TaskHandle_t handle)
+{
+    taskENTER_CRITICAL();
+    s_spill_task_handle = handle;
+    taskEXIT_CRITICAL();
+}
+
+void buffer_mgr_signal_spill_task(void)
+{
+    TaskHandle_t spill_task_handle;
+
+    taskENTER_CRITICAL();
+    spill_task_handle = s_spill_task_handle;
+    taskEXIT_CRITICAL();
+
+    if (spill_task_handle != NULL)
+    {
+        (void)xTaskNotifyGive(spill_task_handle);
+    }
 }
 
 /*******************************************************************************
@@ -446,6 +469,31 @@ static bool drain_event_queue(void)
     return did_enqueue;
 }
 
+static void buffer_mgr_drain_once(void)
+{
+    bool did_enqueue = false;
+
+    did_enqueue |= drain_emergency_ring();
+    did_enqueue |= drain_telemetry_queue();
+    did_enqueue |= drain_status_queue();
+    did_enqueue |= drain_event_queue();
+
+    if (did_enqueue)
+    {
+        buffer_mgr_notify_flush_task();
+    }
+
+    metrics_set_buffer_depth_ram(buffer_mgr_depth());
+    if (s_persistent_ready)
+    {
+        metrics_set_buffer_depth_flash(persistent_buffer_depth());
+    }
+    else
+    {
+        metrics_set_buffer_depth_flash(0u);
+    }
+}
+
 /*******************************************************************************
  * Spill task (Task C) — continuous queue evacuation
  *
@@ -457,6 +505,7 @@ void buffer_task(void *pvParameters)
     (void)pvParameters;
 
     printf("[BUF] Spill task started\n");
+    buffer_mgr_register_spill_task(xTaskGetCurrentTaskHandle());
 
     if (!g_config.buffer.enabled || s_capacity == 0u)
     {
@@ -467,34 +516,17 @@ void buffer_task(void *pvParameters)
         }
     }
 
+    buffer_mgr_drain_once();
+
     for (;;)
     {
-        bool did_enqueue = false;
 
-        /* Drain all upstream queues into buffer_mgr */
-        did_enqueue |= drain_emergency_ring();
-        did_enqueue |= drain_telemetry_queue();
-        did_enqueue |= drain_status_queue();
-        did_enqueue |= drain_event_queue();
+        (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(SPILL_IDLE_WAIT_MAX_MS));
+        buffer_mgr_drain_once();
 
-        if (did_enqueue)
-        {
-            buffer_mgr_notify_flush_task();
-        }
 
-        /* Update gauge metrics */
-        metrics_set_buffer_depth_ram(buffer_mgr_depth());
-        if (s_persistent_ready)
-        {
-            metrics_set_buffer_depth_flash(persistent_buffer_depth());
-        }
-        else
-        {
-            metrics_set_buffer_depth_flash(0u);
-        }
 
         /* Sleep — queues accumulate while we sleep, drained on next wake */
-        vTaskDelay(pdMS_TO_TICKS(SPILL_POLL_MS));
     }
 }
 

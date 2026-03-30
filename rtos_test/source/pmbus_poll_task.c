@@ -29,6 +29,7 @@
 #include "telemetry.h"
 #include "events.h"
 #include "metrics.h"
+#include "buffer_mgr.h"
 #include "gateway_config.h"
 #include "gateway_ipc.h"
 #include "wallclock.h"
@@ -559,6 +560,7 @@ telemetry_done:
     if (xQueueSend(gateway_ipc_telemetry_queue(), &rec, 0) == pdTRUE)
     {
         metrics_inc_telemetry_enqueued();
+        buffer_mgr_signal_spill_task();
     }
     else
     {
@@ -578,6 +580,7 @@ telemetry_done:
         else
         {
             /* Record saved to emergency ring! We avoid polluting UART during outage. */
+            buffer_mgr_signal_spill_task();
         }
     }
 }
@@ -651,7 +654,11 @@ status_done:
     rec.label     = dev->label;
 
     /* Push to status queue */
-    if (xQueueSend(gateway_ipc_status_queue(), &rec, 0) != pdTRUE)
+    if (xQueueSend(gateway_ipc_status_queue(), &rec, 0) == pdTRUE)
+    {
+        buffer_mgr_signal_spill_task();
+    }
+    else
     {
         TickType_t now_t = xTaskGetTickCount();
         if ((int32_t)(now_t - state->last_status_warn) >= (int32_t)WARN_THROTTLE_TICKS)

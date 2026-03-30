@@ -63,6 +63,12 @@
 /** Max idle wait when no spill-task notification arrives (ms) */
 #define MQTT_IDLE_WAIT_MAX_MS       1000u
 
+/** Retry interval when metrics are due but telemetry/control path is busy (ms) */
+#define METRICS_IDLE_RETRY_MS       250u
+
+/** Max extra delay allowed before metrics are forced through while online (ms) */
+#define METRICS_MAX_DEFERRAL_MS     5000u
+
 /** JSON encoding buffer for metrics (643+ bytes with all fields) */
 #define METRICS_JSON_BUF_SIZE       768u
 
@@ -97,6 +103,9 @@ static uint32_t s_backoff_ms;
 /** Metrics publish timer */
 static TickType_t s_next_metrics_tick;
 
+/** First tick when a due metrics publish started being deferred; 0 = not deferred */
+static TickType_t s_metrics_due_since_tick;
+
 /** Handle of this task, used for notification-based wakeups. */
 static TaskHandle_t s_mqtt_task_handle = NULL;
 
@@ -111,7 +120,10 @@ static void mqtt_event_cb(cy_mqtt_t handle, cy_mqtt_event_t event,
 
 static uint16_t flush_buffered_records(void);
 static TickType_t mqtt_idle_wait_ticks(void);
-static void publish_metrics_if_due(void);
+static bool metrics_publish_due(TickType_t now);
+static bool mqtt_can_publish_metrics_now(uint16_t flushed_this_loop);
+static void publish_metrics_now(TickType_t now);
+static void maybe_publish_metrics(uint16_t flushed_this_loop);
 static uint8_t qos_for_topic(const char *topic);
 static bool publish_json_qos(const char *topic, const char *payload,
                              size_t payload_len, uint8_t qos);
@@ -218,6 +230,7 @@ void mqtt_gw_task(void *pvParameters)
     /* Metrics timer */
     s_next_metrics_tick = xTaskGetTickCount() +
                           pdMS_TO_TICKS(g_config.metrics_period_ms);
+    s_metrics_due_since_tick = 0u;
 
     /* ---- Main loop ---- */
     for (;;)
@@ -287,8 +300,8 @@ void mqtt_gw_task(void *pvParameters)
         uint16_t flushed = flush_buffered_records();
         if (s_disconnect_pending) continue;
 
-        /* Metrics */
-        publish_metrics_if_due();
+        /* Metrics (opportunistic: only when publish path is idle) */
+        maybe_publish_metrics(flushed);
 
         if (g_config.buffer.flush_batch_size > 0u &&
             flushed == g_config.buffer.flush_batch_size)
@@ -570,19 +583,41 @@ static TickType_t mqtt_idle_wait_ticks(void)
     return (until_metrics < max_wait_ticks) ? until_metrics : max_wait_ticks;
 }
 
-/*******************************************************************************
- * Metrics publishing
- ******************************************************************************/
-static void publish_metrics_if_due(void)
+static bool metrics_publish_due(TickType_t now)
 {
-    TickType_t now = xTaskGetTickCount();
+    return ((int32_t)(now - s_next_metrics_tick) >= 0);
+}
 
-    if ((int32_t)(now - s_next_metrics_tick) < 0)
+static bool mqtt_can_publish_metrics_now(uint16_t flushed_this_loop)
+{
+    if (!gateway_ipc_is_mqtt_online() || s_disconnect_pending)
     {
-        return;
+        return false;
     }
 
+    if (flushed_this_loop != 0u)
+    {
+        return false;
+    }
+
+    if (buffer_mgr_depth() != 0u)
+    {
+        return false;
+    }
+
+    if (g_config.buffer.flash_max_records > 0u &&
+        persistent_buffer_depth() != 0u)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+static void publish_metrics_now(TickType_t now)
+{
     s_next_metrics_tick = now + pdMS_TO_TICKS(g_config.metrics_period_ms);
+    s_metrics_due_since_tick = 0u;
 
     /* Update gauges before snapshot */
     metrics_set_buffer_depth_ram(buffer_mgr_depth());
@@ -627,6 +662,41 @@ static void publish_metrics_if_due(void)
         /* Don't buffer metrics — they're stale if delayed */
         printf("[MQTT] WARN: metrics publish failed (not buffered)\n");
     }
+}
+
+/*******************************************************************************
+ * Metrics publishing
+ ******************************************************************************/
+static void maybe_publish_metrics(uint16_t flushed_this_loop)
+{
+    TickType_t now = xTaskGetTickCount();
+
+    if (!metrics_publish_due(now))
+    {
+        return;
+    }
+
+    if (mqtt_can_publish_metrics_now(flushed_this_loop))
+    {
+        publish_metrics_now(now);
+        return;
+    }
+
+    if (s_metrics_due_since_tick == 0u)
+    {
+        s_metrics_due_since_tick = now;
+    }
+
+    if (gateway_ipc_is_mqtt_online() &&
+        !s_disconnect_pending &&
+        ((int32_t)(now - s_metrics_due_since_tick) >=
+         (int32_t)pdMS_TO_TICKS(METRICS_MAX_DEFERRAL_MS)))
+    {
+        publish_metrics_now(now);
+        return;
+    }
+
+    s_next_metrics_tick = now + pdMS_TO_TICKS(METRICS_IDLE_RETRY_MS);
 }
 
 /*******************************************************************************
