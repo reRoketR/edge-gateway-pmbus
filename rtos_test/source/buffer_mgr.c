@@ -493,11 +493,17 @@ BMC_STATIC void buffer_mgr_drain_once(void)
     if (s_persistent_ready)
     {
         metrics_set_buffer_depth_flash(persistent_buffer_depth());
+        metrics_set_storage_total_writes(persistent_buffer_total_writes());
     }
     else
     {
         metrics_set_buffer_depth_flash(0u);
     }
+#if defined(BUFFER_BACKEND_QSPI)
+    metrics_set_storage_backend(1u);
+#else
+    metrics_set_storage_backend(0u);
+#endif
 }
 
 /*******************************************************************************

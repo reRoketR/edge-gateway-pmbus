@@ -202,6 +202,8 @@ void metrics_set_telemetry_queue_depth(uint32_t depth)
 }
 void metrics_set_wifi_rssi(int32_t rssi_dbm)        { s_gauges.wifi_rssi_dbm      = rssi_dbm; }
 void metrics_set_boot_count(uint32_t count)          { s_gauges.boot_count         = count;    }
+void metrics_set_storage_total_writes(uint32_t n)    { s_gauges.storage_total_writes = n;      }
+void metrics_set_storage_backend(uint8_t backend)    { s_gauges.storage_backend    = backend;  }
 
 /*******************************************************************************
  * Timing sample recorders
@@ -393,13 +395,17 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
              "\"telemetry_queue_depth\":%u,"
              "\"wifi_rssi_dbm\":%d,"
              "\"uptime_s\":%u,"
-             "\"boot_count\":%u}",
+             "\"boot_count\":%u,"
+             "\"storage_total_writes\":%u,"
+             "\"storage_backend\":%u}",
              (unsigned)snap->gauges.buffer_depth_ram,
              (unsigned)snap->gauges.buffer_depth_flash,
              (unsigned)snap->gauges.telemetry_queue_depth,
              (int)snap->gauges.wifi_rssi_dbm,
              (unsigned)snap->gauges.uptime_s,
-             (unsigned)snap->gauges.boot_count);
+             (unsigned)snap->gauges.boot_count,
+             (unsigned)snap->gauges.storage_total_writes,
+             (unsigned)snap->gauges.storage_backend);
 
     /* timing_ms (values stored in us, output in ms with 1 decimal) */
     M_PRINTF(",\"timing_ms\":{");

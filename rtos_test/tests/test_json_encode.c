@@ -337,6 +337,8 @@ static void test_metrics_json(void)
     metrics_set_buffer_depth_ram(42);
     metrics_set_telemetry_queue_depth(7);
     metrics_set_wifi_rssi(-56);
+    metrics_set_storage_total_writes(5000u);
+    metrics_set_storage_backend(1u);
 
     /* Simulate suppressed records */
     for (int i = 0; i < 20; i++)
@@ -400,6 +402,8 @@ static void test_metrics_json(void)
     TEST_ASSERT_TRUE(json_contains(buf, "\"read_to_publish_p95\":"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"telemetry_suppressed\":20"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"status_suppressed\":5"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"storage_total_writes\":5000"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"storage_backend\":1"));
 
     /* Verify counters were reset */
     metrics_snapshot_t snap2;

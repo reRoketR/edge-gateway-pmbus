@@ -65,6 +65,8 @@ typedef struct {
     int32_t  wifi_rssi_dbm;
     uint32_t uptime_s;
     uint32_t boot_count;            /**< Persistent boot counter (Em_EEPROM) */
+    uint32_t storage_total_writes;  /**< Lifetime flash write count (wear metric) */
+    uint8_t  storage_backend;       /**< Storage backend: 0=Em_EEPROM, 1=QSPI    */
 } metrics_gauges_t;
 
 /*******************************************************************************
@@ -154,6 +156,8 @@ void metrics_set_buffer_depth_flash(uint32_t depth);
 void metrics_set_telemetry_queue_depth(uint32_t depth);
 void metrics_set_wifi_rssi(int32_t rssi_dbm);
 void metrics_set_boot_count(uint32_t count);
+void metrics_set_storage_total_writes(uint32_t n);
+void metrics_set_storage_backend(uint8_t backend);
 
 /*******************************************************************************
  * Timing sample recorders
