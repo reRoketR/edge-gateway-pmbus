@@ -396,16 +396,15 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
              "\"wifi_rssi_dbm\":%d,"
              "\"uptime_s\":%u,"
              "\"boot_count\":%u,"
-             "\"storage_total_writes\":%u,"
-             "\"storage_backend\":%u}",
+             "\"storage\":{\"backend\":\"%s\",\"total_writes\":%u}}",
              (unsigned)snap->gauges.buffer_depth_ram,
              (unsigned)snap->gauges.buffer_depth_flash,
              (unsigned)snap->gauges.telemetry_queue_depth,
              (int)snap->gauges.wifi_rssi_dbm,
              (unsigned)snap->gauges.uptime_s,
              (unsigned)snap->gauges.boot_count,
-             (unsigned)snap->gauges.storage_total_writes,
-             (unsigned)snap->gauges.storage_backend);
+             (snap->gauges.storage_backend == 1u) ? "qspi" : "eeprom",
+             (unsigned)snap->gauges.storage_total_writes);
 
     /* timing_ms (values stored in us, output in ms with 1 decimal) */
     M_PRINTF(",\"timing_ms\":{");

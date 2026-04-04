@@ -402,8 +402,7 @@ static void test_metrics_json(void)
     TEST_ASSERT_TRUE(json_contains(buf, "\"read_to_publish_p95\":"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"telemetry_suppressed\":20"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"status_suppressed\":5"));
-    TEST_ASSERT_TRUE(json_contains(buf, "\"storage_total_writes\":5000"));
-    TEST_ASSERT_TRUE(json_contains(buf, "\"storage_backend\":1"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"storage\":{\"backend\":\"qspi\",\"total_writes\":5000}"));
 
     /* Verify counters were reset */
     metrics_snapshot_t snap2;

@@ -95,6 +95,8 @@ Verify on UART that the target banner appears and ends with:
 
 ### 4. Flash the Gateway
 
+**Default build (Em_EEPROM persistent buffer, 61 records):**
+
 ```bash
 cd rtos_test
 make build TOOLCHAIN=GCC_ARM CONFIG=Debug
@@ -110,6 +112,19 @@ Verify on UART:
 [SYS] devices: 2
 [SYS]   [0] 0x58 "psu_a"  poll=500ms  status=10000ms
 [SYS]   [1] 0x59 "psu_b"  poll=500ms  status=10000ms
+```
+
+**QSPI build (external S25FL512S, ~5 300-record capacity, diploma experiments):**
+
+```bash
+make build TOOLCHAIN=GCC_ARM CONFIG=Debug BUFFER_BACKEND=QSPI
+make program
+```
+
+On first use, erase the QSPI region before programming:
+
+```bash
+make erase MTB_ERASE_EXT_MEM=1
 ```
 
 ### 5. Start the MQTT Broker
@@ -260,11 +275,14 @@ current freeze deliberately leaves several production-level concerns unresolved:
 - MQTT security is lab-only by default: plaintext transport, local Wi-Fi
   credential headers, and development broker settings such as anonymous access
   are acceptable for the coursework stand, but not for deployment.
-- The flash-backed store-and-forward buffer uses the internal Em_EEPROM
-  emulation region (32 KB), which limits capacity to **63 records**. The
-  metadata row (head/tail/count) is rewritten on every flush cycle with no
-  wear-leveling, restricting practical endurance to lab-duration experiments.
-  Migration to external QSPI flash is planned for the diploma phase.
+- Two persistent-buffer backends are available, selected at compile time:
+  - **Em_EEPROM** (default): internal flash emulation, 32 KB, 61 records,
+    ~6.1 M record lifetime. Suitable for short-duration lab experiments.
+  - **QSPI NOR flash** (`BUFFER_BACKEND=QSPI`): external S25FL512S,
+    1.5 MB data region, ~5 300 records, sector-based wear leveling via a
+    metadata journal. Used for diploma long-duration buffering experiments.
+  See `docs/persistent_buffer.md` and §8 of that document for migration
+  instructions.
 
 ---
 

@@ -26,23 +26,29 @@ Non-goals:
 ## 2) High-level design
 
 ```
-  Task A (poll) → IPC queue → Task B (mqtt_gw) --offline?-→ buffer_mgr_put()
-                                                                 |
-                                          ┌──────────────────────┤
-                                          ▼                      ▼ (overflow)
-                                     RAM ring buf          persistent_buffer_put()
-                                          ▲                      ▲
-                                          └──────────────────────┘
-  Task B: flush_buffered_records() ← persistent_peek/consume, ram_peek/consume
+  Task A (poll) ─► IPC queues / emergency ring
+                         │
+                         ▼
+  Task C (buffer_task) ──► buffer_mgr_put_internal()
+                         │
+             ┌───────────┴───────────┐
+             ▼                       ▼ (RAM full → spill)
+        RAM ring buf          persistent_buffer_put()
+             ▲                       ▲
+             └───────────────────────┘
+  Task B (mqtt_gw): flush_buffered_records() ◄─ persistent_peek/consume, ram_peek/consume
 ```
 
-- When MQTT is **offline**, `mqtt_gw_task` stores unsent records via
-  `buffer_mgr_put()` into the RAM ring buffer.
-- When the RAM tier is full, records spill to the persistent tier via
+- **Task C** (`buffer_task`) runs continuously and **always** drains all
+  FreeRTOS IPC queues (telemetry, status, events) and the emergency ring,
+  regardless of MQTT connection state. Each record is JSON-encoded and stored
+  via `buffer_mgr_put_internal()`. This task is the sole writer to `buffer_mgr`.
+- When the RAM tier is full, a record spills to the persistent tier via
   `persistent_buffer_put()`.
-- When MQTT is **online**, `flush_buffered_records()` in `mqtt_gw_task`
-  drains flash first (FIFO), then RAM (FIFO), publishing each record via
-  the single MQTT publisher.
+- **Task B** (`mqtt_gw_task`) flushes when MQTT is **online**: drains the
+  persistent tier first (oldest data), then the RAM tier, publishing each
+  record via the single MQTT publisher. On publish failure it stops and
+  retries next cycle.
 
 ---
 
@@ -265,7 +271,39 @@ include.
 
 ---
 
-## 8) Overflow policy
+## 8) Migration from Em_EEPROM to QSPI
+
+If migrating an existing deployment from the Em_EEPROM backend to QSPI:
+
+1. **Drain and confirm empty**: Ensure all buffered records are flushed to the
+   broker while still running the Em_EEPROM build.  Confirm
+   `buffer_depth_flash == 0` in the metrics JSON before proceeding.
+
+2. **Erase the QSPI region**: On first use, QSPI NOR flash may contain
+   arbitrary data.  Call `qspi_buffer_erase_all()` once (or use the
+   `make erase MTB_ERASE_EXT_MEM=1` OpenOCD helper) to wipe sectors 0–7.
+
+3. **Rebuild with the QSPI flag**:
+   ```bash
+   make build TOOLCHAIN=GCC_ARM CONFIG=Debug BUFFER_BACKEND=QSPI
+   make program
+   ```
+
+4. **Verify boot banner**: The UART boot banner shows the active backend:
+   ```
+   [BUF] Persistent backend: QSPI (S25FL512S)
+   ```
+
+5. **No data migration is possible**: The two backends use incompatible
+   on-flash layouts.  Any records still in Em_EEPROM flash will not be
+   readable by the QSPI build.  Drain before switching (see step 1).
+
+6. **Reverting**: Rebuild without the flag to revert to Em_EEPROM.  The QSPI
+   region is left intact and will be picked up on the next QSPI build.
+
+---
+
+## 9) Overflow policy
 
 When both tiers are full and `drop_oldest == true`:
 1. Flash tier advances tail (discards oldest flash record).
@@ -276,7 +314,7 @@ When `drop_oldest == false`, new records are silently discarded.
 
 ---
 
-## 9) Boot recovery
+## 10) Boot recovery
 
 ### Em_EEPROM
 1. `flash_buffer_init()` reads the metadata row from flash.
@@ -294,7 +332,7 @@ Both backends: RAM tier starts empty on every boot.
 
 ---
 
-## 10) Flush procedure (`flush_buffered_records()`)
+## 11) Flush procedure (`flush_buffered_records()`)
 
 Called from `mqtt_gw_task` after draining the IPC queues, while MQTT is online:
 
@@ -315,7 +353,7 @@ before newer RAM records.
 
 ---
 
-## 11) Public API summary
+## 12) Public API summary
 
 ```c
 /* RAM tier (buffer_mgr.h) */
@@ -351,20 +389,22 @@ bool     qspi_buffer_erase_all(void);
 
 ---
 
-## 12) Metrics integration
+## 13) Metrics integration
 
-Exposed via MQTT metrics topic (`<base>/metrics`):
-- **Gauges**: `buffer_depth_ram`, `buffer_depth_flash`
+Exposed via MQTT metrics topic (`<base>/metrics`), in the `"gauges"` object:
+- **`buffer_depth_ram`**, **`buffer_depth_flash`** — current record counts
 - **Counters**: `buffer_enqueued`, `buffer_dequeued`, `buffer_dropped`
-- **Flash wear** (D2b-4): `storage_total_writes` — lifetime record write count
-  from `persistent_buffer_total_writes()`; updated each drain cycle by
-  `buffer_mgr_drain_once()`.
-- **Backend indicator** (D2b-4): `storage_backend` — `0` = Em_EEPROM,
-  `1` = QSPI; set at compile time.
+- **`storage`** (nested object, D2b-4):
+  ```json
+  "storage":{"backend":"qspi","total_writes":1234}
+  ```
+  - `backend`: string `"qspi"` or `"eeprom"`, set at compile time
+  - `total_writes`: lifetime write count from `persistent_buffer_total_writes()`,
+    updated each drain cycle by `buffer_mgr_drain_once()`
 
 ---
 
-## 13) Notes for experiments
+## 14) Notes for experiments
 
 - **Exp3** requires persistent buffering to survive a reboot mid-outage.
   Verify that `persistent_buffer_depth()` reports non-zero after power-cycle.
