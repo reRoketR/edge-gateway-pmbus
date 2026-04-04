@@ -27,7 +27,7 @@
 #define MQTT_SECURE_CONNECTION            (0)
 
 /* The timeout in milliseconds for MQTT operations. */
-#define MQTT_TIMEOUT_MS                   (5000)
+#define MQTT_TIMEOUT_MS                   (2000)
 
 /* The keep-alive interval in seconds used for MQTT ping request. */
 #define MQTT_KEEP_ALIVE_SECONDS           (15)

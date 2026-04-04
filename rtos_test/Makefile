@@ -235,6 +235,37 @@ test:
 		&& $(TEST_RUN)test_qspi_buffer$(TEST_EXEEXT)
 	$(TEST_CC) $(TEST_CFLAGS) -o test_flash_buffer_layout$(TEST_EXEEXT) \
 		tests/test_flash_buffer_layout.c && $(TEST_RUN)test_flash_buffer_layout$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -DPERSISTENT_SEQ_HOST_TEST \
+		-o test_persistent_seq$(TEST_EXEEXT) \
+		tests/test_persistent_seq.c tests/stubs/flash_mock.c \
+		source/persistent_seq.c \
+		&& $(TEST_RUN)test_persistent_seq$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_publish_filter$(TEST_EXEEXT) \
+		tests/test_publish_filter.c source/publish_filter.c \
+		source/gateway_config.c \
+		&& $(TEST_RUN)test_publish_filter$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) \
+		-DBUFFER_BACKEND_QSPI -DQSPI_BUF_HOST_TEST \
+		-DBUFFER_MGR_HOST_TEST -DINTEGRATION_TEST \
+		-DPERSISTENT_SEQ_HOST_TEST \
+		-o test_integration_offline$(TEST_EXEEXT) \
+		tests/test_integration_offline.c \
+		tests/stubs/rtos_stubs.c \
+		tests/stubs/qspi_mock.c \
+		tests/stubs/publish_mock.c \
+		tests/stubs/flash_mock.c \
+		source/buffer_flush.c \
+		source/buffer_mgr.c \
+		source/gateway_ipc.c \
+		source/persistent_seq.c \
+		source/emergency_ring.c \
+		source/qspi_buffer.c \
+		source/telemetry.c \
+		source/events.c \
+		source/metrics.c \
+		source/pmbus_decode.c \
+		source/gw_util.c \
+		-lm && $(TEST_RUN)test_integration_offline$(TEST_EXEEXT)
 	@echo "All host-side tests passed."
 
 # When the goal is only 'test', skip ModusToolbox include entirely

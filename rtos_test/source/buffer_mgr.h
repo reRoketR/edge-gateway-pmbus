@@ -225,4 +225,8 @@ void buffer_task(void *pvParameters);
 #define BUFFER_TASK_STACK_SIZE   (1536u)
 #define BUFFER_TASK_PRIORITY     (2u)
 
+#ifdef BUFFER_MGR_HOST_TEST
+void buffer_mgr_drain_once(void);
+#endif
+
 /** @} */  /* end of buffer_mgr */

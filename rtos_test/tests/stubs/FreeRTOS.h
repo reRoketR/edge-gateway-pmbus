@@ -3,6 +3,7 @@
 #define FREERTOS_STUB_H
 
 #include <stdint.h>
+#include <stdlib.h>
 
 typedef uint32_t  TickType_t;
 typedef uint32_t  BaseType_t;
@@ -18,5 +19,11 @@ typedef void*     TaskHandle_t;
 
 #define taskENTER_CRITICAL()  do {} while(0)
 #define taskEXIT_CRITICAL()   do {} while(0)
+
+#define taskSCHEDULER_NOT_STARTED  1
+#define taskSCHEDULER_RUNNING      2
+
+#define pvPortMalloc(sz)  malloc(sz)
+#define vPortFree(p)      free(p)
 
 #endif /* FREERTOS_STUB_H */

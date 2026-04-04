@@ -35,6 +35,12 @@
 #include "task.h"
 #include "queue.h"
 
+#ifdef BUFFER_MGR_HOST_TEST
+#define BMC_STATIC  /* empty — expose drain_once() for host tests */
+#else
+#define BMC_STATIC static
+#endif
+
 #include <stdio.h>
 #include <string.h>
 
@@ -86,7 +92,7 @@ static bool buffer_mgr_put_internal(const char *topic,
                                     uint32_t origin_read_start_ms,
                                     uint32_t origin_boot_gen);
 static void buffer_mgr_notify_flush_task(void);
-static void buffer_mgr_drain_once(void);
+BMC_STATIC void buffer_mgr_drain_once(void);
 
 static void buffer_mgr_try_init_persistent(void)
 {
@@ -469,7 +475,7 @@ static bool drain_event_queue(void)
     return did_enqueue;
 }
 
-static void buffer_mgr_drain_once(void)
+BMC_STATIC void buffer_mgr_drain_once(void)
 {
     bool did_enqueue = false;
 

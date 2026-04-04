@@ -2,6 +2,7 @@
 
 #include "qspi_mock.h"
 #include "qspi_buffer.h"
+#include "qspi_flash.h"
 #include "metrics.h"
 #include "cy_serial_flash_qspi.h"
 
@@ -174,6 +175,17 @@ cy_rslt_t cy_serial_flash_qspi_write(uint32_t addr, size_t length, const uint8_t
     return CY_RSLT_SUCCESS;
 }
 
+size_t qspi_flash_get_size(void)
+{
+    return QSPI_BUF_REGION_SIZE;
+}
+
+size_t qspi_flash_get_erase_size(void)
+{
+    return QSPI_BUF_SECTOR_SIZE;
+}
+
+#ifndef INTEGRATION_TEST
 void metrics_inc_buffer_enqueued(void)
 {
     s_metric_buffer_enqueued++;
@@ -188,3 +200,4 @@ void metrics_inc_buffer_dropped(void)
 {
     s_metric_buffer_dropped++;
 }
+#endif /* INTEGRATION_TEST */
