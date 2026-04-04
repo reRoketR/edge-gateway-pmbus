@@ -41,7 +41,11 @@
  * Global config instance — defined exactly once
  ******************************************************************************/
 const char   *g_profile_name = PROFILE_NAME;
+#ifdef INTEGRATION_TEST
+config_t       g_config      = PROFILE_CONFIG;   /* writable for test config */
+#else
 const config_t g_config      = PROFILE_CONFIG;
+#endif
 
 /*******************************************************************************
  * Function Name: config_print_boot_banner
@@ -92,15 +96,59 @@ void config_print_boot_banner(void)
     printf("[SYS] metrics_period=%lums\n",
            (unsigned long)c->metrics_period_ms);
 
+    /* ---- Reporting / publish filtering ---- */
+    {
+        printf("[SYS] filter: telem=%s",
+               c->reporting.telemetry_filter_enabled ? "ON" : "OFF");
+        if (c->reporting.telemetry_filter_enabled)
+        {
+            printf(" db=vin:%lu/vout:%lu/iin:%lu/iout:%lu/temp:%lu/pout:%lu hb=%lums",
+                   (unsigned long)c->reporting.deadband_vin_mV,
+                   (unsigned long)c->reporting.deadband_vout_mV,
+                   (unsigned long)c->reporting.deadband_iin_mA,
+                   (unsigned long)c->reporting.deadband_iout_mA,
+                   (unsigned long)c->reporting.deadband_temp1_mC,
+                   (unsigned long)c->reporting.deadband_pout_mW,
+                   (unsigned long)c->reporting.telemetry_heartbeat_ms);
+        }
+        printf(" | status=%s",
+               c->reporting.status_filter_enabled ? "ON" : "OFF");
+        if (c->reporting.status_filter_enabled)
+        {
+            printf(" on-change init=%s hb=%lums",
+                   c->reporting.status_emit_initial ? "emit" : "suppress",
+                   (unsigned long)c->reporting.status_heartbeat_ms);
+        }
+        printf("\n");
+    }
+
     printf("[SYS] devices: %u\n", (unsigned)c->num_devices);
     for (uint8_t i = 0; i < c->num_devices; i++) {
         const device_cfg_t *d = &c->devices[i];
-        printf("[SYS]   [%u] 0x%02X \"%s\"  poll=%lums  status=%lums\n",
+        printf("[SYS]   [%u] 0x%02X \"%s\"  poll=%lums  status=%lums",
                (unsigned)i,
                (unsigned)d->addr_7bit,
                d->label,
                (unsigned long)d->poll_period_ms,
                (unsigned long)d->status_period_ms);
+        /* Print per-device overrides only when they deviate from globals */
+        bool any_ovr = d->telemetry_heartbeat_ms | d->status_heartbeat_ms |
+                       d->deadband_vin_mV       | d->deadband_vout_mV    |
+                       d->deadband_iin_mA       | d->deadband_iout_mA    |
+                       d->deadband_temp1_mC     | d->deadband_pout_mW;
+        if (any_ovr)
+        {
+            printf("  ovr:");
+            if (d->deadband_vin_mV)   printf(" vin:%lu", (unsigned long)d->deadband_vin_mV);
+            if (d->deadband_vout_mV)  printf(" vout:%lu", (unsigned long)d->deadband_vout_mV);
+            if (d->deadband_iin_mA)   printf(" iin:%lu", (unsigned long)d->deadband_iin_mA);
+            if (d->deadband_iout_mA)  printf(" iout:%lu", (unsigned long)d->deadband_iout_mA);
+            if (d->deadband_temp1_mC) printf(" temp:%lu", (unsigned long)d->deadband_temp1_mC);
+            if (d->deadband_pout_mW)  printf(" pout:%lu", (unsigned long)d->deadband_pout_mW);
+            if (d->telemetry_heartbeat_ms) printf(" thb:%lu", (unsigned long)d->telemetry_heartbeat_ms);
+            if (d->status_heartbeat_ms)    printf(" shb:%lu", (unsigned long)d->status_heartbeat_ms);
+        }
+        printf("\n");
     }
     printf("\n");
 }

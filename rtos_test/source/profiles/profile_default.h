@@ -51,7 +51,7 @@ static const device_cfg_t k_devices[] = {
     },                                                                         \
                                                                                \
     .mqtt = {                                                                  \
-        .host           = "192.168.1.6",                                      \
+        .host           = "broker.hivemq.com",                                      \
         .port           = 1883,                                                \
         .client_id      = "pmbus-thesis-gw01",                                        \
         .base_topic     = "pmbus/thesis_gw01",                                        \
@@ -69,6 +69,20 @@ static const device_cfg_t k_devices[] = {
         .flush_batch_size = 50,                                                \
         .flush_interval_ms = 200,                                              \
         .drop_oldest      = true,                                              \
+    },                                                                         \
+                                                                               \
+    .reporting = {                                                             \
+        .telemetry_filter_enabled = true,                                       \
+        .status_filter_enabled    = true,                                       \
+        .status_emit_initial      = true,                                       \
+        .telemetry_heartbeat_ms   = 10000,                                      \
+        .status_heartbeat_ms      = 300000,                                     \
+        .deadband_vin_mV          = 100,                                        \
+        .deadband_vout_mV         = 20,                                         \
+        .deadband_iin_mA          = 100,                                        \
+        .deadband_iout_mA         = 100,                                        \
+        .deadband_temp1_mC        = 1000,                                       \
+        .deadband_pout_mW         = 1000,                                       \
     },                                                                         \
                                                                                \
     .devices         = k_devices,                                              \

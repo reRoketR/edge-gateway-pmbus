@@ -34,6 +34,7 @@
 #include "gateway_ipc.h"
 #include "wallclock.h"
 #include "emergency_ring.h"
+#include "publish_filter.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -81,6 +82,10 @@ typedef struct {
     bool        online;             /**< Device considered online?            */
     int8_t      vout_exponent;      /**< Cached VOUT_MODE exponent            */
     bool        vout_exp_valid;     /**< true once VOUT_MODE has been read    */
+
+    /* Publish-filter state (see publish_filter.h) */
+    telem_filter_state_t  telem_fs;
+    status_filter_state_t status_fs;
 } device_state_t;
 
 static device_state_t s_dev_state[MAX_DEVICES];
@@ -136,6 +141,9 @@ void pmbus_poll_task(void *pvParameters)
         s_dev_state[i].online           = false;
         s_dev_state[i].vout_exp_valid   = false;
         s_dev_state[i].vout_exponent    = -12;  /* sensible default */
+        /* Publish-filter state: no baseline yet → first sample always emitted */
+        s_dev_state[i].telem_fs.have_last  = false;
+        s_dev_state[i].status_fs.have_last = false;
     }
 
     printf("[POLL] Polling %u device(s), tick=%u ms\n",
@@ -554,12 +562,21 @@ telemetry_done:
         return;
     }
 
+    /* ---- Publish filter: deadband + heartbeat ---- */
+    TickType_t filter_now = xTaskGetTickCount();
+    if (!pf_should_emit_telemetry(&rec, dev, &g_config, &state->telem_fs, filter_now))
+    {
+        metrics_inc_telemetry_suppressed();
+        return;
+    }
+
     log_telemetry_table(&rec);
 
     /* Push to telemetry queue (non-blocking — drop if full) */
     if (xQueueSend(gateway_ipc_telemetry_queue(), &rec, 0) == pdTRUE)
     {
         metrics_inc_telemetry_enqueued();
+        pf_advance_telem_baseline(&rec, &state->telem_fs, filter_now);
         buffer_mgr_signal_spill_task();
     }
     else
@@ -576,10 +593,12 @@ telemetry_done:
                 gateway_ipc_post_event(EVT_QUEUE_OVERFLOW, "telemetry_queue");
             }
             metrics_inc_queue_drops();
+            /* Do NOT advance baseline — record was lost */
         }
         else
         {
-            /* Record saved to emergency ring! We avoid polluting UART during outage. */
+            /* Record saved to emergency ring — still counts as admitted */
+            pf_advance_telem_baseline(&rec, &state->telem_fs, filter_now);
             buffer_mgr_signal_spill_task();
         }
     }
@@ -653,9 +672,24 @@ status_done:
     rec.addr_7bit = addr;
     rec.label     = dev->label;
 
+    /* ---- Publish filter: on-change + heartbeat ---- */
+    TickType_t filter_now = xTaskGetTickCount();
+    if (!pf_should_emit_status(&rec, dev, &g_config, &state->status_fs, filter_now))
+    {
+        /* On initial suppress (status_emit_initial=false, !have_last) we must
+         * still record the baseline so that on-change detection works.
+         * For all other suppressed samples do NOT touch last_emit_tick —
+         * otherwise the heartbeat timer resets every poll and never fires. */
+        if (!state->status_fs.have_last)
+            pf_advance_status_baseline(&rec, &state->status_fs, filter_now);
+        metrics_inc_status_suppressed();
+        return;
+    }
+
     /* Push to status queue */
     if (xQueueSend(gateway_ipc_status_queue(), &rec, 0) == pdTRUE)
     {
+        pf_advance_status_baseline(&rec, &state->status_fs, filter_now);
         buffer_mgr_signal_spill_task();
     }
     else
@@ -666,6 +700,7 @@ status_done:
             printf("[POLL] WARN: status queue full (addr=0x%02X)\n", addr);
             state->last_status_warn = now_t;
         }
+        /* Do NOT advance baseline — record was lost */
     }
 }
 
@@ -707,6 +742,9 @@ static void check_online_transition(const device_cfg_t *dev,
     {
         /* Device came online (1 successful poll is enough) */
         state->online = true;
+        /* Reset filter baselines so first sample after reconnect is emitted */
+        state->telem_fs.have_last  = false;
+        state->status_fs.have_last = false;
         char detail[EVT_DETAIL_MAX];
         snprintf(detail, sizeof(detail), "addr=0x%02X", dev->addr_7bit);
         gateway_ipc_post_event(EVT_PMBUS_DEVICE_ONLINE, detail);

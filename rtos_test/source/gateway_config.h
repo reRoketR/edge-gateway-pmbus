@@ -29,6 +29,16 @@ typedef struct {
     const char *label;              /**< Human-readable label, e.g. "psu_a"   */
     uint32_t    poll_period_ms;     /**< Telemetry polling interval (ms)      */
     uint32_t    status_period_ms;   /**< Status register polling interval (ms)*/
+
+    /* Per-device reporting overrides (0 = use global default from config_t.reporting) */
+    uint32_t    telemetry_heartbeat_ms; /**< 0 = use reporting.telemetry_heartbeat_ms */
+    uint32_t    status_heartbeat_ms;    /**< 0 = use reporting.status_heartbeat_ms    */
+    uint32_t    deadband_vin_mV;        /**< 0 = use reporting.deadband_vin_mV        */
+    uint32_t    deadband_vout_mV;       /**< 0 = use reporting.deadband_vout_mV       */
+    uint32_t    deadband_iin_mA;        /**< 0 = use reporting.deadband_iin_mA        */
+    uint32_t    deadband_iout_mA;       /**< 0 = use reporting.deadband_iout_mA       */
+    uint32_t    deadband_temp1_mC;      /**< 0 = use reporting.deadband_temp1_mC      */
+    uint32_t    deadband_pout_mW;       /**< 0 = use reporting.deadband_pout_mW       */
 } device_cfg_t;
 
 /*******************************************************************************
@@ -72,6 +82,23 @@ typedef struct {
     } buffer;
     /* NOTE: seq counter always resets to 0 on reboot (not persisted). */
 
+    /* ---- Reporting / publish filtering ---- */
+    struct {
+        bool     telemetry_filter_enabled; /**< false = publish every sample  */
+        bool     status_filter_enabled;    /**< false = publish every status  */
+        bool     status_emit_initial;      /**< emit first status even if 0   */
+
+        /* Global defaults (device_cfg_t field == 0 → use these) */
+        uint32_t telemetry_heartbeat_ms;   /**< default: 10000               */
+        uint32_t status_heartbeat_ms;      /**< default: 300000; 0=disabled  */
+        uint32_t deadband_vin_mV;          /**< default: 100                 */
+        uint32_t deadband_vout_mV;         /**< default: 20                  */
+        uint32_t deadband_iin_mA;          /**< default: 100                 */
+        uint32_t deadband_iout_mA;         /**< default: 100                 */
+        uint32_t deadband_temp1_mC;        /**< default: 1000                */
+        uint32_t deadband_pout_mW;         /**< default: 1000                */
+    } reporting;
+
     /* ---- Device list ---- */
     const device_cfg_t *devices;    /**< Array of target devices             */
     uint8_t  num_devices;           /**< Number of entries in devices[]      */
@@ -83,7 +110,11 @@ typedef struct {
 /*******************************************************************************
  * Global config instance (defined in gateway_config.c)
  ******************************************************************************/
+#ifdef INTEGRATION_TEST
+extern config_t        g_config;        /* writable for per-scenario config */
+#else
 extern const config_t  g_config;
+#endif
 extern const char     *g_profile_name;
 
 /*******************************************************************************

@@ -26,6 +26,11 @@
 #include "../source/buffer_mgr.h"
 
 /*******************************************************************************
+ * Runtime-contract constants
+ ******************************************************************************/
+#define TEST_METRICS_RUNTIME_BUF_SIZE 1024u
+
+/*******************************************************************************
  * Minimal test framework
  ******************************************************************************/
 static int tests_run    = 0;
@@ -333,6 +338,12 @@ static void test_metrics_json(void)
     metrics_set_telemetry_queue_depth(7);
     metrics_set_wifi_rssi(-56);
 
+    /* Simulate suppressed records */
+    for (int i = 0; i < 20; i++)
+        metrics_inc_telemetry_suppressed();
+    for (int i = 0; i < 5; i++)
+        metrics_inc_status_suppressed();
+
     /* Take snapshot at t=2000 ms */
     metrics_snapshot_t snap;
     metrics_snapshot_and_reset(&snap, 2000, 2000);
@@ -345,6 +356,10 @@ static void test_metrics_json(void)
                     "retries=%u", (unsigned)snap.counters.pmbus_retries);
     TEST_ASSERT_MSG(snap.counters.mqtt_pub_ok == 51,
                     "mqtt_pub_ok=%u", (unsigned)snap.counters.mqtt_pub_ok);
+    TEST_ASSERT_MSG(snap.counters.telemetry_suppressed == 20,
+                    "telemetry_suppressed=%u", (unsigned)snap.counters.telemetry_suppressed);
+    TEST_ASSERT_MSG(snap.counters.status_suppressed == 5,
+                    "status_suppressed=%u", (unsigned)snap.counters.status_suppressed);
     TEST_ASSERT_MSG(snap.gauges.buffer_depth_ram == 42,
                     "buffer_depth_ram=%u", (unsigned)snap.gauges.buffer_depth_ram);
     TEST_ASSERT_MSG(snap.gauges.telemetry_queue_depth == 7,
@@ -366,11 +381,14 @@ static void test_metrics_json(void)
     TEST_ASSERT_MSG(snap.timing.read_to_publish_max_us == 34800,
                     "r2p_max=%u", (unsigned)snap.timing.read_to_publish_max_us);
 
-    /* Encode to JSON */
-    char buf[1024];
+    /* Keep this in sync with the runtime buffer in mqtt_gw_task.c */
+    char buf[TEST_METRICS_RUNTIME_BUF_SIZE];
     int len = encode_metrics_json(&snap, buf, sizeof(buf));
 
     TEST_ASSERT_MSG(len > 0, "encode_metrics_json returned %d", len);
+    TEST_ASSERT_MSG((size_t)len < TEST_METRICS_RUNTIME_BUF_SIZE,
+                    "metrics JSON len=%d exceeds runtime buf=%u",
+                    len, (unsigned)TEST_METRICS_RUNTIME_BUF_SIZE);
     printf("  JSON (%d bytes): %s\n", len, buf);
 
     TEST_ASSERT_TRUE(json_contains(buf, "\"pmbus_reads_ok\":100"));
@@ -380,6 +398,8 @@ static void test_metrics_json(void)
     TEST_ASSERT_TRUE(json_contains(buf, "\"wifi_rssi_dbm\":-56"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"read_to_publish_avg\":"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"read_to_publish_p95\":"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"telemetry_suppressed\":20"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"status_suppressed\":5"));
 
     /* Verify counters were reset */
     metrics_snapshot_t snap2;

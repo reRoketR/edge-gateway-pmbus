@@ -71,6 +71,20 @@ static const device_cfg_t k_devices[] = {
         .drop_oldest      = true,                                              \
     },                                                                         \
                                                                                \
+    .reporting = {                                                             \
+        .telemetry_filter_enabled = true,                                       \
+        .status_filter_enabled    = true,                                       \
+        .status_emit_initial      = true,                                       \
+        .telemetry_heartbeat_ms   = 5000,                                       \
+        .status_heartbeat_ms      = 60000,                                      \
+        .deadband_vin_mV          = 100,                                        \
+        .deadband_vout_mV         = 20,                                         \
+        .deadband_iin_mA          = 100,                                        \
+        .deadband_iout_mA         = 100,                                        \
+        .deadband_temp1_mC        = 1000,                                       \
+        .deadband_pout_mW         = 1000,                                       \
+    },                                                                         \
+                                                                               \
     .devices         = k_devices,                                              \
     .num_devices     = sizeof(k_devices) / sizeof(k_devices[0]),               \
     .metrics_period_ms = 1000,                                                 \
