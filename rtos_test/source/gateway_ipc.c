@@ -11,6 +11,7 @@
 #include "buffer_mgr.h"
 #include "wallclock.h"
 #include "metrics.h"
+#include "persistent_seq.h"
 #include "task.h"
 #include <stdio.h>
 #include <string.h>
@@ -49,9 +50,16 @@ bool gateway_ipc_init(void)
     s_mqtt_online  = false;
     s_seq_counter  = 0u;
 
+    /* Restore persistent sequence counter from Em_EEPROM A/B banks */
+    persistent_seq_init();
+    s_seq_counter = persistent_seq_get();
+
     printf("[IPC] Queues created: telem=%u status=%u event=%u\n",
            IPC_TELEMETRY_QUEUE_DEPTH, IPC_STATUS_QUEUE_DEPTH,
            IPC_EVENT_QUEUE_DEPTH);
+    printf("[IPC] Seq restored: %lu  (boot #%lu)\n",
+           (unsigned long)s_seq_counter,
+           (unsigned long)persistent_seq_get_boot_count());
 
     return true;
 }
@@ -94,6 +102,13 @@ uint32_t gateway_ipc_next_seq(void)
     taskENTER_CRITICAL();
     uint32_t seq = s_seq_counter++;
     taskEXIT_CRITICAL();
+
+    /* Periodically checkpoint the counter to Em_EEPROM */
+    if (seq % PERSISTENT_SEQ_CHECKPOINT_INTERVAL == 0u)
+    {
+        persistent_seq_checkpoint(seq);
+    }
+
     return seq;
 }
 

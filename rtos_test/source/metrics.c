@@ -188,6 +188,8 @@ void metrics_inc_queue_drops(void)       { counter_inc(&s_counters.queue_drops);
 void metrics_inc_telemetry_enqueued(void){ counter_inc(&s_counters.telemetry_enqueued); }
 void metrics_inc_i2c_controller_resets(void) { counter_inc(&s_counters.i2c_controller_resets); }
 void metrics_inc_i2c_bus_recoveries(void)   { counter_inc(&s_counters.i2c_bus_recoveries);   }
+void metrics_inc_telemetry_suppressed(void) { counter_inc(&s_counters.telemetry_suppressed); }
+void metrics_inc_status_suppressed(void)    { counter_inc(&s_counters.status_suppressed);    }
 
 /*******************************************************************************
  * Gauge setters
@@ -199,6 +201,7 @@ void metrics_set_telemetry_queue_depth(uint32_t depth)
     s_gauges.telemetry_queue_depth = depth;
 }
 void metrics_set_wifi_rssi(int32_t rssi_dbm)        { s_gauges.wifi_rssi_dbm      = rssi_dbm; }
+void metrics_set_boot_count(uint32_t count)          { s_gauges.boot_count         = count;    }
 
 /*******************************************************************************
  * Timing sample recorders
@@ -361,7 +364,9 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
              "\"queue_drops\":%u,"
              "\"telemetry_enqueued\":%u,"
              "\"i2c_controller_resets\":%u,"
-             "\"i2c_bus_recoveries\":%u}",
+             "\"i2c_bus_recoveries\":%u,"
+             "\"telemetry_suppressed\":%u,"
+             "\"status_suppressed\":%u}",
              (unsigned)snap->counters.pmbus_reads_ok,
              (unsigned)snap->counters.pmbus_reads_fail,
              (unsigned)snap->counters.pmbus_retries,
@@ -377,7 +382,9 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
              (unsigned)snap->counters.queue_drops,
              (unsigned)snap->counters.telemetry_enqueued,
              (unsigned)snap->counters.i2c_controller_resets,
-             (unsigned)snap->counters.i2c_bus_recoveries);
+             (unsigned)snap->counters.i2c_bus_recoveries,
+             (unsigned)snap->counters.telemetry_suppressed,
+             (unsigned)snap->counters.status_suppressed);
 
     /* gauges */
     M_PRINTF(",\"gauges\":{"
@@ -385,12 +392,14 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
              "\"buffer_depth_flash\":%u,"
              "\"telemetry_queue_depth\":%u,"
              "\"wifi_rssi_dbm\":%d,"
-             "\"uptime_s\":%u}",
+             "\"uptime_s\":%u,"
+             "\"boot_count\":%u}",
              (unsigned)snap->gauges.buffer_depth_ram,
              (unsigned)snap->gauges.buffer_depth_flash,
              (unsigned)snap->gauges.telemetry_queue_depth,
              (int)snap->gauges.wifi_rssi_dbm,
-             (unsigned)snap->gauges.uptime_s);
+             (unsigned)snap->gauges.uptime_s,
+             (unsigned)snap->gauges.boot_count);
 
     /* timing_ms (values stored in us, output in ms with 1 decimal) */
     M_PRINTF(",\"timing_ms\":{");

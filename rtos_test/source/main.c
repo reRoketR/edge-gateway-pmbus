@@ -19,6 +19,8 @@
 #include "cybsp.h"
 #include "cy_retarget_io.h"
 
+#include <stdio.h>
+
 /* FreeRTOS */
 #include "FreeRTOS.h"
 #include "task.h"
@@ -36,6 +38,7 @@
 #include "mqtt_gw_task.h"
 #include "emergency_ring.h"
 #include "qspi_flash.h"
+#include "persistent_seq.h"
 
 /******************************************************************************
 * Defines
@@ -116,6 +119,18 @@ int main(void)
         CY_ASSERT(0);  /* breakpoint in Debug */
         for (;;) { __WFI(); }  /* halt in Release */
     }
+
+    /* Post system-boot event with boot_count in detail field */
+    {
+        char detail[EVT_DETAIL_MAX];
+        snprintf(detail, sizeof(detail), "boot_count=%lu",
+                 (unsigned long)persistent_seq_get_boot_count());
+        gateway_ipc_post_event(EVT_SYSTEM_BOOT, detail);
+    }
+
+    /* Expose boot_count in metrics gauges */
+    metrics_set_boot_count(persistent_seq_get_boot_count());
+
     emergency_ring_init();
 
     /* QSPI external flash (S25FL512S) — D2a-1

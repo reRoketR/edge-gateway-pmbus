@@ -51,6 +51,8 @@ typedef struct {
     uint32_t telemetry_enqueued;    /**< Telemetry records successfully enqueued  */
     uint32_t i2c_controller_resets; /**< D1-2: SCB disable/re-enable count       */
     uint32_t i2c_bus_recoveries;    /**< D1-2: 9×SCL bus recovery count           */
+    uint32_t telemetry_suppressed;  /**< Telemetry records suppressed by filter   */
+    uint32_t status_suppressed;     /**< Status records suppressed by filter      */
 } metrics_counters_t;
 
 /*******************************************************************************
@@ -62,6 +64,7 @@ typedef struct {
     uint32_t telemetry_queue_depth;
     int32_t  wifi_rssi_dbm;
     uint32_t uptime_s;
+    uint32_t boot_count;            /**< Persistent boot counter (Em_EEPROM) */
 } metrics_gauges_t;
 
 /*******************************************************************************
@@ -139,6 +142,8 @@ void metrics_inc_queue_drops(void);
 void metrics_inc_telemetry_enqueued(void);
 void metrics_inc_i2c_controller_resets(void);
 void metrics_inc_i2c_bus_recoveries(void);
+void metrics_inc_telemetry_suppressed(void);
+void metrics_inc_status_suppressed(void);
 
 /*******************************************************************************
  * Gauge setters (called from various tasks)
@@ -148,6 +153,7 @@ void metrics_set_buffer_depth_ram(uint32_t depth);
 void metrics_set_buffer_depth_flash(uint32_t depth);
 void metrics_set_telemetry_queue_depth(uint32_t depth);
 void metrics_set_wifi_rssi(int32_t rssi_dbm);
+void metrics_set_boot_count(uint32_t count);
 
 /*******************************************************************************
  * Timing sample recorders

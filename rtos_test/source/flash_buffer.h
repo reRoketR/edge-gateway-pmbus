@@ -10,8 +10,9 @@
  * Layout (in Em_EEPROM flash, 32 KB = 64 × 512-byte rows):
  *
  *   Row 0        : Metadata row (head/tail pointers, magic, CRC)
- *   Rows 1..63   : Data rows (one buffer_record_t per row)
- *                   → max 63 records persistent storage
+ *   Rows 1..61   : Data rows (one buffer_record_t per row)
+ *                   → max 61 records persistent storage
+ *   Rows 62..63  : Reserved for persistent_seq A/B banks (see persistent_seq.h)
  *
  * Each 512-byte data row stores:
  *   - 4-byte magic (0xB1F0DA7A)
@@ -67,8 +68,11 @@
 #define FLASH_BUF_META_ROW      (0U)
 #define FLASH_BUF_DATA_ROW_BASE (1U)
 
-/** Maximum data rows available for record storage */
-#define FLASH_BUF_MAX_DATA_ROWS (FLASH_BUF_TOTAL_ROWS - 1U)   /* 63 */
+/**
+ * Maximum data rows available for record storage.
+ * Rows 62–63 are reserved for persistent_seq A/B banks — see persistent_seq.h.
+ */
+#define FLASH_BUF_MAX_DATA_ROWS (FLASH_BUF_TOTAL_ROWS - 3U)   /* 61 */
 
 /*******************************************************************************
  * On-flash record format (fits in one 512-byte row)

@@ -40,6 +40,7 @@ typedef enum {
     EVT_BUFFER_OVERFLOW         = 6,
     EVT_QUEUE_OVERFLOW          = 7,
     EVT_I2C_CONTROLLER_RESET    = 8,  /**< D1-2: SCB disable/re-enable path */
+    EVT_SYSTEM_BOOT              = 9,  /**< Posted once at startup with boot_count */
 } event_type_t;
 
 /*******************************************************************************

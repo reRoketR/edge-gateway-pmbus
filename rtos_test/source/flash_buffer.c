@@ -490,10 +490,14 @@ uint32_t flash_buffer_total_writes(void)
 
 bool flash_buffer_erase_all(void)
 {
-    printf("[FLASH] Erasing entire flash buffer region...\n");
+    printf("[FLASH] Erasing flash buffer data region (rows 0..%u)...\n",
+           (unsigned)(FLASH_BUF_DATA_ROW_BASE + FLASH_BUF_MAX_DATA_ROWS - 1u));
 
-    /* Erase all 64 rows */
-    for (uint32_t row = 0; row < FLASH_BUF_TOTAL_ROWS; row++)
+    /* Erase metadata row + data rows only (0..61).
+     * Rows 62–63 are reserved for persistent_seq A/B banks and must
+     * NOT be erased here — see persistent_seq.h. */
+    const uint32_t erase_limit = FLASH_BUF_DATA_ROW_BASE + FLASH_BUF_MAX_DATA_ROWS;
+    for (uint32_t row = 0; row < erase_limit; row++)
     {
         if (!flash_erase_row(row_addr(row)))
         {
