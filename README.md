@@ -105,10 +105,11 @@ make program
 
 Verify on UART:
 ```
-[SYS] profile=default  pec=1  mqtt=broker-host:1883  q_telem=0  q_ctrl=1  q_metrics=0
-[SYS] i2c: speed=100000  timeout=20ms  retries=2  recovery=0
-[SYS] buffer: enabled=1  ram=256  flash=0  batch=50  flush=200ms  drop_oldest=1
+[SYS] profile=default  pec=1  mqtt=broker.hivemq.com:1883  q_telem=0  q_ctrl=1  q_metrics=0
+[SYS] i2c: speed=100000  transaction_timeout=20ms  retries=2  recovery=0  settle=5ms
+[SYS] buffer: enabled=1  ram=256  flash=2048  batch=50  flush=200ms  drop_oldest=1
 [SYS] metrics_period=10000ms
+[SYS] filter: telem=ON db=vin:100/vout:20/iin:100/iout:100/temp:1000/pout:1000 hb=10000ms | status=ON on-change init=emit hb=300000ms
 [SYS] devices: 2
 [SYS]   [0] 0x58 "psu_a"  poll=500ms  status=10000ms
 [SYS]   [1] 0x59 "psu_b"  poll=500ms  status=10000ms

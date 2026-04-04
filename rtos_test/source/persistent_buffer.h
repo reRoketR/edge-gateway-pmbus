@@ -29,6 +29,7 @@
   #define persistent_buffer_total_writes qspi_buffer_total_writes
   #define persistent_buffer_erase_all    qspi_buffer_erase_all
   #define PERSISTENT_BACKEND_NAME        "QSPI (S25FL512S)"
+  #define PERSISTENT_BACKEND_ID          (1u)
 
 #else
 
@@ -43,5 +44,10 @@
   #define persistent_buffer_total_writes flash_buffer_total_writes
   #define persistent_buffer_erase_all    flash_buffer_erase_all
   #define PERSISTENT_BACKEND_NAME        "Em_EEPROM (internal)"
+  #define PERSISTENT_BACKEND_ID          (0u)
 
 #endif
+
+/** Sentinel written to storage_backend gauge when the persistent tier
+ *  failed to initialise or is disabled — encodes as "none" in metrics JSON. */
+#define PERSISTENT_BACKEND_ID_NONE     (0xFFu)

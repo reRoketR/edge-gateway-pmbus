@@ -494,16 +494,14 @@ BMC_STATIC void buffer_mgr_drain_once(void)
     {
         metrics_set_buffer_depth_flash(persistent_buffer_depth());
         metrics_set_storage_total_writes(persistent_buffer_total_writes());
+        metrics_set_storage_backend(PERSISTENT_BACKEND_ID);
     }
     else
     {
         metrics_set_buffer_depth_flash(0u);
+        metrics_set_storage_total_writes(0u);
+        metrics_set_storage_backend(PERSISTENT_BACKEND_ID_NONE);
     }
-#if defined(BUFFER_BACKEND_QSPI)
-    metrics_set_storage_backend(1u);
-#else
-    metrics_set_storage_backend(0u);
-#endif
 }
 
 /*******************************************************************************

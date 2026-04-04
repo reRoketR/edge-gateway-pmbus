@@ -403,7 +403,8 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
              (int)snap->gauges.wifi_rssi_dbm,
              (unsigned)snap->gauges.uptime_s,
              (unsigned)snap->gauges.boot_count,
-             (snap->gauges.storage_backend == 1u) ? "qspi" : "eeprom",
+             (snap->gauges.storage_backend == 1u) ? "qspi" :
+             (snap->gauges.storage_backend == 0u) ? "eeprom" : "none",
              (unsigned)snap->gauges.storage_total_writes);
 
     /* timing_ms (values stored in us, output in ms with 1 decimal) */
