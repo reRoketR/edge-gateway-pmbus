@@ -19,6 +19,8 @@
 
 #include "cy_flash.h"
 #include "cy_syslib.h"
+#include "FreeRTOS.h"
+#include "semphr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -57,6 +59,25 @@ static flash_meta_row_t s_meta;
 
 /** True after successful flash_buffer_init() */
 static bool s_initialised = false;
+
+/** Recursive mutex guarding the persistent-tier metadata + flash I/O path. */
+static SemaphoreHandle_t s_flash_mutex = NULL;
+
+#define FLASH_LOCK()                                                     \
+    do {                                                                 \
+        if (s_flash_mutex != NULL)                                       \
+        {                                                                \
+            (void)xSemaphoreTakeRecursive(s_flash_mutex, portMAX_DELAY); \
+        }                                                                \
+    } while (0)
+
+#define FLASH_UNLOCK()                                                   \
+    do {                                                                 \
+        if (s_flash_mutex != NULL)                                       \
+        {                                                                \
+            (void)xSemaphoreGiveRecursive(s_flash_mutex);                \
+        }                                                                \
+    } while (0)
 
 /*******************************************************************************
  * Flash address helpers
@@ -231,6 +252,18 @@ bool flash_buffer_init(void)
         return true;  /* Not an error */
     }
 
+    if (s_flash_mutex == NULL)
+    {
+        s_flash_mutex = xSemaphoreCreateRecursiveMutex();
+        if (s_flash_mutex == NULL)
+        {
+            printf("[FLASH] ERROR: Failed to create backend mutex\n");
+            return false;
+        }
+    }
+
+    FLASH_LOCK();
+
     printf("[FLASH] Initialising flash buffer (Em_EEPROM @ 0x%08lX, %lu rows)\n",
            (unsigned long)FLASH_BUF_BASE_ADDR,
            (unsigned long)FLASH_BUF_MAX_DATA_ROWS);
@@ -266,6 +299,7 @@ bool flash_buffer_init(void)
                (unsigned)s_meta.head, (unsigned)s_meta.tail,
                (unsigned)s_meta.count, (unsigned long)s_meta.total_writes);
         s_initialised = true;
+        FLASH_UNLOCK();
         return true;
     }
 
@@ -274,19 +308,24 @@ bool flash_buffer_init(void)
     if (!meta_init_fresh())
     {
         printf("[FLASH] ERROR: Failed to write initial metadata\n");
+        FLASH_UNLOCK();
         return false;
     }
 
     s_initialised = true;
     printf("[FLASH] Flash buffer ready (capacity=%u records)\n",
            (unsigned)FLASH_BUF_MAX_DATA_ROWS);
+    FLASH_UNLOCK();
     return true;
 }
 
 bool flash_buffer_put_record(const buffer_record_t *rec)
 {
+    FLASH_LOCK();
+
     if (!s_initialised || g_config.buffer.flash_max_records == 0u || rec == NULL)
     {
+        FLASH_UNLOCK();
         return false;
     }
 
@@ -310,6 +349,7 @@ bool flash_buffer_put_record(const buffer_record_t *rec)
         else
         {
             metrics_inc_buffer_dropped();
+            FLASH_UNLOCK();
             return false;
         }
     }
@@ -347,6 +387,7 @@ bool flash_buffer_put_record(const buffer_record_t *rec)
     {
         printf("[FLASH] ERROR: Failed to write data row at slot %u\n",
                (unsigned)s_meta.head);
+        FLASH_UNLOCK();
         return false;
     }
 
@@ -365,6 +406,7 @@ bool flash_buffer_put_record(const buffer_record_t *rec)
     }
 
     metrics_inc_buffer_enqueued();
+    FLASH_UNLOCK();
     return true;
 }
 
@@ -395,8 +437,11 @@ bool flash_buffer_put(const char *topic, const char *payload, uint16_t payload_l
 
 bool flash_buffer_peek(buffer_record_t *out)
 {
+    FLASH_LOCK();
+
     if (!s_initialised || out == NULL || s_meta.count == 0u)
     {
+        FLASH_UNLOCK();
         return false;
     }
 
@@ -422,6 +467,7 @@ bool flash_buffer_peek(buffer_record_t *out)
         s_meta.count--;
         (void)meta_write();  /* Best-effort persist */
         metrics_inc_buffer_dropped();
+        FLASH_UNLOCK();
         return false;
     }
 
@@ -440,13 +486,17 @@ bool flash_buffer_peek(buffer_record_t *out)
     out->origin_read_start_ms = flash_rec->origin_read_start_ms;
     out->origin_boot_gen = flash_rec->origin_boot_gen;
 
+    FLASH_UNLOCK();
     return true;
 }
 
 bool flash_buffer_consume(void)
 {
+    FLASH_LOCK();
+
     if (!s_initialised || s_meta.count == 0u)
     {
+        FLASH_UNLOCK();
         return false;
     }
 
@@ -467,6 +517,7 @@ bool flash_buffer_consume(void)
     }
 
     metrics_inc_buffer_dequeued();
+    FLASH_UNLOCK();
     return true;
 }
 
@@ -490,6 +541,8 @@ uint32_t flash_buffer_total_writes(void)
 
 bool flash_buffer_erase_all(void)
 {
+    FLASH_LOCK();
+
     printf("[FLASH] Erasing flash buffer data region (rows 0..%u)...\n",
            (unsigned)(FLASH_BUF_DATA_ROW_BASE + FLASH_BUF_MAX_DATA_ROWS - 1u));
 
@@ -503,6 +556,7 @@ bool flash_buffer_erase_all(void)
         {
             printf("[FLASH] ERROR: Failed to erase row %lu\n",
                    (unsigned long)row);
+            FLASH_UNLOCK();
             return false;
         }
     }
@@ -511,12 +565,24 @@ bool flash_buffer_erase_all(void)
     s_meta.total_writes = 0u;  /* Reset wear counter on full erase */
     if (!meta_init_fresh())
     {
+        FLASH_UNLOCK();
         return false;
     }
 
     s_initialised = true;
     printf("[FLASH] Flash buffer erased and reinitialised\n");
+    FLASH_UNLOCK();
     return true;
+}
+
+void flash_buffer_lock(void)
+{
+    FLASH_LOCK();
+}
+
+void flash_buffer_unlock(void)
+{
+    FLASH_UNLOCK();
 }
 
 /* [] END OF FILE */

@@ -200,6 +200,21 @@ uint32_t flash_buffer_depth(void);
 uint32_t flash_buffer_total_writes(void);
 
 /**
+ * @brief Enter the backend-wide persistent-buffer critical section.
+ *
+ * Used by higher-level code to serialize multi-step operations such as
+ * `peek -> publish -> consume` across the persistent tier.
+ *
+ * Safe to nest with the public flash_buffer_* API.
+ */
+void flash_buffer_lock(void);
+
+/**
+ * @brief Leave the backend-wide persistent-buffer critical section.
+ */
+void flash_buffer_unlock(void);
+
+/**
  * @brief Erase the entire flash buffer region and reset metadata.
  *
  * Useful for factory reset or test cleanup.

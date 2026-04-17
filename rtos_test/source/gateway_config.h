@@ -79,7 +79,9 @@ typedef struct {
         uint16_t flush_batch_size;  /**< Records to flush per tick           */
         bool     drop_oldest;       /**< true = drop oldest on overflow      */
     } buffer;
-    /* NOTE: seq counter always resets to 0 on reboot (not persisted). */
+    /* NOTE: seq is checkpointed best-effort via persistent_seq.
+     * After reboot, the last checkpoint is restored; up to
+     * PERSISTENT_SEQ_CHECKPOINT_INTERVAL values can roll back after a crash. */
 
     /* ---- Reporting / publish filtering ---- */
     struct {

@@ -9,12 +9,12 @@
  *   - MQTT online/offline state flag (atomic read from any task)
  *   - Global monotonic sequence counter
  *   - Wall-clock timestamp helper (Unix epoch ms after SNTP sync,
- *     ms-since-boot before sync — see wallclock.h)
+ *     ms-since-boot before sync - see wallclock.h)
  *
  * All queues use fixed-size items so no heap allocation is needed at runtime.
  * Queue depths are compile-time constants.
  *
- * @see agent.md §6 (IPC section)
+ * @see agent.md section 6 (IPC section)
  *
  * @defgroup gateway_ipc Gateway IPC
  * @brief FreeRTOS queues, sequence counter, and shared state.
@@ -34,7 +34,7 @@
 
 /*******************************************************************************
  * Queue depths (compile-time, tune per available RAM)
- * Telemetry: 64 × ~78 bytes = ~5 KB — survives 128 s of 2s-poll connect delay
+ * Telemetry: 64 x ~78 bytes = ~5 KB - survives 128 s of 2 s-poll connect delay
  ******************************************************************************/
 #define IPC_TELEMETRY_QUEUE_DEPTH   64u
 #define IPC_STATUS_QUEUE_DEPTH      16u
@@ -57,13 +57,13 @@ bool gateway_ipc_init(void);
  * Queue handles (read-only after init)
  ******************************************************************************/
 
-/** Queue of telemetry_record_t items (producer: pmbus_poll_task) */
+/** Queue of telemetry_record_t items (producer: pmbus_poll_task). */
 QueueHandle_t gateway_ipc_telemetry_queue(void);
 
-/** Queue of status_record_t items (producer: pmbus_poll_task) */
+/** Queue of status_record_t items (producer: pmbus_poll_task). */
 QueueHandle_t gateway_ipc_status_queue(void);
 
-/** Queue of event_record_t items (producer: any task) */
+/** Queue of event_record_t items (producer: any task). */
 QueueHandle_t gateway_ipc_event_queue(void);
 
 /** Current telemetry queue depth (0 if queue is not initialised yet). */
@@ -86,8 +86,10 @@ bool gateway_ipc_is_mqtt_online(void);
 /**
  * @brief Get the next sequence number (atomically incremented).
  *
- * Uses a 32-bit counter that wraps around. One global counter shared
- * by telemetry and status records per agent.md §4.2.
+ * Uses a 32-bit counter that wraps around. One global counter is shared
+ * by telemetry and status records per agent.md section 4.2. The counter is
+ * checkpointed best-effort via persistent_seq, so reboot restores the last
+ * checkpoint rather than resetting unconditionally to zero.
  *
  * @return Next sequence number.
  */
@@ -120,10 +122,23 @@ uint32_t gateway_ipc_monotonic_ms(void);
  *
  * Suitable for ts_ms fields in telemetry/status/event records.
  *
- * @return Milliseconds (epoch or uptime — call wallclock_is_synced()
+ * @return Milliseconds (epoch or uptime - call wallclock_is_synced()
  *         to distinguish).
  */
 uint64_t gateway_ipc_now_ms(void);
+
+/*******************************************************************************
+ * Status posting convenience
+ ******************************************************************************/
+
+/**
+ * @brief Post a status record to the status queue (non-blocking, best-effort).
+ *
+ * If the queue is full, the function falls back to the status rescue ring.
+ * Returns true if the record was accepted by either path, false if both are
+ * full and the record is dropped.
+ */
+bool gateway_ipc_try_post_status(const status_record_t *rec);
 
 /*******************************************************************************
  * Event posting convenience
@@ -132,10 +147,11 @@ uint64_t gateway_ipc_now_ms(void);
 /**
  * @brief Post an event to the event queue (non-blocking, best-effort).
  *
- * If the queue is full, the event is dropped and a warning is printed.
+ * If the queue is full, the function falls back to the event rescue ring.
+ * The event is dropped only if both the queue and rescue ring are full.
  *
- * @param[in] type    Event type
- * @param[in] detail  Detail string (truncated to EVT_DETAIL_MAX-1)
+ * @param[in] type    Event type.
+ * @param[in] detail  Detail string (truncated to EVT_DETAIL_MAX-1).
  */
 void gateway_ipc_post_event(event_type_t type, const char *detail);
 

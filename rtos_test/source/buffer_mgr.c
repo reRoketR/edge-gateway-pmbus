@@ -268,7 +268,11 @@ static bool buffer_mgr_put_internal(const char *topic,
         s_ram_migration_pending = true;
         taskEXIT_CRITICAL();
 
-        if (persistent_buffer_put_record(&spill_candidate))
+        persistent_buffer_lock();
+        bool spill_ok = persistent_buffer_put_record(&spill_candidate);
+        persistent_buffer_unlock();
+
+        if (spill_ok)
         {
             taskENTER_CRITICAL();
             s_ram_migration_pending = false;

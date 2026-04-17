@@ -28,11 +28,18 @@ uint16_t buffer_flush_records(buffer_publish_fn_t publish_fn)
     /* Phase 1: Flush flash records first (oldest data) */
     if (flash_enabled)
     {
-        while (flushed < g_config.buffer.flush_batch_size &&
-               persistent_buffer_peek(&rec))
+        while (flushed < g_config.buffer.flush_batch_size)
         {
+            persistent_buffer_lock();
+            if (!persistent_buffer_peek(&rec))
+            {
+                persistent_buffer_unlock();
+                break;
+            }
+
             if (!publish_fn(rec.topic, rec.payload, rec.payload_len))
             {
+                persistent_buffer_unlock();
                 break;  /* Stop flushing on first failure */
             }
             uint32_t latency_us;
@@ -43,6 +50,7 @@ uint16_t buffer_flush_records(buffer_publish_fn_t publish_fn)
                 metrics_record_read_to_publish_us(latency_us);
             }
             persistent_buffer_consume();
+            persistent_buffer_unlock();
             flushed++;
         }
     }

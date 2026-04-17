@@ -130,6 +130,33 @@ uint64_t gateway_ipc_now_ms(void)
 }
 
 /*******************************************************************************
+ * Status posting convenience
+ ******************************************************************************/
+bool gateway_ipc_try_post_status(const status_record_t *rec)
+{
+    if (rec == NULL)
+    {
+        return false;
+    }
+
+    if (xQueueSend(s_status_q, rec, 0) == pdTRUE)
+    {
+        buffer_mgr_signal_spill_task();
+        return true;
+    }
+
+    if (emergency_status_ring_put(rec))
+    {
+        buffer_mgr_signal_spill_task();
+        return true;
+    }
+
+    gateway_ipc_post_event(EVT_QUEUE_OVERFLOW, "status_queue");
+    metrics_inc_queue_drops();
+    return false;
+}
+
+/*******************************************************************************
  * Event posting convenience
  ******************************************************************************/
 void gateway_ipc_post_event(event_type_t type, const char *detail)

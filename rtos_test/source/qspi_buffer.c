@@ -10,8 +10,8 @@
 #include "FreeRTOS.h"
 #include "semphr.h"
 static SemaphoreHandle_t s_qspi_mutex = NULL;
-#define QSPI_LOCK()    do { if (s_qspi_mutex) xSemaphoreTake(s_qspi_mutex, portMAX_DELAY); } while(0)
-#define QSPI_UNLOCK()  do { if (s_qspi_mutex) xSemaphoreGive(s_qspi_mutex); } while(0)
+#define QSPI_LOCK()    do { if (s_qspi_mutex) xSemaphoreTakeRecursive(s_qspi_mutex, portMAX_DELAY); } while(0)
+#define QSPI_UNLOCK()  do { if (s_qspi_mutex) xSemaphoreGiveRecursive(s_qspi_mutex); } while(0)
 #else
 #define QSPI_LOCK()    ((void)0)
 #define QSPI_UNLOCK()  ((void)0)
@@ -227,7 +227,7 @@ bool qspi_buffer_init(void)
 {
 #ifndef QSPI_BUF_HOST_TEST
     if (s_qspi_mutex == NULL) {
-        s_qspi_mutex = xSemaphoreCreateMutex();
+        s_qspi_mutex = xSemaphoreCreateRecursiveMutex();
         if (s_qspi_mutex == NULL) {
             printf("[QSPI_BUF] ERROR: Failed to create mutex\n");
             return false;
@@ -524,13 +524,29 @@ uint32_t qspi_buffer_total_writes(void)
 
 bool qspi_buffer_erase_all(void)
 {
+    QSPI_LOCK();
     printf("[QSPI_BUF] Erasing completely...\n");
     for (uint32_t i = 2; i < QSPI_BUF_TOTAL_SECTORS; i++) { // Start at 2 to spare 0/1 journal
         uint32_t offset = QSPI_BUF_REGION_START + (i * QSPI_BUF_SECTOR_SIZE);
         if (!qspi_flash_erase_sync(offset, QSPI_BUF_SECTOR_SIZE)) {
+            QSPI_UNLOCK();
             return false;
         }
     }
     // metadata_reset erases Sector 0 and 1, taking care of journal
-    return metadata_reset();
+    {
+        bool ok = metadata_reset();
+        QSPI_UNLOCK();
+        return ok;
+    }
+}
+
+void qspi_buffer_lock(void)
+{
+    QSPI_LOCK();
+}
+
+void qspi_buffer_unlock(void)
+{
+    QSPI_UNLOCK();
 }

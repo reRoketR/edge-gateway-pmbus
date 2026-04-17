@@ -110,3 +110,5 @@ bool qspi_buffer_consume(void);
 uint32_t qspi_buffer_depth(void);
 uint32_t qspi_buffer_total_writes(void);
 bool qspi_buffer_erase_all(void);
+void qspi_buffer_lock(void);
+void qspi_buffer_unlock(void);

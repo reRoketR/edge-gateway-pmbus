@@ -28,6 +28,8 @@
   #define persistent_buffer_depth        qspi_buffer_depth
   #define persistent_buffer_total_writes qspi_buffer_total_writes
   #define persistent_buffer_erase_all    qspi_buffer_erase_all
+  #define persistent_buffer_lock         qspi_buffer_lock
+  #define persistent_buffer_unlock       qspi_buffer_unlock
   #define PERSISTENT_BACKEND_NAME        "QSPI (S25FL512S)"
   #define PERSISTENT_BACKEND_ID          (1u)
 
@@ -43,6 +45,8 @@
   #define persistent_buffer_depth        flash_buffer_depth
   #define persistent_buffer_total_writes flash_buffer_total_writes
   #define persistent_buffer_erase_all    flash_buffer_erase_all
+  #define persistent_buffer_lock         flash_buffer_lock
+  #define persistent_buffer_unlock       flash_buffer_unlock
   #define PERSISTENT_BACKEND_NAME        "Em_EEPROM (internal)"
   #define PERSISTENT_BACKEND_ID          (0u)
 

@@ -7,7 +7,7 @@
  *                    → buffer_mgr (RAM ring) → persistent_buffer (QSPI mock)
  *
  *              T-1b: Flush extension — peek/consume with mock publish callback,
- *                    verifying flash-first ordering, batch limits, and failure
+ *                    verifying global FIFO ordering, batch limits, and failure
  *                    mid-batch.
  *
  * Compile:     -DBUFFER_BACKEND_QSPI -DQSPI_BUF_HOST_TEST
@@ -638,6 +638,9 @@ static void test_K_batch_limit(void)
 
 /*******************************************************************************
  * T-1b Scenario L: Status queue then rescue ring ordering
+ *
+ * Manual-seed variant: validates drain ordering once records are already in the
+ * queue and rescue ring. Scenario N exercises the real producer overflow path.
  ******************************************************************************/
 static void test_L_status_rescue_ordering(void)
 {
@@ -716,6 +719,51 @@ static void test_M_event_rescue_overflow(void)
 }
 
 /*******************************************************************************
+ * T-1b Scenario N: Status queue overflow uses the real rescue path
+ ******************************************************************************/
+static void test_N_status_rescue_overflow(void)
+{
+    printf("  [N] Status queue overflow rescue ...\n");
+    set_config_buffer(64, 100, 64, true);
+    reinit();
+
+    QueueHandle_t sq = gateway_ipc_status_queue();
+    uint32_t queued = 0u;
+
+    for (uint32_t i = 0; i < 32u; i++)
+    {
+        status_record_t rec = make_status(0x58, i);
+        if (xQueueSend(sq, &rec, 0) != pdTRUE)
+        {
+            break;
+        }
+        queued++;
+    }
+
+    TEST_ASSERT_TRUE(queued > 0u);
+
+    {
+        status_record_t rescue_a = make_status(0x58, queued);
+        status_record_t rescue_b = make_status(0x58, queued + 1u);
+        TEST_ASSERT_TRUE(gateway_ipc_try_post_status(&rescue_a));
+        TEST_ASSERT_TRUE(gateway_ipc_try_post_status(&rescue_b));
+    }
+
+    buffer_mgr_drain_once();
+
+    TEST_ASSERT_EQ_U32(queued + 2u, buffer_mgr_depth());
+    TEST_ASSERT_EQ_U32(queued + 2u, buffer_flush_records(publish_mock_fn));
+
+    for (uint32_t i = 0; i < queued + 2u; i++)
+    {
+        TEST_ASSERT_TRUE(strstr(publish_mock_get_topic(i), "status") != NULL);
+        assert_published_seq(i, i);
+    }
+
+    printf("  [N] PASSED\n");
+}
+
+/*******************************************************************************
  * Main
  ******************************************************************************/
 int main(void)
@@ -739,6 +787,7 @@ int main(void)
     test_K_batch_limit();
     test_L_status_rescue_ordering();
     test_M_event_rescue_overflow();
+    test_N_status_rescue_overflow();
 
     printf("\n=== Results: %d passed, %d failed, %d total ===\n",
            tests_passed, tests_failed, tests_run);
