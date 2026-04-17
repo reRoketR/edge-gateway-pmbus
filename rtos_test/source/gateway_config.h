@@ -99,6 +99,9 @@ typedef struct {
         uint32_t deadband_pout_mW;         /**< default: 1000                */
     } reporting;
 
+    /* ---- SMBALERT (D2c-1) ---- */
+    bool smbalert_enabled;          /**< Enable SMBALERT# GPIO detection     */
+
     /* ---- Device list ---- */
     const device_cfg_t *devices;    /**< Array of target devices             */
     uint8_t  num_devices;           /**< Number of entries in devices[]      */

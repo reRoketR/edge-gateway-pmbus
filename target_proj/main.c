@@ -53,6 +53,13 @@
 /** @brief PMBus 7-bit slave address — must match Device Configurator. */
 #define PMBUS_DEVICE_ADDRESS        (0x58U)
 
+/** @name SMBALERT line — D2c-2
+ *  Open-drain output to signal faults to the gateway.
+ *  @{ */
+#define SMBALERT_PORT   GPIO_PRT3
+#define SMBALERT_PIN    0U
+/** @} */
+
 /** @name PMBus Command Codes
  *  Must match the gateway telemetry.h definitions.
  *  @{ */
@@ -133,6 +140,18 @@ static inline void store_le16(uint8_t *buf, uint16_t val)
     buf[1] = (uint8_t)(val >> 8);
 }
 
+/*******************************************************************************
+* SMBALERT latched fault state (D2c-2)
+*
+* UART commands set/clear these flags only.  update_simulated_registers()
+* derives STATUS_WORD from s_fault_latched — never writes directly.
+*******************************************************************************/
+
+/** CML fault latched — drives STATUS_WORD bit 1 until cleared. */
+static volatile bool s_fault_latched  = false;
+/** SMBALERT line is actively driven LOW by the middleware. */
+static volatile bool s_alert_asserted = false;
+
 /**
  * @brief Update all simulated PMBus registers using the middleware API.
  *
@@ -188,9 +207,16 @@ static void update_simulated_registers(mtb_pmbus_stc_t *inst)
     store_le16(tmp2, word);
     mtb_pmbus_cmd_update_data(inst, CMD_READ_POUT, tmp2, sizeof(tmp2));
 
-    /* Status registers — all OK */
-    store_le16(tmp2, 0x0000u);
-    mtb_pmbus_cmd_update_data(inst, CMD_STATUS_WORD, tmp2, sizeof(tmp2));
+    /* Status registers — derived from latched fault state (D2c-2) */
+    {
+        uint16_t status_word = 0x0000u;
+        if (s_fault_latched)
+        {
+            status_word = 0x0002u;  /* bit 1 = CML fault */
+        }
+        store_le16(tmp2, status_word);
+        mtb_pmbus_cmd_update_data(inst, CMD_STATUS_WORD, tmp2, sizeof(tmp2));
+    }
 
     tmp1[0] = 0x00u;
     mtb_pmbus_cmd_update_data(inst, CMD_STATUS_VOUT, tmp1, sizeof(tmp1));
@@ -214,6 +240,7 @@ static volatile uint8_t  g_error_cmd_code       = 0u;
 /** Bitmask of pending general events. */
 #define GEN_EVT_QUICK_WR  (1u << 0)
 #define GEN_EVT_QUICK_RD  (1u << 1)
+#define GEN_EVT_ARA_READ  (1u << 2)
 static volatile uint32_t g_pending_gen_events    = 0u;
 
 /*******************************************************************************
@@ -249,6 +276,29 @@ static bool cmd_telemetry_callback(mtb_pmbus_cmd_events_t event,
 }
 
 /**
+ * @brief CLEAR_FAULTS callback — clears the latched CML fault and SMBALERT.
+ *
+ * Called from ISR context when the master sends CLEAR_FAULTS (0x03).
+ * Only lightweight flag operations here; the SMBALERT line will be
+ * released by the middleware in AUTO mode or on the next register update.
+ */
+static bool cmd_clear_faults_callback(mtb_pmbus_cmd_events_t event,
+                                      int32_t page, int32_t phase,
+                                      uint8_t byte)
+{
+    (void)page;
+    (void)phase;
+    (void)byte;
+
+    if (event == MTB_PMBUS_CMD_WRITE_DONE)
+    {
+        s_fault_latched  = false;
+        s_alert_asserted = false;
+    }
+    return true;
+}
+
+/**
  * @brief General PMBus event callback for Quick Commands (ISR context).
  *
  * @details
@@ -268,6 +318,14 @@ static void pmbus_gen_callback(mtb_pmbus_events_t event)
     {
         g_pending_gen_events |= GEN_EVT_QUICK_RD;
     }
+#if MTB_PMBUS_SUPPORT_SMBALERT
+    else if (event == MTB_PMBUS_ALERT_RESPONSE_ADDR_EVENT)
+    {
+        /* AUTO mode — middleware already cleared the SMBALERT line */
+        s_alert_asserted = false;
+        g_pending_gen_events |= GEN_EVT_ARA_READ;
+    }
+#endif
 }
 
 /**
@@ -389,7 +447,7 @@ static mtb_pmbus_stc_config_cmd_t cmd_table[PMBUS_CMD_TABLE_SIZE] =
         .cmd_cap   = MTB_PMBUS_CMD_CAP_DIR_WR | MTB_PMBUS_CMD_CAP_FORMAT_NO_NUM,
         .data_buf  = buf_clear_faults,
         .data_size = sizeof(buf_clear_faults),
-        .callback  = cmd_telemetry_callback,
+        .callback  = cmd_clear_faults_callback,
     },
 };
 
@@ -415,6 +473,10 @@ static mtb_pmbus_stc_config_hal_t pmbus_hal_cfg =
     .pdl_i2c_context   = &i2c_pdl_context,
     .hal_read_buf_ptr  = pmbus_read_buf,
     .hal_read_buf_size = PMBUS_READ_BUF_SIZE,
+#if MTB_PMBUS_SUPPORT_SMBALERT
+    .smbalert_port_addr = SMBALERT_PORT,
+    .smbalert_pin_num   = SMBALERT_PIN,
+#endif
 };
 
 /**
@@ -470,6 +532,9 @@ static mtb_pmbus_stc_config_t pmbus_cfg =
     .address            = PMBUS_DEVICE_ADDRESS,
     .enable_pec         = true,
     .enable_pmbus       = true,
+#if MTB_PMBUS_SUPPORT_SMBALERT
+    .enable_smbalert    = true,
+#endif
     .impl_cmd_mask      = MTB_PMBUS_IMPL_CMD_CAPABILITY_EN | MTB_PMBUS_IMPL_CMD_REVISION_EN,
     .cmd_table          = cmd_table,
     .cmd_num            = PMBUS_CMD_TABLE_SIZE,
@@ -597,6 +662,10 @@ int main(void)
     printf("  Build: %s %s\r\n", __DATE__, __TIME__);
     printf("  Address: 0x%02X  PEC: ON\r\n", PMBUS_DEVICE_ADDRESS);
     printf("  SCB0 I2C Slave  P9_0 (SCL) / P9_2 (SDA)\r\n");
+#if MTB_PMBUS_SUPPORT_SMBALERT
+    printf("  SMBALERT# : D7 (open-drain, AUTO mode)\r\n");
+    printf("  Triggers  : UART 'a'=assert, 'c'=clear\r\n");
+#endif
     printf("============================================================\r\n\r\n");
 
     /* ---- I2C init (do NOT enable — PMBus middleware does it) ---- */
@@ -611,6 +680,19 @@ int main(void)
     Cy_SysInt_Init(&i2c_isr_cfg, i2c_isr);
 
     printf("[TARGET] I2C transport initialized (SCB0 Slave)\r\n");
+
+#if MTB_PMBUS_SUPPORT_SMBALERT
+    /* ---- SMBALERT GPIO — open-drain, idle HIGH (D2c-2) ---- */
+    {
+        cy_stc_gpio_pin_config_t smbalert_pin_cfg = {
+            .outVal    = 1u,
+            .driveMode = CY_GPIO_DM_OD_DRIVESLOW,
+            .hsiom     = HSIOM_SEL_GPIO,
+        };
+        Cy_GPIO_Pin_Init(SMBALERT_PORT, SMBALERT_PIN, &smbalert_pin_cfg);
+        printf("[TARGET] SMBALERT GPIO initialized (D7, open-drain)\r\n");
+    }
+#endif
 
     /* ---- Prime simulated register buffers (before middleware init,
      *      direct buffer access is safe) ---- */
@@ -649,6 +731,10 @@ int main(void)
 
     printf("[TARGET] PMBus middleware initialized and enabled\r\n");
     printf("[TARGET] Commands registered: %u\r\n", PMBUS_CMD_TABLE_SIZE);
+#if MTB_PMBUS_SUPPORT_SMBALERT
+    mtb_pmbus_smbalert_config_mode(&pmbus_inst, MTB_PMBUS_SMBALERT_MODE_AUTO);
+    printf("[TARGET] SMBALERT mode: AUTO (cleared after ARA)\r\n");
+#endif
     printf("[TARGET] Waiting for controller reads...\r\n\r\n");
 
     /* ---- Timer for LED blink ---- */
@@ -691,8 +777,32 @@ int main(void)
                     printf("[TARGET] Quick Command (Write)\r\n");
                 if (gen & GEN_EVT_QUICK_RD)
                     printf("[TARGET] Quick Command (Read)\r\n");
+                if (gen & GEN_EVT_ARA_READ)
+                    printf("[TARGET] ARA read — alert auto-cleared\r\n");
             }
         }
+
+#if MTB_PMBUS_SUPPORT_SMBALERT
+        /* ---- UART SMBALERT trigger (D2c-2) ---- */
+        if (Cy_SCB_UART_GetNumInRxFifo(DEBUG_UART_HW) > 0u)
+        {
+            uint32_t ch = Cy_SCB_UART_Get(DEBUG_UART_HW);
+            if (ch == (uint32_t)'a' || ch == (uint32_t)'A')
+            {
+                s_fault_latched  = true;
+                s_alert_asserted = true;
+                mtb_pmbus_smbalert_set_signal(&pmbus_inst);
+                printf("[TARGET] SMBALERT asserted (CML fault simulated)\r\n");
+            }
+            else if (ch == (uint32_t)'c' || ch == (uint32_t)'C')
+            {
+                s_fault_latched  = false;
+                s_alert_asserted = false;
+                mtb_pmbus_smbalert_clear_signal(&pmbus_inst);
+                printf("[TARGET] SMBALERT cleared\r\n");
+            }
+        }
+#endif
 
         uint32_t now = s_tick_counter;
 

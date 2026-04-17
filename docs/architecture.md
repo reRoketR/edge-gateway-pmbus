@@ -49,9 +49,9 @@ source/
 ├── main.c                 Entry point, BSP init, task creation, scheduler start
 ├── gateway_config.c/.h    Compile-time config types + profile selection
 ├── gateway_ipc.c/.h       FreeRTOS queues, seq counter, MQTT-online flag
-├── pmbus_master.c/.h      PDL-based I2C master: read_word, read_byte, read_block, PEC
+├── pmbus_master.c/.h      PDL-based I2C master: read_word, read_byte, read_block, PEC, ARA
 ├── pmbus_decode.c/.h      Linear11 / Linear16 decode to milli-units
-├── pmbus_poll_task.c/.h   Task A — timer-driven PMBus polling
+├── pmbus_poll_task.c/.h   Task A — timer-driven PMBus polling + SMBALERT# ISR / ARA
 ├── mqtt_gw_task.c/.h      Task B — Wi-Fi + MQTT connect, queue drain, publish
 ├── buffer_mgr.c/.h        Task C — RAM ring buffer housekeeping + flash spill
 ├── telemetry.c/.h         TelemetryRecord / StatusRecord structs + JSON encode
@@ -89,6 +89,8 @@ Single-file firmware (`main.c`) that uses the `mtb-pmbus` middleware to act as a
 │  │ • Push to queue │  │ • Publish JSON  │  │   gauge  │ │
 │  │ • Update metrics│  │ • Flush buffer  │  │   update │ │
 │  │ • Emit events   │  │ • Pub metrics   │  │          │ │
+│  │ • SMBALERT# ISR │  │                 │  │          │ │
+│  │ • ARA + urgent  │  │                 │  │          │ │
 │  └───────┬─────────┘  └───────┬─────────┘  └────┬─────┘ │
 │          │                    │                  │       │
 │          ▼                    ▼                  ▼       │
@@ -108,7 +110,7 @@ Single-file firmware (`main.c`) that uses the `mtb-pmbus` middleware to act as a
 
 | Task | Name | Priority | Stack | Responsibility |
 |------|------|----------|-------|----------------|
-| A | `pmbus_poll_task` | 4 (highest) | 1024 words | PMBus polling, decode, enqueue telemetry/status |
+| A | `pmbus_poll_task` | 4 (highest) | 1024 words | PMBus polling, decode, enqueue telemetry/status, SMBALERT# ISR + ARA |
 | B | `mqtt_gw_task` | 3 | 3072 words | Wi-Fi, MQTT, publish, metrics, reconnect |
 | C | `buffer_task` | 2 | 512 words | Buffer housekeeping — gauge metric updates (does NOT publish) |
 | — | `blinky_task` | 1 (lowest) | 256 words | Heartbeat LED toggle |

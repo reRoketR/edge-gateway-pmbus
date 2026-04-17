@@ -190,6 +190,7 @@ void metrics_inc_i2c_controller_resets(void) { counter_inc(&s_counters.i2c_contr
 void metrics_inc_i2c_bus_recoveries(void)   { counter_inc(&s_counters.i2c_bus_recoveries);   }
 void metrics_inc_telemetry_suppressed(void) { counter_inc(&s_counters.telemetry_suppressed); }
 void metrics_inc_status_suppressed(void)    { counter_inc(&s_counters.status_suppressed);    }
+void metrics_inc_smbalert(void)             { counter_inc(&s_counters.smbalert_count);       }
 
 /*******************************************************************************
  * Gauge setters
@@ -368,7 +369,8 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
              "\"i2c_controller_resets\":%u,"
              "\"i2c_bus_recoveries\":%u,"
              "\"telemetry_suppressed\":%u,"
-             "\"status_suppressed\":%u}",
+             "\"status_suppressed\":%u,"
+             "\"smbalert_count\":%u}",
              (unsigned)snap->counters.pmbus_reads_ok,
              (unsigned)snap->counters.pmbus_reads_fail,
              (unsigned)snap->counters.pmbus_retries,
@@ -386,7 +388,8 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
              (unsigned)snap->counters.i2c_controller_resets,
              (unsigned)snap->counters.i2c_bus_recoveries,
              (unsigned)snap->counters.telemetry_suppressed,
-             (unsigned)snap->counters.status_suppressed);
+             (unsigned)snap->counters.status_suppressed,
+             (unsigned)snap->counters.smbalert_count);
 
     /* gauges */
     M_PRINTF(",\"gauges\":{"

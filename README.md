@@ -58,9 +58,11 @@ git-ignored).
 Gateway (SCB3)              Target (SCB0)
   P6_0  SCL ────────────── P9_0  SCL
   P6_1  SDA ────────────── P9_2  SDA
+  P5_7  D7  ──┬─────────── P3_0  D7    (SMBALERT#, open-drain)
+              4.7kΩ to 3.3V
   GND   ────────────────── GND
 
-  4.7 kΩ pull-ups on SCL and SDA to 3.3 V
+  4.7 kΩ pull-ups on SCL, SDA, and SMBALERT# to 3.3 V
 ```
 
 ---

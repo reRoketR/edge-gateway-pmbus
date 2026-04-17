@@ -53,6 +53,7 @@ typedef struct {
     uint32_t i2c_bus_recoveries;    /**< D1-2: 9×SCL bus recovery count           */
     uint32_t telemetry_suppressed;  /**< Telemetry records suppressed by filter   */
     uint32_t status_suppressed;     /**< Status records suppressed by filter      */
+    uint32_t smbalert_count;        /**< D2c-1: SMBALERT# events detected         */
 } metrics_counters_t;
 
 /*******************************************************************************
@@ -146,6 +147,7 @@ void metrics_inc_i2c_controller_resets(void);
 void metrics_inc_i2c_bus_recoveries(void);
 void metrics_inc_telemetry_suppressed(void);
 void metrics_inc_status_suppressed(void);
+void metrics_inc_smbalert(void);
 
 /*******************************************************************************
  * Gauge setters (called from various tasks)

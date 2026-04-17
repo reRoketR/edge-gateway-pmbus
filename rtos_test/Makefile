@@ -244,6 +244,9 @@ test:
 		tests/test_publish_filter.c source/publish_filter.c \
 		source/gateway_config.c \
 		&& $(TEST_RUN)test_publish_filter$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_ara$(TEST_EXEEXT) \
+		tests/test_ara.c tests/stubs/i2c_mock.c source/pmbus_master.c \
+		&& $(TEST_RUN)test_ara$(TEST_EXEEXT)
 	$(TEST_CC) $(TEST_CFLAGS) \
 		-DBUFFER_BACKEND_QSPI -DQSPI_BUF_HOST_TEST \
 		-DBUFFER_MGR_HOST_TEST -DINTEGRATION_TEST \

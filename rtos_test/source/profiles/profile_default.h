@@ -87,5 +87,6 @@ static const device_cfg_t k_devices[] = {
                                                                                \
     .devices         = k_devices,                                              \
     .num_devices     = sizeof(k_devices) / sizeof(k_devices[0]),               \
+    .smbalert_enabled = true,                                                  \
     .metrics_period_ms = 10000,         /* 10 s — diagnostics, not real-time */\
 })

@@ -173,6 +173,30 @@ bool pmbus_bus_backoff_active(uint32_t *out_remaining_ms);
  */
 uint8_t pmbus_crc8(const uint8_t *data, uint8_t len);
 
+/*******************************************************************************
+ * ARA (Alert Response Address) — D2c-1
+ ******************************************************************************/
+
+/** @brief SMBus Alert Response Address (7-bit). */
+#define PMBUS_ARA_ADDR_7BIT  (0x0Cu)
+
+/**
+ * @brief Read the Alert Response Address to identify an alerting device.
+ *
+ * Wire protocol:
+ *   [S][0x18|R][data_byte][P]   (bare 1-byte read, no command prefix)
+ *
+ * - No PEC, no retries, no bus recovery.
+ * - NACK is normal (no device asserting SMBALERT) and must NOT pollute
+ *   any PMBus error counters or trigger recovery.
+ *
+ * @param[out] out_addr_7bit  Parsed 7-bit address of the alerting device.
+ *
+ * @return PMBUS_OK on success, PMBUS_ERR_NACK if no alert pending,
+ *         PMBUS_ERR_TIMEOUT / PMBUS_ERR_BUS_FAULT on real errors.
+ */
+pmbus_status_t pmbus_ara_read(uint8_t *out_addr_7bit);
+
 #ifdef PMBUS_TEST_HOOKS
 /*******************************************************************************
  * Host-test hooks

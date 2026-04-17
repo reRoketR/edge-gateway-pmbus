@@ -1024,3 +1024,56 @@ send_retry:
 
     return result;
 }
+
+/*******************************************************************************
+ * ARA (Alert Response Address) — D2c-1
+ *
+ * Wire protocol:
+ *   [S][0x18|R][data_byte][P]   (bare 1-byte read, no command prefix)
+ *
+ * Contract:
+ *   - No command byte write prefix (unlike normal PMBus Read Word)
+ *   - No PEC — ARA is outside the PMBus command layer
+ *   - No retries — single attempt
+ *   - No bus recovery on NACK
+ *   - No normal PMBus counter pollution on NACK
+ *   - NACK = normal "no device asserting" exit
+ ******************************************************************************/
+pmbus_status_t pmbus_ara_read(uint8_t *out_addr_7bit)
+{
+    if (!pmbus_initialized) return PMBUS_ERR_NOT_INIT;
+    if (out_addr_7bit == NULL) return PMBUS_ERR_ARG;
+
+    uint8_t rd_buf[1] = { 0u };
+
+    if (!wait_for_master_not_busy(pmbus_transaction_timeout_ms))
+    {
+        return PMBUS_ERR_TIMEOUT;
+    }
+
+    cy_stc_scb_i2c_master_xfer_config_t rd_cfg = {
+        .slaveAddress = PMBUS_ARA_ADDR_7BIT,
+        .buffer       = rd_buf,
+        .bufferSize   = 1u,
+        .xferPending  = false,
+    };
+
+    cy_en_scb_i2c_status_t pdl_st =
+        Cy_SCB_I2C_MasterRead(PMBUS_CONTROLLER_HW, &rd_cfg, &pmbus_i2c_ctx);
+
+    if (CY_SCB_I2C_SUCCESS != pdl_st)
+    {
+        return map_pdl_status(pdl_st);
+    }
+
+    pmbus_status_t st = wait_for_completion(pmbus_transaction_timeout_ms);
+
+    if (st == PMBUS_OK)
+    {
+        *out_addr_7bit = rd_buf[0] >> 1u;
+    }
+
+    /* NACK / TIMEOUT / BUS_FAULT: return as-is.
+     * No retries, no recovery, no counter increments. */
+    return st;
+}

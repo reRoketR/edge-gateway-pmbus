@@ -51,9 +51,9 @@
 /* Disable timeout detection to simplify debugging */
 #define MTB_PMBUS_ENABLE_TIMEOUT                (0U)
 
-/* We don't need zone, SMBALERT, or general-call for this test */
+/* Zone and general-call not needed; SMBALERT enabled for D2c-2 */
 #define MTB_PMBUS_SUPPORT_ZONE                  (0U)
-#define MTB_PMBUS_SUPPORT_SMBALERT              (0U)
+#define MTB_PMBUS_SUPPORT_SMBALERT              (1U)
 #define MTB_PMBUS_SUPPORT_GEN_CALL_ADDR         (0U)
 
 /* We need PEC support (gateway sends PEC) */

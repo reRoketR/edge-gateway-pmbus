@@ -39,8 +39,21 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#if !defined(UNIT_TEST)
+#include "cy_gpio.h"
+#include "cy_sysint.h"
+#include "cycfg_pins.h"
+#endif
+
 #include <stdio.h>
 #include <string.h>
+
+/*******************************************************************************
+ * SMBALERT# state (D2c-1)
+ ******************************************************************************/
+
+/** Set by GPIO ISR when SMBALERT# falling edge is detected. */
+static volatile bool s_smbalert_pending = false;
 
 /*******************************************************************************
  * Constants
@@ -82,6 +95,7 @@ typedef struct {
     bool        online;             /**< Device considered online?            */
     int8_t      vout_exponent;      /**< Cached VOUT_MODE exponent            */
     bool        vout_exp_valid;     /**< true once VOUT_MODE has been read    */
+    bool        status_poll_urgent; /**< D2c-1: force extra status read       */
 
     /* Publish-filter state (see publish_filter.h) */
     telem_filter_state_t  telem_fs;
@@ -104,6 +118,55 @@ static void log_poll_cycle_start(const device_cfg_t *dev,
 static bool should_abort_device_cycle(pmbus_status_t st);
 static bool defer_polls_for_bus_backoff(device_state_t *state,
                                         TickType_t current);
+
+/*******************************************************************************
+ * SMBALERT# GPIO ISR (D2c-1)  —  PDL only, not available in host test builds
+ ******************************************************************************/
+#if !defined(UNIT_TEST)
+
+/** ISR for the GPIO port that contains the SMBALERT# pin (CYBSP_D7). */
+static void smbalert_isr(void)
+{
+    if (Cy_GPIO_GetInterruptStatusMasked(GPIO_PRT5, 7u))
+    {
+        Cy_GPIO_ClearInterrupt(GPIO_PRT5, 7u);
+        s_smbalert_pending = true;
+    }
+    NVIC_ClearPendingIRQ(ioss_interrupts_gpio_5_IRQn);
+}
+
+/** Initialise CYBSP_D7 as falling-edge interrupt input for SMBALERT#. */
+static void smbalert_gpio_init(void)
+{
+    /* Configure pin as input, high-Z (external pull-up on the line) */
+    cy_stc_gpio_pin_config_t pin_cfg = {
+        .outVal    = 1u,
+        .driveMode = CY_GPIO_DM_HIGHZ,
+        .intEdge   = CY_GPIO_INTR_FALLING,
+        .intMask   = 1u,
+        .vtrip     = CY_GPIO_VTRIP_CMOS,
+        .slewRate  = CY_GPIO_SLEW_FAST,
+        .vregEn    = 0u,
+        .ibufMode  = 0u,
+        .vtripSel  = 0u,
+        .vrefSel   = 0u,
+        .vohSel    = 0u,
+    };
+    Cy_GPIO_Pin_Init(GPIO_PRT5, 7u, &pin_cfg);
+
+    /* Register the ISR */
+    static const cy_stc_sysint_t irq_cfg = {
+        .intrSrc  = ioss_interrupts_gpio_5_IRQn,
+        .intrPriority = 7u,   /* low priority, above idle */
+    };
+    Cy_SysInt_Init(&irq_cfg, smbalert_isr);
+    NVIC_ClearPendingIRQ(ioss_interrupts_gpio_5_IRQn);
+    NVIC_EnableIRQ(ioss_interrupts_gpio_5_IRQn);
+
+    printf("[POLL] SMBALERT# GPIO ISR registered on CYBSP_D7\n");
+}
+
+#endif /* !UNIT_TEST */
 
 /*******************************************************************************
  * Task entry point
@@ -141,10 +204,19 @@ void pmbus_poll_task(void *pvParameters)
         s_dev_state[i].online           = false;
         s_dev_state[i].vout_exp_valid   = false;
         s_dev_state[i].vout_exponent    = -12;  /* sensible default */
+        s_dev_state[i].status_poll_urgent = false;
         /* Publish-filter state: no baseline yet → first sample always emitted */
         s_dev_state[i].telem_fs.have_last  = false;
         s_dev_state[i].status_fs.have_last = false;
     }
+
+    /* --- Optionally init SMBALERT# GPIO ISR --- */
+#if !defined(UNIT_TEST)
+    if (g_config.smbalert_enabled)
+    {
+        smbalert_gpio_init();
+    }
+#endif
 
     printf("[POLL] Polling %u device(s), tick=%u ms\n",
            (unsigned)num_dev, POLL_TICK_MS);
@@ -157,6 +229,64 @@ void pmbus_poll_task(void *pvParameters)
         vTaskDelayUntil(&wake_tick, pdMS_TO_TICKS(POLL_TICK_MS));
 
         TickType_t current = xTaskGetTickCount();
+
+        /* --- SMBALERT# / ARA handling (D2c-1) --- */
+        if (s_smbalert_pending && g_config.smbalert_enabled)
+        {
+            uint32_t backoff_ms = 0u;
+            if (!pmbus_bus_backoff_active(&backoff_ms))
+            {
+                s_smbalert_pending = false;
+
+                /* ARA loop: read up to num_dev respondents, then stop on
+                 * first NACK (= no more alerting devices). */
+                for (uint8_t ara = 0; ara < num_dev; ara++)
+                {
+                    uint8_t resp_addr = 0u;
+                    pmbus_status_t st = pmbus_ara_read(&resp_addr);
+
+                    if (st == PMBUS_ERR_NACK)
+                    {
+                        break;  /* No more alerting devices — normal exit */
+                    }
+                    if (st != PMBUS_OK)
+                    {
+                        printf("[POLL] ARA read error %d\n", (int)st);
+                        break;
+                    }
+
+                    /* Match respondent to a configured device */
+                    bool matched = false;
+                    for (uint8_t d = 0; d < num_dev; d++)
+                    {
+                        if (g_config.devices[d].addr_7bit == resp_addr)
+                        {
+                            s_dev_state[d].status_poll_urgent = true;
+                            matched = true;
+                            printf("[POLL] SMBALERT from dev 0x%02X → urgent status\n",
+                                   (unsigned)resp_addr);
+                            break;
+                        }
+                    }
+
+                    metrics_inc_smbalert();
+
+                    {
+                        char detail[8];
+                        snprintf(detail, sizeof(detail), "0x%02X",
+                                 (unsigned)resp_addr);
+                        gateway_ipc_post_event(EVT_SMBALERT_RECEIVED, detail);
+                    }
+
+                    if (!matched)
+                    {
+                        printf("[POLL] ARA: unknown addr 0x%02X\n",
+                               (unsigned)resp_addr);
+                    }
+                }
+            }
+            /* else: backoff active → preserve s_smbalert_pending for next tick */
+        }
 
         for (uint8_t i = 0; i < num_dev; i++)
         {
@@ -193,12 +323,25 @@ void pmbus_poll_task(void *pvParameters)
                 continue;
             }
 
-            /* --- Status poll --- */
-            if ((int32_t)(current - state->next_status_tick) >= 0)
+            /* --- Status poll (urgent or periodic) --- */
             {
-                poll_status(dev, state);
-                state->next_status_tick = current +
-                    pdMS_TO_TICKS(status_period);
+                bool urgent = state->status_poll_urgent;
+                bool due    = ((int32_t)(current - state->next_status_tick) >= 0);
+
+                if (urgent)
+                {
+                    state->status_poll_urgent = false;
+                }
+
+                if (urgent || due)
+                {
+                    poll_status(dev, state);
+                    if (due)
+                    {
+                        state->next_status_tick = current +
+                            pdMS_TO_TICKS(status_period);
+                    }
+                }
             }
         }
     }

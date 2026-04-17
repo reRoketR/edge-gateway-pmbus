@@ -3,6 +3,7 @@
 #define I2C_MOCK_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "FreeRTOS.h"
 #include "cycfg_pins.h"
 
@@ -19,5 +20,11 @@ uint32_t i2c_mock_delay_us_calls(void);
 TickType_t i2c_mock_last_delay_ticks(void);
 TickType_t i2c_mock_total_delay_ticks(void);
 TickType_t i2c_mock_tick_count(void);
+
+/* ARA test helpers (D2c-1) */
+void     i2c_mock_set_read_data(const uint8_t *data, uint8_t len);
+uint8_t  i2c_mock_last_read_slave_addr(void);
+bool     i2c_mock_read_was_called(void);
+bool     i2c_mock_i2c_write_was_called_since_reset(void);
 
 #endif /* I2C_MOCK_H */

@@ -17,14 +17,15 @@ Two Infineon evaluation kits are connected via a 3-wire I²C/SMBus link.
                   │   ──────  ──────   ──────────        │
                   │   P6_0    SCL      SCB3.SCL          │
                   │   P6_1    SDA      SCB3.SDA          │
+                  │   P5_7    SMBALERT# (D7, input)      │
                   │   GND     GND      ─                 │
-                  └──────────┬──┬──┬──────────────────────┘
-                             │  │  │
-                     SCL ────┘  │  └──── GND
-                                │
-                     SDA ───────┘
-                             │  │  │
-                  ┌──────────┴──┴──┴──────────────────────┐
+                  └──────────┬──┬──┬──┬───────────────────┘
+                             │  │  │  │
+                     SCL ────┘  │  │  └── GND
+                                │  │
+                     SDA ───────┘  └──── SMBALERT#
+                             │  │  │  │
+                  ┌──────────┴──┴──┴──┴───────────────────┐
                   │         KIT_PSC3M5_EVK                │
                   │        (Target / PMBus Slave)         │
                   │        Address: 0x58                  │
@@ -33,6 +34,7 @@ Two Infineon evaluation kits are connected via a 3-wire I²C/SMBus link.
                   │   ──────  ──────   ──────────        │
                   │   P9_0    SCL      SCB0.SCL          │
                   │   P9_2    SDA      SCB0.SDA          │
+                  │   P3_0    SMBALERT# (D7, OD output)  │
                   │   GND     GND      ─                 │
                   └──────────────────────────────────────┘
 ```
@@ -45,7 +47,8 @@ Two Infineon evaluation kits are connected via a 3-wire I²C/SMBus link.
 |--------|--------|-------------------------------------|-------------------------------|--------------------|
 | 1      | SCL    | J6 → P6_0                          | J? → P9_0                    | Yellow             |
 | 2      | SDA    | J6 → P6_1                          | J? → P9_2                    | Green              |
-| 3      | GND    | J6 → GND                           | J? → GND                     | Black              |
+| 3      | SMBALERT# | D7 → P5_7                       | D7 → P3_0                    | Orange             |
+| 4      | GND    | J6 → GND                           | J? → GND                     | Black              |
 
 > **Note:** Both boards are powered independently via their own USB connections to the host PC (KitProg3 debugger port). No external power supply wiring is required.
 
@@ -53,11 +56,12 @@ Two Infineon evaluation kits are connected via a 3-wire I²C/SMBus link.
 
 ## 3 Pull-up Resistors
 
-SMBus/I²C requires pull-up resistors on both SCL and SDA lines.
+SMBus/I²C requires pull-up resistors on SCL and SDA lines. The SMBALERT# line
+also requires a pull-up (active-low, open-drain, wired-AND).
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| Pull-up resistance | 4.7 kΩ | Standard value for 100 kHz I²C |
+| Pull-up resistance | 4.7 kΩ | Standard value for 100 kHz I²C; also used for SMBALERT# |
 | Pull-up voltage | 3.3 V | Both boards operate at 3.3 V I/O |
 
 ### 3.1 Pull-up Source
@@ -90,6 +94,7 @@ Solder or breadboard the resistors between the 3.3 V supply rail and each bus li
 | Bus speed | 100 kHz (standard mode) |
 | Protocol | SMBus / PMBus (subset of I²C) |
 | Addressing | 7-bit, slave addr = 0x58 |
+| ARA address | 0x0C (7-bit), used for SMBALERT# Alert Response |
 | PEC | CRC-8 enabled by default |
 | Max wire length | < 30 cm recommended for breadboard/jumper wiring |
 
