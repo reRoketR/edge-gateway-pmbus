@@ -45,8 +45,10 @@ Duplicates **are acceptable**. Consumers MUST deduplicate by key:
 
 Rules:
 - `seq` is monotonic per gateway instance.
-- `seq` resets to 0 on reboot. Consumers MUST deduplicate within a single run.
-- Cross-reboot deduplication is NOT supported.
+- `seq` is checkpointed best-effort via `persistent_seq`.
+- After reboot, the last checkpoint is restored rather than resetting to `0`.
+- Up to `PERSISTENT_SEQ_CHECKPOINT_INTERVAL` values can roll back after crash/power loss.
+- Strict cross-reboot deduplication is NOT supported.
 
 ---
 
@@ -159,7 +161,8 @@ Topic: `.../metrics`
 Rules:
 - `counters_delta` are increments over `window_ms` and are reset after publish.
 - `read_to_publish_*` MUST be measured on the gateway using a monotonic timer.
-- `p95` is computed over a ring buffer of the last N latency samples. The current firmware uses `N=50`.
+- `p95` is computed over a ring buffer of the last `N` latency samples. The current firmware uses `N=100`.
+- Timing percentiles are diagnostic/approximate snapshots, not a hard real-time measurement contract; the snapshot path does not freeze producer updates while computing timing stats.
 
 ### 4.4 Events payload
 
