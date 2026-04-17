@@ -6,7 +6,7 @@
 #   2) firmware     — cross-compiles all gateway profiles with GCC_ARM
 #                     (requires ModusToolbox; runs on self-hosted runner only)
 #
-# Triggers: push/PR to main and feature branches.
+# Triggers: push/PR for host CI, plus workflow_dispatch for manual firmware builds.
 
 name: CI
 
@@ -15,6 +15,7 @@ on:
     branches: [ main, "feature/**" ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 # ---------------------------------------------------------------------------
 # Job 1: Host-side unit tests (always runs)
@@ -56,10 +57,11 @@ jobs:
   # Job 2: Firmware cross-compilation (self-hosted runner with ModusToolbox)
   # ---------------------------------------------------------------------------
   firmware:
-    # Only runs on a self-hosted runner labelled 'mtb'.
-    # Remove the 'if' or change 'runs-on' when a runner is available.
+    # Manual-only build gate for environments with a self-hosted MTB runner.
+    # Push/PR CI intentionally does not claim firmware coverage unless such a
+    # runner is explicitly invoked via workflow_dispatch.
     runs-on: self-hosted
-    if: ${{ false }}   # disabled until a self-hosted runner is configured
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     timeout-minutes: 30
     needs: host-tests
 
