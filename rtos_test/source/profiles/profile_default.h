@@ -4,7 +4,8 @@
  * Description: Default configuration profile for the PMBus-MQTT gateway.
  *              Used for normal development and as a baseline for experiments.
  *
- *              2 targets @ 500 ms polling, PEC enabled, RAM buffer only.
+ *              Single-target baseline for one gateway board + one simulator.
+ *              PEC enabled, RAM + Em_EEPROM persistent buffering by default.
  *
  * Related Document: agent.md §5
  *
@@ -21,12 +22,6 @@ static const device_cfg_t k_devices[] = {
     {
         .addr_7bit       = 0x58,
         .label           = "psu_a",
-        .poll_period_ms  = 500,
-        .status_period_ms = 10000,
-    },
-    {
-        .addr_7bit       = 0x59,
-        .label           = "psu_b",
         .poll_period_ms  = 500,
         .status_period_ms = 10000,
     },
@@ -65,9 +60,8 @@ static const device_cfg_t k_devices[] = {
     .buffer = {                                                                \
         .enabled          = true,                                              \
         .ram_max_records  = 256,                                               \
-        .flash_max_records = 2048,      /* Enable persistent tier (use QSPI build task) */\
+        .flash_max_records = 61,        /* Em_EEPROM-safe default capacity */  \
         .flush_batch_size = 50,                                                \
-        .flush_interval_ms = 200,                                              \
         .drop_oldest      = true,                                              \
     },                                                                         \
                                                                                \

@@ -227,6 +227,9 @@ test:
 		tests/test_json_encode.c source/telemetry.c source/events.c \
 		source/metrics.c source/gateway_config.c source/pmbus_decode.c \
 		source/gw_util.c -lm && $(TEST_RUN)test_json_encode$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_profile_default$(TEST_EXEEXT) \
+		tests/test_profile_default.c source/gateway_config.c \
+		&& $(TEST_RUN)test_profile_default$(TEST_EXEEXT)
 	$(TEST_CC) $(TEST_CFLAGS) -DPMBUS_TEST_HOOKS -o test_i2c_recovery$(TEST_EXEEXT) \
 		tests/test_i2c_recovery.c tests/stubs/i2c_mock.c source/pmbus_master.c \
 		&& $(TEST_RUN)test_i2c_recovery$(TEST_EXEEXT)

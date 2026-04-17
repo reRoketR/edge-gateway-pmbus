@@ -10,12 +10,12 @@
  * require re-encoding.
  *
  * Features:
- *   - Thread-safe put/get (uses FreeRTOS critical sections)
+ *   - Thread-safe put/get with explicit spill/flush serialization
  *   - drop_oldest policy from g_config.buffer.drop_oldest
  *   - Depth query for metrics gauges
  *   - Flush helper for draining to MQTT
- *   - Flash tier: persistent storage in Em_EEPROM (32 KB, 63 records)
- *     activated when g_config.buffer.flash_max_records > 0
+ *   - Optional persistent tier selected via `persistent_buffer.h`
+ *     (Em_EEPROM by default, QSPI when `BUFFER_BACKEND=QSPI`)
  *
  * @see agent.md §6 (Task C), §8, docs/persistent_buffer.md
  *
@@ -107,9 +107,10 @@ void buffer_mgr_signal_spill_task(void);
 /**
  * @brief Enqueue a record into the buffer.
  *
- * Records go to the RAM ring buffer first.  If RAM is full and flash
- * buffering is enabled (flash_max_records > 0), the record spills to
- * flash persistent storage.
+ * Records go to the RAM ring buffer first. When RAM is full and persistent
+ * buffering is enabled, the oldest RAM record is migrated to the persistent
+ * tier and the new record stays in RAM. This keeps the persistent tier older
+ * than the RAM tier so `persistent -> RAM` flush order remains globally FIFO.
  *
  * If both tiers are full:
  *   - drop_oldest = true  → oldest RAM record is overwritten
@@ -211,7 +212,7 @@ static inline bool buffer_record_same_boot_latency_us(
 /**
  * @brief FreeRTOS spill task for the offline buffer.
  *
- * Drains upstream queues into buffer_mgr, updates
+ * Drains upstream queues and rescue rings into buffer_mgr, updates
  * `buffer_depth_ram` / `buffer_depth_flash` gauges, and wakes the MQTT task
  * when new buffered data becomes available.
  * metrics.  Does NOT call cy_mqtt_publish() — all publish operations are

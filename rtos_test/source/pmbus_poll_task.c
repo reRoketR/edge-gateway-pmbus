@@ -837,12 +837,22 @@ status_done:
     }
     else
     {
+        if (emergency_status_ring_put(&rec))
+        {
+            pf_advance_status_baseline(&rec, &state->status_fs, filter_now);
+            buffer_mgr_signal_spill_task();
+            return;
+        }
+
         TickType_t now_t = xTaskGetTickCount();
         if ((int32_t)(now_t - state->last_status_warn) >= (int32_t)WARN_THROTTLE_TICKS)
         {
-            printf("[POLL] WARN: status queue full (addr=0x%02X)\n", addr);
+            printf("[POLL] WARN: status queue and rescue ring full (addr=0x%02X)\n",
+                   addr);
             state->last_status_warn = now_t;
+            gateway_ipc_post_event(EVT_QUEUE_OVERFLOW, "status_queue");
         }
+        metrics_inc_queue_drops();
         /* Do NOT advance baseline — record was lost */
     }
 }

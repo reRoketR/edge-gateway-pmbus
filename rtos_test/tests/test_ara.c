@@ -101,7 +101,6 @@ const config_t g_config = {
         .ram_max_records = 256,
         .flash_max_records = 0,
         .flush_batch_size = 50,
-        .flush_interval_ms = 200,
         .drop_oldest = true,
     },
     .devices = k_test_devices,

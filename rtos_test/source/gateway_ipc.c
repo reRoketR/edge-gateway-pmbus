@@ -9,6 +9,7 @@
 
 #include "gateway_ipc.h"
 #include "buffer_mgr.h"
+#include "emergency_ring.h"
 #include "wallclock.h"
 #include "metrics.h"
 #include "persistent_seq.h"
@@ -148,9 +149,16 @@ void gateway_ipc_post_event(event_type_t type, const char *detail)
 
     if (xQueueSend(s_event_q, &evt, 0) != pdTRUE)
     {
-        printf("[IPC] WARN: event queue full, dropped %s\n",
-               event_type_str(type));
-        metrics_inc_queue_drops();
+        if (!emergency_event_ring_put(&evt))
+        {
+            printf("[IPC] WARN: event queue and rescue ring full, dropped %s\n",
+                   event_type_str(type));
+            metrics_inc_queue_drops();
+        }
+        else
+        {
+            buffer_mgr_signal_spill_task();
+        }
     }
     else
     {

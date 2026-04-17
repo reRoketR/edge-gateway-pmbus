@@ -13,14 +13,8 @@ name: CI
 on:
   push:
     branches: [ main, "feature/**" ]
-    paths-ignore:
-      - "docs/**"
-      - "*.md"
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - "docs/**"
-      - "*.md"
 
 # ---------------------------------------------------------------------------
 # Job 1: Host-side unit tests (always runs)
@@ -37,6 +31,20 @@ jobs:
       - name: Run unit tests
         working-directory: rtos_test
         run: make test
+
+      - name: Verify flush_interval_ms removed from active surfaces
+        run: |
+          if grep -RIn "flush_interval_ms" \
+            rtos_test/source/gateway_config.h \
+            rtos_test/source/gateway_config.c \
+            rtos_test/source/profiles \
+            rtos_test/tests \
+            README.md \
+            docs/architecture.md \
+            docs/persistent_buffer.md; then
+            echo "::error::flush_interval_ms still present in active runtime surfaces"
+            exit 1
+          fi
 
       - name: Python script syntax check
         run: |

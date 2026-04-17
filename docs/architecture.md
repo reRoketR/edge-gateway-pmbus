@@ -1,272 +1,232 @@
 # System Architecture
 
-This document describes the hardware, firmware, and data-flow architecture of the **PMBus↔MQTT Edge Gateway**.
+This document describes the current hardware and runtime architecture of the
+PMBus->MQTT edge gateway.
 
----
+## 1. Hardware Overview
 
-## 1 Hardware Overview
-
-```
-  ┌─────────────────────────┐        I2C / SMBus (100 kHz)
-  │   KIT_PSC3M5_EVK        │  SCL ──────────────────────────── SCL
-  │   PMBus Target (Slave)  │  SDA ──────────────────────────── SDA
-  │   Address: 0x58         │  GND ──────────────────────────── GND
-  │   SCB0, P9_0/P9_2       │
-  └─────────────────────────┘
-                                           │
-                                           ▼
-                              ┌──────────────────────────┐
-                              │  CY8CKIT-062S2-43012     │
-                              │  PSoC 6 + CYW43012 Wi-Fi │
-                              │  PMBus Master (Gateway)  │
-                              │  SCB3, P6_0/P6_1         │
-                              └──────────┬───────────────┘
-                                         │ Wi-Fi (2.4 GHz)
-                                         ▼
-                              ┌──────────────────────────┐
-                              │   PC / Laptop            │
-                              │   Mosquitto MQTT Broker  │
-                              │   broker-host:1883       │
-                              │                          │
-                              │   capture.py → JSONL     │
-                              │   plot.py    → PNG       │
-                              └──────────────────────────┘
+```text
+KIT_PSC3M5_EVK (target, addr 0x58)
+  SCB0 P9_0/P9_2  ---- I2C/SMBus ----  SCB3 P6_0/P6_1
+                                            |
+                                            v
+                               CY8CKIT-062S2-43012 (gateway)
+                                            |
+                                            v
+                                       Wi-Fi / MQTT
+                                            |
+                                            v
+                                      Broker + tooling
 ```
 
-| Board | Role | MCU | I2C Peripheral | Pins |
-|-------|------|-----|----------------|------|
-| KIT_PSC3M5_EVK | PMBus target (slave) | PSC3 Cortex-M33 | SCB0 | P9_0 (SCL), P9_2 (SDA) |
-| CY8CKIT-062S2-43012 | Gateway (master) | PSoC 62 CM4 + CYW43012 | SCB3 | P6_0 (SCL), P6_1 (SDA) |
+Optional SMBALERT wiring:
 
----
-
-## 2 Firmware Modules
-
-### 2.1 Gateway (rtos_test)
-
-```
-source/
-├── main.c                 Entry point, BSP init, task creation, scheduler start
-├── gateway_config.c/.h    Compile-time config types + profile selection
-├── gateway_ipc.c/.h       FreeRTOS queues, seq counter, MQTT-online flag
-├── pmbus_master.c/.h      PDL-based I2C master: read_word, read_byte, read_block, PEC, ARA
-├── pmbus_decode.c/.h      Linear11 / Linear16 decode to milli-units
-├── pmbus_poll_task.c/.h   Task A — timer-driven PMBus polling + SMBALERT# ISR / ARA
-├── mqtt_gw_task.c/.h      Task B — Wi-Fi + MQTT connect, queue drain, publish
-├── buffer_mgr.c/.h        Task C — RAM ring buffer housekeeping + flash spill
-├── telemetry.c/.h         TelemetryRecord / StatusRecord structs + JSON encode
-├── metrics.c/.h           Delta counters, gauges, latency ring, p95, JSON encode
-├── events.c/.h            Event types + JSON encode
-├── mqtt_client_config.c   Broker connection info (compile-time defaults)
-└── profiles/
-    ├── profile_default.h          Baseline: 2 targets @ 500 ms, PEC on
-    ├── profile_exp1_fast.h        Exp1: 100ms poll, 2 targets
-    ├── profile_exp1_single.h      Exp1: 200ms poll, 1 target
-    ├── profile_exp2_throughput.h   Exp2: 50ms poll, stress test
-    ├── profile_exp3_offline.h     Exp3: normal poll, buffer-focused
-    └── profile_exp4_pec_off.h     Exp4: PEC disabled
+```text
+Gateway CYBSP_D7 (P5_7)  ----  Target CYBSP_D7 (P3_0)
+                         |
+                       4.7k
+                         |
+                        3.3V
 ```
 
-### 2.2 Target (target_proj)
+## 2. Firmware Modules
 
-Single-file firmware (`main.c`) that uses the `mtb-pmbus` middleware to act as a PMBus slave device at address 0x58. It simulates a 48 V-in / 12 V-out power supply with slowly-varying sine-wave telemetry and responds to 11 PMBus commands.
+### 2.1 Gateway (`rtos_test`)
 
----
+| Module | Role |
+|--------|------|
+| `main.c` | BSP init, boot banner, task creation |
+| `gateway_config.*` | Compile-time profile selection and config |
+| `gateway_ipc.*` | Shared queues, sequence counter, MQTT-online flag |
+| `pmbus_master.*` | PMBus/SMBus master transactions, PEC, ARA |
+| `pmbus_decode.*` | Linear11 / Linear16 decoding |
+| `pmbus_poll_task.*` | Task A: periodic polling, status sampling, SMBALERT handling |
+| `buffer_mgr.*` | Task C: queue/rescue draining and two-tier buffering |
+| `buffer_flush.*` | Flush helper used by MQTT task |
+| `mqtt_gw_task.*` | Task B: Wi-Fi, MQTT, buffered publish, metrics publish |
+| `telemetry.*` | JSON encoding for telemetry/status |
+| `events.*` | Event types and JSON encoding |
+| `metrics.*` | Counters, gauges, latency rings, JSON encoding |
+| `emergency_ring.*` | Rescue rings for telemetry/status/events |
+| `persistent_buffer.h` | Backend abstraction: Em_EEPROM or QSPI |
+| `flash_buffer.*` | Internal persistent backend |
+| `qspi_buffer.*` | External persistent backend |
 
-## 3 RTOS Task Architecture
+### 2.2 Target (`target_proj`)
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                    FreeRTOS Scheduler                     │
-│                                                          │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────┐ │
-│  │ Task A (prio 4) │  │ Task B (prio 3) │  │ Task C   │ │
-│  │ pmbus_poll_task  │  │ mqtt_gw_task    │  │ buffer   │ │
-│  │                 │  │                 │  │ (prio 2) │ │
-│  │ • PMBus init    │  │ • Wi-Fi connect │  │          │ │
-│  │ • Poll devices  │  │ • MQTT connect  │  │ • Buffer │ │
-│  │ • Decode L11/16 │  │ • Drain queues  │  │   depth  │ │
-│  │ • Push to queue │  │ • Publish JSON  │  │   gauge  │ │
-│  │ • Update metrics│  │ • Flush buffer  │  │   update │ │
-│  │ • Emit events   │  │ • Pub metrics   │  │          │ │
-│  │ • SMBALERT# ISR │  │                 │  │          │ │
-│  │ • ARA + urgent  │  │                 │  │          │ │
-│  └───────┬─────────┘  └───────┬─────────┘  └────┬─────┘ │
-│          │                    │                  │       │
-│          ▼                    ▼                  ▼       │
-│  ┌─────────────────────────────────────────────────────┐ │
-│  │              gateway_ipc (shared state)              │ │
-│  │  telemetry_queue [64]   status_queue [16]            │ │
-│  │  event_queue [16]       mqtt_online flag             │ │
-│  │  seq counter            now_ms() timestamp           │ │
-│  └─────────────────────────────────────────────────────┘ │
-│                                                          │
-│  ┌──────────┐                                            │
-│  │ Blinky   │  Heartbeat LED (prio 1)                    │
-│  │ (prio 1) │                                            │
-│  └──────────┘                                            │
-└──────────────────────────────────────────────────────────┘
-```
+`target_proj/main.c` is a PMBus target simulator built on `mtb-pmbus`. The
+default simulator address is `0x58`. It provides synthetic telemetry, status
+responses, and SMBALERT support for HIL experiments.
 
-| Task | Name | Priority | Stack | Responsibility |
-|------|------|----------|-------|----------------|
-| A | `pmbus_poll_task` | 4 (highest) | 1024 words | PMBus polling, decode, enqueue telemetry/status, SMBALERT# ISR + ARA |
-| B | `mqtt_gw_task` | 3 | 3072 words | Wi-Fi, MQTT, publish, metrics, reconnect |
-| C | `buffer_task` | 2 | 512 words | Buffer housekeeping — gauge metric updates (does NOT publish) |
-| — | `blinky_task` | 1 (lowest) | 256 words | Heartbeat LED toggle |
+## 3. Task Model
 
----
+The gateway runtime uses four FreeRTOS tasks:
 
-## 4 Data Flow
+| Task | Priority | Responsibility |
+|------|----------|----------------|
+| `pmbus_poll_task` | 4 | Poll PMBus devices, decode values, post telemetry/status/events, react to SMBALERT |
+| `mqtt_gw_task` | 3 | Maintain Wi-Fi/MQTT, flush buffered data, publish metrics |
+| `buffer_task` | 2 | Drain IPC queues and rescue rings, encode records, store into RAM/persistent buffer |
+| `blinky_task` | 1 | Heartbeat LED only |
 
-### 4.1 Telemetry Path (hot path)
+The architecture is intentionally always-buffered:
 
-```
-PMBus Target            Gateway MCU                           MQTT Broker
- (I2C Slave)           (I2C Master)                          (Mosquitto)
+```text
+Task A: pmbus_poll_task
+  -> telemetry/status/event queues
+  -> rescue rings when a queue is full
 
-   ┌──┐       ┌───────────────────────────┐
-   │  │ ◄──── │ pmbus_read_word()         │
-   │  │ ────► │ pmbus_read_byte()         │
-   │  │       │         │                 │
-   └──┘       │         ▼                 │
-              │ pmbus_linear11_to_milli() │
-              │ pmbus_linear16_to_mv()    │
-              │         │                 │
-              │         ▼                 │
-              │ telemetry_record_t        │
-              │ (milli-units, no float)   │
-              │         │                 │
-              │    xQueueSend()           │
-              │         │                 │
-              │         ▼                 │
-              │  ┌──────────────┐         │           ┌──────────┐
-              │  │telemetry_queue│────────►│──────────►│ Broker   │
-              │  └──────────────┘  JSON   │  MQTT     │ topic:   │
-              │                  encode   │  publish  │ .../telem│
-              └───────────────────────────┘           └──────────┘
+Task C: buffer_task
+  -> drains queues first
+  -> drains rescue rings second
+  -> encodes JSON
+  -> stores into buffer_mgr
+
+Task B: mqtt_gw_task
+  -> flushes persistent tier first
+  -> flushes RAM tier second
+  -> publishes metrics
 ```
 
-### 4.2 Offline Buffering Path
+Key ownership rules:
 
-```
-                         MQTT offline?
-                              │
-                    ┌─────────┴──────────┐
-                    │ YES                │ NO
-                    ▼                    ▼
-            ┌──────────────┐    cy_mqtt_publish()
-            │  buffer_mgr  │         │
-            │  RAM ring    │         ▼
-            │  (256 recs)  │      Broker
-            └──────┬───────┘
-                   │ RAM full?
-                   │ YES → flash_buffer_put()
-                   │        (spill to Em_EEPROM,
-                   │         called in mqtt_gw_task)
-                   │
-                   │  MQTT back online
-                   ▼
-            mqtt_gw_task drains via
-            flush_buffered_records()
-            (peek → publish → consume)
-                   │
-                   ▼
-            cy_mqtt_publish()
+- `buffer_task` is the sole upstream queue consumer.
+- `mqtt_gw_task` is the sole MQTT publisher.
+- PMBus producers never publish directly.
+
+## 4. Data Flow
+
+### 4.1 Normal online path
+
+```text
+PMBus target
+  -> pmbus_poll_task
+  -> gateway_ipc queue
+  -> buffer_task
+  -> buffer_mgr RAM tier
+  -> mqtt_gw_task
+  -> MQTT broker
 ```
 
-### 4.3 Metrics Collection
+Even while MQTT is online, data flows through `buffer_mgr`. The runtime does
+not bypass the buffer on the hot path.
 
-```
-pmbus_poll_task ──► metrics_inc_pmbus_reads_ok()
-                    metrics_record_pmbus_txn_us()
-                         │
-mqtt_gw_task   ──► metrics_inc_mqtt_pub_ok()
-                    metrics_record_mqtt_publish_us()
-                    metrics_record_read_to_publish_us()
-                         │
-                         ▼
-                 metrics_snapshot_and_reset()
-                    ├── counters → delta (reset to 0)
-                    ├── gauges  → point-in-time snapshot
-                    ├── timing  → avg / p95 / max from ring buffer
-                    └── rates   → computed from counters ÷ window_ms
-                         │
-                         ▼
-                 encode_metrics_json() → MQTT publish
-```
+### 4.2 Queue overflow path
 
----
+If a producer queue is full:
 
-## 5 Memory Layout (RAM)
+- telemetry records fall back to the telemetry rescue ring
+- status records fall back to the status rescue ring
+- event records fall back to the event rescue ring
 
-| Component | Size | Notes |
-|-----------|------|-------|
-| Telemetry queue | 64 × ~78 B = ~5 KB | Absorbs ~16 s of backlog in the current default profile (2 targets @ 500 ms) |
-| Status queue | 16 × ~28 B = ~448 B | |
-| Event queue | 16 × ~56 B = ~896 B | |
-| RAM ring buffer | 256 × 594 B = ~149 KB | Pre-encoded JSON + topic per record |
-| Metrics latency ring | 50 × 4 B × 3 = ~0.6 KB | 3 rings: read-to-pub, pmbus_txn, mqtt_pub |
-| JSON encode buffer | 512 B + 768 B = 1.3 KB | Telemetry/status + metrics (separate) |
-| MQTT network buffer | ~2 × 1024 B = ~2 KB | cy_mqtt library |
-| Task stacks | (1024+3072+512+256) × 4 = ~19.5 KB | 4 tasks |
+`buffer_task` drains the normal queues before the corresponding rescue rings so
+records rescued later do not overtake records that were already queued.
 
-**Total firmware: ~940 KB flash, ~179 KB RAM** (out of 2 MB flash / 1 MB RAM available on PSoC 62).
+### 4.3 Persistent spill path
 
----
+When RAM is full and persistent buffering is enabled:
 
-## 6 Configuration System
+1. `buffer_mgr` migrates the oldest RAM record into the persistent tier
+2. the new record is admitted into RAM
 
-Configuration is **compile-time only** for thesis repeatability. No runtime YAML/JSON parsing.
+This is the ordering-critical rule introduced in the remediation pass. It keeps
+the persistent tier strictly older than the RAM tier.
 
-```
-gateway_config.h          Type definitions (config_t, device_cfg_t)
-        │
-        ▼
-gateway_config.c          #include "profiles/profile_<NAME>.h"
-        │                 const config_t g_config = PROFILE_CONFIG;
-        ▼
-Makefile                  GW_PROFILE=exp1_fast → -DGW_PROFILE_HEADER=...
-```
+### 4.4 Reconnect / flush path
 
-Profile switching:
-```bash
-# Default profile
-make build
+When MQTT is available, `mqtt_gw_task` flushes in this order:
 
-# Experiment profile
-make build GW_PROFILE=exp1_fast
-make build GW_PROFILE=exp4_pec_off
-```
+1. persistent tier
+2. RAM tier
 
-At boot, `config_print_boot_banner()` logs all active parameters:
-```
-[SYS] profile=default  pec=1  mqtt=broker-host:1883  q_telem=0  q_ctrl=1  q_metrics=0
-[SYS] i2c: speed=100000  timeout=20ms  retries=2  recovery=0
-[SYS] buffer: enabled=1  ram=256  flash=0  batch=50  flush=200ms  drop_oldest=1
-[SYS] metrics_period=10000ms
-[SYS] devices: 2
-[SYS]   [0] 0x58 "psu_a"  poll=500ms  status=10000ms
-[SYS]   [1] 0x59 "psu_b"  poll=500ms  status=10000ms
-```
+Because only older RAM records are migrated to persistent storage, this
+`persistent -> RAM` flush order preserves end-to-end FIFO ordering.
 
----
+## 5. Buffering Model
 
-## 7 Build System
+### 5.1 RAM tier
 
-- **Toolchain:** GCC ARM (`TOOLCHAIN=GCC_ARM`)
-- **IDE:** ModusToolbox 3.7
-- **RTOS:** FreeRTOS (bundled via MTB)
-- **Libraries:** `mqtt` (Infineon mqtt v4.7.0), `wifi-connection-manager`, `mtb-hal-cat1`, `mtb-pdl-cat1`
-- **Target board BSP:** `APP_CY8CKIT-062S2-43012`
+The RAM tier is a fixed-size ring of pre-encoded `buffer_record_t` objects.
+
+Properties:
+
+- stores topic + payload + origin timing metadata
+- used for all buffered records first
+- does not survive reboot
+
+### 5.2 Persistent tier
+
+Two backends are available through `persistent_buffer.h`:
+
+- Em_EEPROM backend (default): internal flash, 61 records
+- QSPI backend: external flash, about 5300 records with current record sizes
+
+The selected backend is compile-time only.
+
+### 5.3 Durability scope
+
+Persistent storage is integrity-checked and recovers after reboot, but it is
+not claimed to be transactionally crash-safe. The current design intentionally
+defers a full commit/journal redesign.
+
+## 6. Metrics and Events
+
+Metrics are updated from the producer, buffer, and publish paths. Relevant
+buffer-related outputs include:
+
+- `buffer_depth_ram`
+- `buffer_depth_flash`
+- `buffer_enqueued`
+- `buffer_dequeued`
+- `buffer_dropped`
+- `storage.backend`
+- `storage.total_writes`
+
+Events include connection changes, buffer overflows, and SMBALERT handling.
+
+## 7. Configuration Model
+
+Configuration is compile-time only. `gateway_config.c` instantiates `g_config`
+from the selected profile header.
+
+Default profile characteristics:
+
+- one target: `0x58`
+- poll period: `500 ms`
+- PEC enabled
+- RAM buffer: `256` records
+- Em_EEPROM persistent capacity: `61` records
+
+This default profile matches the common one-gateway + one-simulator lab setup.
+
+## 8. Build and Test Surfaces
+
+Gateway firmware:
 
 ```bash
-# Build only
+cd rtos_test
 make build TOOLCHAIN=GCC_ARM CONFIG=Debug
-
-# Build + flash via KitProg3
-make program TOOLCHAIN=GCC_ARM CONFIG=Debug
-
-# Build with experiment profile
-make build TOOLCHAIN=GCC_ARM CONFIG=Debug GW_PROFILE=exp1_fast
 ```
+
+QSPI gateway build:
+
+```bash
+make build TOOLCHAIN=GCC_ARM CONFIG=Debug BUFFER_BACKEND=QSPI
+```
+
+Target simulator:
+
+```bash
+cd target_proj
+make build TOOLCHAIN=GCC_ARM CONFIG=Debug
+```
+
+Host-side tests:
+
+```bash
+cd rtos_test
+make test
+```
+
+The host test suite includes offline integration coverage for mixed
+RAM/persistent ordering and rescue-ring behavior.

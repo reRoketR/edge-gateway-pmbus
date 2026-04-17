@@ -85,6 +85,7 @@ static bool s_persistent_init_attempted = false;
 static uint32_t s_current_boot_gen = 1u;
 static TaskHandle_t s_flush_task_handle = NULL;
 static TaskHandle_t s_spill_task_handle = NULL;
+static bool s_ram_migration_pending = false;
 
 static bool buffer_mgr_put_internal(const char *topic,
                                     const char *payload,
@@ -162,6 +163,7 @@ bool buffer_mgr_init(void)
     s_head = 0u;
     s_tail = 0u;
     s_count = 0u;
+    s_ram_migration_pending = false;
 
     printf("[BUF] Ring buffer initialised: %u records x %u bytes = %u bytes\n",
            (unsigned)s_capacity,
@@ -254,53 +256,67 @@ static bool buffer_mgr_put_internal(const char *topic,
     incoming.origin_read_start_ms = origin_read_start_ms;
     incoming.origin_boot_gen = origin_boot_gen;
 
+    bool dropped_oldest = false;
+    bool counted_by_persistent = false;
+    buffer_record_t spill_candidate;
+
     taskENTER_CRITICAL();
+
+    if (s_count >= s_capacity && s_persistent_ready)
+    {
+        spill_candidate = s_ring[s_tail];
+        s_ram_migration_pending = true;
+        taskEXIT_CRITICAL();
+
+        if (persistent_buffer_put_record(&spill_candidate))
+        {
+            taskENTER_CRITICAL();
+            s_ram_migration_pending = false;
+            s_tail = (s_tail + 1u) % s_capacity;
+            s_count--;
+            counted_by_persistent = true;
+        }
+        else
+        {
+            taskENTER_CRITICAL();
+            s_ram_migration_pending = false;
+        }
+    }
 
     if (s_count >= s_capacity)
     {
-        taskEXIT_CRITICAL();
-
-        if (s_persistent_ready)
+        if (g_config.buffer.drop_oldest)
         {
-            bool spilled = persistent_buffer_put_record(&incoming);
-            if (spilled)
-            {
-                return true; /* Metrics are updated by the persistent backend */
-            }
+            s_tail = (s_tail + 1u) % s_capacity;
+            s_count--;
+            dropped_oldest = true;
         }
-
-        taskENTER_CRITICAL();
-
-        /* Re-check after leaving the critical section */
-        if (s_count >= s_capacity)
+        else
         {
-            if (g_config.buffer.drop_oldest)
-            {
-                s_tail = (s_tail + 1u) % s_capacity;
-                s_count--;
-                metrics_inc_buffer_dropped();
-                taskEXIT_CRITICAL();
-                gateway_ipc_post_event(EVT_BUFFER_OVERFLOW, "drop_oldest");
-                taskENTER_CRITICAL();
-            }
-            else
-            {
-                taskEXIT_CRITICAL();
-                metrics_inc_buffer_dropped();
-                gateway_ipc_post_event(EVT_BUFFER_OVERFLOW, "drop_newest");
-                return false;
-            }
+            taskEXIT_CRITICAL();
+            metrics_inc_buffer_dropped();
+            gateway_ipc_post_event(EVT_BUFFER_OVERFLOW, "drop_newest");
+            return false;
         }
     }
 
     s_ring[s_head] = incoming;
-
     s_head = (s_head + 1u) % s_capacity;
     s_count++;
 
     taskEXIT_CRITICAL();
 
-    metrics_inc_buffer_enqueued();
+    if (dropped_oldest)
+    {
+        metrics_inc_buffer_dropped();
+        gateway_ipc_post_event(EVT_BUFFER_OVERFLOW, "drop_oldest");
+    }
+
+    if (!counted_by_persistent)
+    {
+        metrics_inc_buffer_enqueued();
+    }
+
     return true;
 }
 
@@ -326,7 +342,7 @@ bool buffer_mgr_peek(buffer_record_t *out)
 
     taskENTER_CRITICAL();
 
-    if (s_count == 0u)
+    if (s_count == 0u || s_ram_migration_pending)
     {
         taskEXIT_CRITICAL();
         return false;
@@ -347,7 +363,7 @@ bool buffer_mgr_consume(void)
 
     taskENTER_CRITICAL();
 
-    if (s_count == 0u)
+    if (s_count == 0u || s_ram_migration_pending)
     {
         taskEXIT_CRITICAL();
         return false;
@@ -394,7 +410,7 @@ static void buffer_mgr_notify_flush_task(void)
  * into buffer_mgr.  They run exclusively inside buffer_task (single writer).
  ******************************************************************************/
 
-static bool drain_emergency_ring(void)
+static bool drain_telemetry_rescue_ring(void)
 {
     bool did_enqueue = false;
     telemetry_record_t rec;
@@ -436,6 +452,26 @@ static bool drain_telemetry_queue(void)
     return did_enqueue;
 }
 
+static bool drain_status_rescue_ring(void)
+{
+    bool did_enqueue = false;
+    status_record_t rec;
+    while (emergency_status_ring_get(&rec))
+    {
+        int len = encode_status_json(&rec, s_spill_json, SPILL_JSON_BUF_SIZE);
+        if (len <= 0) continue;
+        int tl = build_device_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE,
+                                     rec.addr_7bit, "status");
+        if (tl <= 0) continue;
+        if (buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len))
+        {
+            did_enqueue = true;
+        }
+    }
+
+    return did_enqueue;
+}
+
 static bool drain_status_queue(void)
 {
     bool did_enqueue = false;
@@ -446,6 +482,25 @@ static bool drain_status_queue(void)
         if (len <= 0) continue;
         int tl = build_device_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE,
                                      rec.addr_7bit, "status");
+        if (tl <= 0) continue;
+        if (buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len))
+        {
+            did_enqueue = true;
+        }
+    }
+
+    return did_enqueue;
+}
+
+static bool drain_event_rescue_ring(void)
+{
+    bool did_enqueue = false;
+    event_record_t evt;
+    while (emergency_event_ring_get(&evt))
+    {
+        int len = encode_event_json(&evt, s_spill_json, SPILL_JSON_BUF_SIZE);
+        if (len <= 0) continue;
+        int tl = build_events_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE);
         if (tl <= 0) continue;
         if (buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len))
         {
@@ -479,10 +534,12 @@ BMC_STATIC void buffer_mgr_drain_once(void)
 {
     bool did_enqueue = false;
 
-    did_enqueue |= drain_emergency_ring();
     did_enqueue |= drain_telemetry_queue();
+    did_enqueue |= drain_telemetry_rescue_ring();
     did_enqueue |= drain_status_queue();
+    did_enqueue |= drain_status_rescue_ring();
     did_enqueue |= drain_event_queue();
+    did_enqueue |= drain_event_rescue_ring();
 
     if (did_enqueue)
     {

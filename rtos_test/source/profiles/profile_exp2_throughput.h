@@ -60,7 +60,6 @@ static const device_cfg_t k_devices[] = {
         .ram_max_records  = 256,                                               \
         .flash_max_records = 0,                                                \
         .flush_batch_size = 50,                                                \
-        .flush_interval_ms = 50,       /* Fast flush for throughput test */     \
         .drop_oldest      = true,                                              \
     },                                                                         \
                                                                                \

@@ -57,10 +57,9 @@ const config_t g_config      = PROFILE_CONFIG;
  *   Example output:
  *     [SYS] profile=default pec=1 mqtt=192.168.1.10:1883 q_telem=0 q_ctrl=1 q_metrics=0
  *     [SYS] i2c: speed=100000 timeout=20ms retries=2 recovery=1 settle=5ms
- *     [SYS] buffer: ram=256 flash=0 batch=50 drop_oldest=1
- *     [SYS] devices: 2
+ *     [SYS] buffer: enabled=1 ram=256 flash=61 batch=50 drop_oldest=1
+ *     [SYS] devices: 1
  *     [SYS]   [0] 0x58 "psu_a" poll=200ms status=1000ms
- *     [SYS]   [1] 0x59 "psu_b" poll=200ms status=1000ms
  ******************************************************************************/
 void config_print_boot_banner(void)
 {
@@ -84,13 +83,11 @@ void config_print_boot_banner(void)
            (int)c->i2c.bus_recovery,
            (unsigned long)c->i2c.recovery_settle_ms);
 
-    printf("[SYS] buffer: enabled=%d  ram=%u  flash=%lu  batch=%u  "
-           "flush=%lums  drop_oldest=%d\n",
+    printf("[SYS] buffer: enabled=%d  ram=%u  flash=%lu  batch=%u  drop_oldest=%d\n",
            (int)c->buffer.enabled,
            (unsigned)c->buffer.ram_max_records,
            (unsigned long)c->buffer.flash_max_records,
            (unsigned)c->buffer.flush_batch_size,
-           (unsigned long)c->buffer.flush_interval_ms,
            (int)c->buffer.drop_oldest);
 
     printf("[SYS] metrics_period=%lums\n",

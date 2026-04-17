@@ -3,7 +3,7 @@
  *
  * Description: Experiment 1 — End-to-end latency measurement.
  *              Fast polling (100 ms) to stress the read→publish pipeline.
- *              Compare with the current default profile (2 targets @ 500 ms)
+ *              Compare with the current default profile (1 target @ 500 ms)
  *              for latency analysis.
  *
  *              Changes vs default:
@@ -67,7 +67,6 @@ static const device_cfg_t k_devices[] = {
         .ram_max_records  = 256,                                               \
         .flash_max_records = 0,                                                \
         .flush_batch_size = 50,                                                \
-        .flush_interval_ms = 100,                                              \
         .drop_oldest      = true,                                              \
     },                                                                         \
                                                                                \

@@ -18,6 +18,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "buffer_mgr.h"
 #include "gateway_ipc.h"
@@ -114,7 +115,6 @@ config_t g_config = {
         .ram_max_records   = 32,
         .flash_max_records = 100,
         .flush_batch_size  = 50,
-        .flush_interval_ms = 200,
         .drop_oldest       = true,
     },
     .reporting = {
@@ -199,6 +199,28 @@ static event_record_t make_event(event_type_t type, const char *detail)
         strncpy(e.detail, detail, EVT_DETAIL_MAX - 1u);
     }
     return e;
+}
+
+static uint32_t extract_seq_from_payload(const char *payload)
+{
+    const char *seq = strstr(payload, "\"seq\":");
+    if (seq == NULL)
+    {
+        return UINT32_MAX;
+    }
+
+    return (uint32_t)strtoul(seq + 6, NULL, 10);
+}
+
+static void assert_published_seq(uint32_t index, uint32_t expected_seq)
+{
+    TEST_ASSERT_EQ_U32(expected_seq,
+                       extract_seq_from_payload(publish_mock_get_payload(index)));
+}
+
+static void assert_payload_contains(uint32_t index, const char *needle)
+{
+    TEST_ASSERT_TRUE(strstr(publish_mock_get_payload(index), needle) != NULL);
 }
 
 /*******************************************************************************
@@ -536,11 +558,11 @@ static void test_I_publish_failure(void)
 }
 
 /*******************************************************************************
- * T-1b Scenario J: Flash-first ordering
+ * T-1b Scenario J: Global FIFO ordering across persistent + RAM tiers
  ******************************************************************************/
-static void test_J_flash_first_ordering(void)
+static void test_J_global_fifo_ordering(void)
 {
-    printf("  [J] Flash-first ordering ...\n");
+    printf("  [J] Global FIFO ordering across tiers ...\n");
     set_config_buffer(4, 100, 50, true);
     reinit();
 
@@ -556,19 +578,17 @@ static void test_J_flash_first_ordering(void)
     TEST_ASSERT_EQ_U32(4u, buffer_mgr_depth());
     TEST_ASSERT_EQ_U32(3u, persistent_buffer_depth());
 
-    /* Flush all: flash records should come first */
+    /* Flush all: oldest-to-newest order must survive the spill. */
     uint16_t flushed = buffer_flush_records(publish_mock_fn);
     TEST_ASSERT_EQ_U32(7u, flushed);
     TEST_ASSERT_EQ_U32(7u, publish_mock_get_count());
     TEST_ASSERT_EQ_U32(0u, buffer_mgr_depth());
     TEST_ASSERT_EQ_U32(0u, persistent_buffer_depth());
 
-    /* First 3 published should be the flash (overflow) records */
-    /* Last 4 should be the RAM records */
-    /* All should be valid telemetry JSON */
     for (uint32_t i = 0; i < 7u; i++)
     {
         TEST_ASSERT_TRUE(strstr(publish_mock_get_topic(i), "telemetry") != NULL);
+        assert_published_seq(i, i);
     }
 
     printf("  [J] PASSED\n");
@@ -600,14 +620,99 @@ static void test_K_batch_limit(void)
     TEST_ASSERT_EQ_U32(5u, flushed1);
     TEST_ASSERT_EQ_U32(2u, buffer_mgr_depth());
     TEST_ASSERT_EQ_U32(0u, persistent_buffer_depth());
+    for (uint32_t i = 0; i < 5u; i++)
+    {
+        assert_published_seq(i, i);
+    }
 
     /* Second flush: remaining 2 RAM */
     publish_mock_reset();
     uint16_t flushed2 = buffer_flush_records(publish_mock_fn);
     TEST_ASSERT_EQ_U32(2u, flushed2);
     TEST_ASSERT_EQ_U32(0u, buffer_mgr_depth());
+    assert_published_seq(0u, 5u);
+    assert_published_seq(1u, 6u);
 
     printf("  [K] PASSED\n");
+}
+
+/*******************************************************************************
+ * T-1b Scenario L: Status queue then rescue ring ordering
+ ******************************************************************************/
+static void test_L_status_rescue_ordering(void)
+{
+    printf("  [L] Status queue then rescue ring ordering ...\n");
+    set_config_buffer(32, 100, 50, true);
+    reinit();
+
+    QueueHandle_t sq = gateway_ipc_status_queue();
+    status_record_t s0 = make_status(0x58, 10u);
+    status_record_t s1 = make_status(0x58, 11u);
+    status_record_t s2 = make_status(0x58, 12u);
+    status_record_t s3 = make_status(0x58, 13u);
+
+    TEST_ASSERT_EQ_U32(pdTRUE, xQueueSend(sq, &s0, 0));
+    TEST_ASSERT_EQ_U32(pdTRUE, xQueueSend(sq, &s1, 0));
+    TEST_ASSERT_TRUE(emergency_status_ring_put(&s2));
+    TEST_ASSERT_TRUE(emergency_status_ring_put(&s3));
+
+    buffer_mgr_drain_once();
+
+    TEST_ASSERT_EQ_U32(4u, buffer_mgr_depth());
+    TEST_ASSERT_EQ_U32(0u, uxQueueMessagesWaiting(sq));
+    TEST_ASSERT_EQ_U32(4u, buffer_flush_records(publish_mock_fn));
+
+    for (uint32_t i = 0; i < 4u; i++)
+    {
+        TEST_ASSERT_TRUE(strstr(publish_mock_get_topic(i), "status") != NULL);
+        assert_published_seq(i, 10u + i);
+    }
+
+    printf("  [L] PASSED\n");
+}
+
+/*******************************************************************************
+ * T-1b Scenario M: Event queue overflow uses rescue ring
+ ******************************************************************************/
+static void test_M_event_rescue_overflow(void)
+{
+    printf("  [M] Event queue overflow rescue ...\n");
+    set_config_buffer(64, 100, 64, true);
+    reinit();
+
+    QueueHandle_t eq = gateway_ipc_event_queue();
+    uint32_t queued = 0u;
+
+    for (uint32_t i = 0; i < 32u; i++)
+    {
+        char detail[16];
+        snprintf(detail, sizeof(detail), "queue_%02lu", (unsigned long)i);
+        event_record_t evt = make_event(EVT_MQTT_CONNECTED, detail);
+        if (xQueueSend(eq, &evt, 0) != pdTRUE)
+        {
+            break;
+        }
+        queued++;
+    }
+
+    TEST_ASSERT_TRUE(queued > 0u);
+
+    gateway_ipc_post_event(EVT_QUEUE_OVERFLOW, "rescue_a");
+    gateway_ipc_post_event(EVT_QUEUE_OVERFLOW, "rescue_b");
+
+    buffer_mgr_drain_once();
+
+    TEST_ASSERT_EQ_U32(queued + 2u, buffer_mgr_depth());
+    TEST_ASSERT_EQ_U32(queued + 2u, buffer_flush_records(publish_mock_fn));
+
+    for (uint32_t i = 0; i < queued; i++)
+    {
+        TEST_ASSERT_TRUE(strstr(publish_mock_get_topic(i), "events") != NULL);
+    }
+    assert_payload_contains(queued, "rescue_a");
+    assert_payload_contains(queued + 1u, "rescue_b");
+
+    printf("  [M] PASSED\n");
 }
 
 /*******************************************************************************
@@ -630,8 +735,10 @@ int main(void)
 
     test_H_normal_flush();
     test_I_publish_failure();
-    test_J_flash_first_ordering();
+    test_J_global_fifo_ordering();
     test_K_batch_limit();
+    test_L_status_rescue_ordering();
+    test_M_event_rescue_overflow();
 
     printf("\n=== Results: %d passed, %d failed, %d total ===\n",
            tests_passed, tests_failed, tests_run);

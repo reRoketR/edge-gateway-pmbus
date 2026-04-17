@@ -1,54 +1,67 @@
-# PMBus-MQTT Edge Gateway — API Reference {#mainpage}
+# PMBus-MQTT Edge Gateway - API Reference {#mainpage}
 
 ## Introduction
 
-This firmware runs on the **CY8CKIT-062S2-43012** (PSoC 62 + CYW43012 Wi-Fi)
-and implements a real-time PMBus/SMBus → MQTT edge gateway. It polls up to
-two PMBus target devices over I²C, decodes telemetry (Linear11/Linear16),
-and publishes JSON payloads to an MQTT broker over Wi-Fi.
+This firmware runs on `CY8CKIT-062S2-43012` and implements a PMBus/SMBus to
+MQTT edge gateway. The gateway polls PMBus targets over I2C, encodes
+telemetry/status/events/metrics as JSON, stores records in a two-tier buffer,
+and publishes through MQTT over Wi-Fi.
+
+The repository also contains a PMBus target simulator for `KIT_PSC3M5_EVK`.
 
 ## Architecture Overview
 
-The system uses four FreeRTOS tasks:
+The gateway runtime uses four FreeRTOS tasks:
 
-| Task | Priority | Stack | Role |
-|------|----------|-------|------|
-| pmbus_poll_task | 4 | 1024 words | PMBus I²C polling + telemetry/status queuing |
-| mqtt_gw_task    | 3 | 3072 words | Wi-Fi/MQTT connection + JSON publish |
-| buffer_task     | 2 | 512 words  | Store-and-forward buffer management |
-| metrics (inline)| — | —          | Performance counters (updated from tasks A & B) |
+| Task | Priority | Role |
+|------|----------|------|
+| `pmbus_poll_task` | 4 | PMBus polling, decode, status sampling, SMBALERT handling |
+| `mqtt_gw_task` | 3 | Wi-Fi/MQTT connection and buffered publish |
+| `buffer_task` | 2 | Drain IPC queues/rescue rings and store records in `buffer_mgr` |
+| `blinky_task` | 1 | Heartbeat LED |
+
+The active runtime is always-buffered:
+
+```text
+pmbus_poll_task -> gateway_ipc queues/rescue rings
+buffer_task     -> JSON encode -> buffer_mgr
+mqtt_gw_task    -> flush persistent tier -> flush RAM tier -> publish
+```
 
 ## Module Reference
 
-- @ref gateway_config — Compile-time configuration and profiles
-- @ref gateway_ipc — FreeRTOS queues and shared IPC state
-- @ref pmbus_master — I²C/SMBus low-level PMBus master driver
-- @ref pmbus_decode — Linear11/Linear16 data format decoders
-- @ref pmbus_poll_task — Task A: periodic PMBus polling
-- @ref mqtt_gw_task — Task B: MQTT connection and publish
-- @ref buffer_mgr — Task C: offline store-and-forward ring buffer
-- @ref telemetry — Telemetry/status record structures and JSON encoding
-- @ref metrics — Performance counters, gauges, timing, and JSON encoding
-- @ref events — Event records and JSON encoding
+- @ref gateway_config - compile-time configuration and profiles
+- @ref gateway_ipc - shared queues, sequence counter, MQTT-online state
+- @ref pmbus_master - low-level PMBus/SMBus master driver
+- @ref pmbus_decode - Linear11 / Linear16 decoders
+- @ref pmbus_poll_task - Task A: periodic PMBus polling
+- @ref buffer_mgr - Task C: store-and-forward buffering
+- @ref mqtt_gw_task - Task B: Wi-Fi/MQTT connection and publish
+- @ref telemetry - telemetry/status structures and JSON encoding
+- @ref metrics - counters, gauges, timing, and JSON encoding
+- @ref events - event records and JSON encoding
 
 ## Configuration Profiles
 
 Build with a specific profile:
-```
+
+```text
 make build GW_PROFILE=exp1_fast
 ```
 
-Available profiles:
-- `default` — Baseline (500 ms poll, 2 targets, PEC ON)
-- `exp1_fast` — Latency stress (100 ms poll, 2 targets)
-- `exp1_single` — Single-target latency (200 ms poll)
-- `exp2_throughput` — Max throughput (50 ms poll)
-- `exp3_offline` — Offline buffer test (500 ms poll)
-- `exp4_pec_off` — PEC disabled comparison (200 ms poll)
+Current profiles:
+
+- `default` - single-target baseline (`0x58`), 500 ms poll, PEC on
+- `exp1_fast` - latency stress, two targets
+- `exp1_single` - single-target latency
+- `exp2_throughput` - throughput stress
+- `exp3_offline` - offline buffering experiments
+- `exp4_pec_off` - PEC disabled comparison
+- `raw` - low-level capture/debug
 
 ## Building
 
-```
+```text
 make build TOOLCHAIN=GCC_ARM CONFIG=Debug
 make program
 ```

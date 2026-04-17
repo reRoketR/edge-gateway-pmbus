@@ -7,15 +7,15 @@
  * Responsibilities:
  *   - Connect Wi-Fi and initialise MQTT client
  *   - Reconnect with exponential backoff on disconnect
- *   - Consume telemetry/status/event queues and publish JSON
- *   - On publish failure: enqueue to buffer_mgr
+ *   - Act as the sole MQTT publisher in the runtime
+ *   - Flush buffered records from buffer_mgr (persistent tier first, then RAM)
  *   - Periodically publish metrics
  *   - Maintain MQTT online/offline flag in gateway_ipc
  *
  * @see agent.md §6 (Task B), §4
  *
  * @defgroup mqtt_gw_task MQTT Gateway Task
- * @brief Task B — Wi-Fi/MQTT connection, JSON publish, and offline fallback.
+ * @brief Task B - Wi-Fi/MQTT connection and buffered MQTT publish path.
  * @{
  */
 

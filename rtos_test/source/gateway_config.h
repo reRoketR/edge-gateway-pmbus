@@ -77,7 +77,6 @@ typedef struct {
         uint16_t ram_max_records;   /**< Max records in RAM ring buffer      */
         uint32_t flash_max_records; /**< Max records in flash (0 = disabled) */
         uint16_t flush_batch_size;  /**< Records to flush per tick           */
-        uint32_t flush_interval_ms; /**< Flush timer period                  */
         bool     drop_oldest;       /**< true = drop oldest on overflow      */
     } buffer;
     /* NOTE: seq counter always resets to 0 on reboot (not persisted). */

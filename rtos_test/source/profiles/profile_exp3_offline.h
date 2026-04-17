@@ -10,7 +10,7 @@
  *                - poll_period_ms:   500 (unchanged; 2 msgs/s with 1 target)
  *                - status_period_ms: 10000 → 5000
  *                - ram_max_records:  256 (unchanged — fills in ~128 s)
- *                - flash_max_records: 0 → 63 (enable flash persistence)
+ *                - flash_max_records: 0 → 61 (enable Em_EEPROM persistence)
  *                - metrics_period_ms: 10000 → 2000 (finer monitoring)
  *                - devices:            2 → 1
  *
@@ -61,9 +61,8 @@ static const device_cfg_t k_devices[] = {
     .buffer = {                                                                \
         .enabled          = true,                                              \
         .ram_max_records  = 256,                                               \
-        .flash_max_records = 63,        /* Enable flash persistence (63 rows) */\
+        .flash_max_records = 61,        /* Enable Em_EEPROM persistence */     \
         .flush_batch_size = 50,                                                \
-        .flush_interval_ms = 200,                                              \
         .drop_oldest      = true,                                              \
     },                                                                         \
                                                                                \
