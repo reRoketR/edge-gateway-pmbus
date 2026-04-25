@@ -13,12 +13,12 @@ alert→ARA→status pipeline.
 
 | Parameter | Value |
 |-----------|-------|
-| Profile | `default` |
+| Profile | `hil_smbalert` |
 | Target board | KIT_PSC3M5_EVK (I2C addr 0x58) |
 | Gateway board | CY8CKIT-062S2-43012 |
 | SMBALERT# pin | CYBSP_D7 on both boards |
 | External pull-up | 4.7 kΩ to 3.3 V on D7 line |
-| Poll period | 5000 ms (for clear separation) |
+| Poll period | 5000 ms |
 | Status period | 5000 ms |
 
 ---
@@ -38,9 +38,16 @@ Verify with a multimeter that D7 reads ~3.3 V when idle (no fault asserted).
 ## Firmware
 
 - **Target**: build with `MTB_PMBUS_SUPPORT_SMBALERT = 1U` (already set).
-- **Gateway**: build with `smbalert_enabled = true` in the default profile.
-- Optionally set `poll_period_ms = 5000` and `status_period_ms = 5000` in the
-  profile for clear timing separation.
+- **Gateway**: build with `GW_PROFILE=hil_smbalert` so `smbalert_enabled = true`
+  and both `poll_period_ms` / `status_period_ms` are fixed at 5000 ms.
+
+Example gateway build:
+
+```powershell
+cd rtos_test
+make build TOOLCHAIN=GCC_ARM CONFIG=Debug GW_PROFILE=hil_smbalert
+make program TOOLCHAIN=GCC_ARM CONFIG=Debug GW_PROFILE=hil_smbalert
+```
 
 ---
 
@@ -59,8 +66,8 @@ Verify with a multimeter that D7 reads ~3.3 V when idle (no fault asserted).
 
 1. In the **target** UART terminal, press **`a`**.
 2. Target should print:
-   - `[FAULT] Latching fault — asserting SMBALERT#`
-   - STATUS_WORD should become `0x0002` (next register update).
+   - `[TARGET] SMBALERT asserted (CML fault simulated)`
+   - STATUS_WORD should become `0x0002` immediately.
 3. Measure D7 line with multimeter or logic analyser: should be LOW (~0 V).
 
 ### Step 3 — Verify gateway detection
@@ -81,9 +88,9 @@ Verify with a multimeter that D7 reads ~3.3 V when idle (no fault asserted).
 
 1. In the **target** UART terminal, press **`c`**.
 2. Target should print:
-   - `[FAULT] Clearing fault and SMBALERT#`
+   - `[TARGET] SMBALERT cleared`
 3. D7 line should return HIGH (~3.3 V).
-4. Next periodic status poll should show STATUS_WORD `0x0000`.
+4. The next status sample should show STATUS_WORD `0x0000`.
 
 ### Step 5 — Repeat with ARA NACK verification
 
@@ -126,4 +133,5 @@ Verify with a multimeter that D7 reads ~3.3 V when idle (no fault asserted).
 - UART logs from both boards (copy-paste or screen capture)
 - `events.jsonl` from capture script
 - `metrics.jsonl` from capture script
+- `status.jsonl` from capture script
 - Logic analyser trace of D7 line (optional, for latency measurement)

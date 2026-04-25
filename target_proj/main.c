@@ -143,14 +143,62 @@ static inline void store_le16(uint8_t *buf, uint16_t val)
 /*******************************************************************************
 * SMBALERT latched fault state (D2c-2)
 *
-* UART commands set/clear these flags only.  update_simulated_registers()
-* derives STATUS_WORD from s_fault_latched — never writes directly.
+* UART commands and CLEAR_FAULTS update these flags. update_simulated_registers()
+* still refreshes the full PMBus image every simulation tick, but STATUS_WORD is
+* also synchronized immediately on fault transitions.
 *******************************************************************************/
 
 /** CML fault latched — drives STATUS_WORD bit 1 until cleared. */
 static volatile bool s_fault_latched  = false;
 /** SMBALERT line is actively driven LOW by the middleware. */
 static volatile bool s_alert_asserted = false;
+
+/** Forward declaration: used by callbacks before the infrastructure block. */
+static mtb_pmbus_stc_t pmbus_inst;
+
+/**
+ * @brief Encode the current latched fault state into STATUS_WORD.
+ */
+static uint16_t current_status_word(void)
+{
+    return s_fault_latched ? 0x0002u : 0x0000u;  /* bit 1 = CML fault */
+}
+
+/**
+ * @brief Update status registers from the current fault state (task/main context).
+ *
+ * Keeps STATUS_WORD synchronized with UART-driven fault injection immediately,
+ * instead of waiting for the next simulation tick.
+ */
+static void update_status_registers(mtb_pmbus_stc_t *inst)
+{
+    uint8_t tmp1[1] = { 0x00u };
+    uint8_t tmp2[2];
+
+    store_le16(tmp2, current_status_word());
+    (void)mtb_pmbus_cmd_update_data(inst, CMD_STATUS_WORD, tmp2, sizeof(tmp2));
+    (void)mtb_pmbus_cmd_update_data(inst, CMD_STATUS_VOUT, tmp1, sizeof(tmp1));
+    (void)mtb_pmbus_cmd_update_data(inst, CMD_STATUS_IOUT, tmp1, sizeof(tmp1));
+    (void)mtb_pmbus_cmd_update_data(inst, CMD_STATUS_TEMPERATURE, tmp1, sizeof(tmp1));
+}
+
+/**
+ * @brief Update status registers from ISR context.
+ *
+ * Used by callbacks such as CLEAR_FAULTS completion so the next controller read
+ * sees the cleared STATUS_WORD without waiting for the main-loop refresh.
+ */
+static void update_status_registers_isr(mtb_pmbus_stc_t *inst)
+{
+    uint8_t tmp1[1] = { 0x00u };
+    uint8_t tmp2[2];
+
+    store_le16(tmp2, current_status_word());
+    mtb_pmbus_cmd_update_data_isr(inst, CMD_STATUS_WORD, tmp2, sizeof(tmp2));
+    mtb_pmbus_cmd_update_data_isr(inst, CMD_STATUS_VOUT, tmp1, sizeof(tmp1));
+    mtb_pmbus_cmd_update_data_isr(inst, CMD_STATUS_IOUT, tmp1, sizeof(tmp1));
+    mtb_pmbus_cmd_update_data_isr(inst, CMD_STATUS_TEMPERATURE, tmp1, sizeof(tmp1));
+}
 
 /**
  * @brief Update all simulated PMBus registers using the middleware API.
@@ -208,20 +256,7 @@ static void update_simulated_registers(mtb_pmbus_stc_t *inst)
     mtb_pmbus_cmd_update_data(inst, CMD_READ_POUT, tmp2, sizeof(tmp2));
 
     /* Status registers — derived from latched fault state (D2c-2) */
-    {
-        uint16_t status_word = 0x0000u;
-        if (s_fault_latched)
-        {
-            status_word = 0x0002u;  /* bit 1 = CML fault */
-        }
-        store_le16(tmp2, status_word);
-        mtb_pmbus_cmd_update_data(inst, CMD_STATUS_WORD, tmp2, sizeof(tmp2));
-    }
-
-    tmp1[0] = 0x00u;
-    mtb_pmbus_cmd_update_data(inst, CMD_STATUS_VOUT, tmp1, sizeof(tmp1));
-    mtb_pmbus_cmd_update_data(inst, CMD_STATUS_IOUT, tmp1, sizeof(tmp1));
-    mtb_pmbus_cmd_update_data(inst, CMD_STATUS_TEMPERATURE, tmp1, sizeof(tmp1));
+    update_status_registers(inst);
 }
 
 /*******************************************************************************
@@ -279,8 +314,8 @@ static bool cmd_telemetry_callback(mtb_pmbus_cmd_events_t event,
  * @brief CLEAR_FAULTS callback — clears the latched CML fault and SMBALERT.
  *
  * Called from ISR context when the master sends CLEAR_FAULTS (0x03).
- * Only lightweight flag operations here; the SMBALERT line will be
- * released by the middleware in AUTO mode or on the next register update.
+ * Use ISR-safe middleware helpers so the line and STATUS_WORD are cleared
+ * immediately, without waiting for the next main-loop refresh.
  */
 static bool cmd_clear_faults_callback(mtb_pmbus_cmd_events_t event,
                                       int32_t page, int32_t phase,
@@ -294,6 +329,10 @@ static bool cmd_clear_faults_callback(mtb_pmbus_cmd_events_t event,
     {
         s_fault_latched  = false;
         s_alert_asserted = false;
+#if MTB_PMBUS_SUPPORT_SMBALERT
+        mtb_pmbus_smbalert_clear_signal(&pmbus_inst);
+#endif
+        update_status_registers_isr(&pmbus_inst);
     }
     return true;
 }
@@ -457,9 +496,6 @@ static mtb_pmbus_stc_config_cmd_t cmd_table[PMBUS_CMD_TABLE_SIZE] =
 
 /** @brief I2C PDL context required by the mtb-pmbus HAL layer. */
 static cy_stc_scb_i2c_context_t i2c_pdl_context;
-
-/** @brief PMBus middleware instance — holds all runtime state. */
-static mtb_pmbus_stc_t pmbus_inst;
 
 /** @brief Size of the I2C slave read buffer for PMBus middleware internal use. */
 #define PMBUS_READ_BUF_SIZE     (4U)
@@ -792,6 +828,7 @@ int main(void)
                 s_fault_latched  = true;
                 s_alert_asserted = true;
                 mtb_pmbus_smbalert_set_signal(&pmbus_inst);
+                update_status_registers(&pmbus_inst);
                 printf("[TARGET] SMBALERT asserted (CML fault simulated)\r\n");
             }
             else if (ch == (uint32_t)'c' || ch == (uint32_t)'C')
@@ -799,6 +836,7 @@ int main(void)
                 s_fault_latched  = false;
                 s_alert_asserted = false;
                 mtb_pmbus_smbalert_clear_signal(&pmbus_inst);
+                update_status_registers(&pmbus_inst);
                 printf("[TARGET] SMBALERT cleared\r\n");
             }
         }

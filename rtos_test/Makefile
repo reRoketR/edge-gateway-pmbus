@@ -230,6 +230,9 @@ test:
 	$(TEST_CC) $(TEST_CFLAGS) -o test_profile_default$(TEST_EXEEXT) \
 		tests/test_profile_default.c source/gateway_config.c \
 		&& $(TEST_RUN)test_profile_default$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_profile_hil_smbalert$(TEST_EXEEXT) \
+		tests/test_profile_hil_smbalert.c \
+		&& $(TEST_RUN)test_profile_hil_smbalert$(TEST_EXEEXT)
 	$(TEST_CC) $(TEST_CFLAGS) -DPMBUS_TEST_HOOKS -o test_i2c_recovery$(TEST_EXEEXT) \
 		tests/test_i2c_recovery.c tests/stubs/i2c_mock.c source/pmbus_master.c \
 		&& $(TEST_RUN)test_i2c_recovery$(TEST_EXEEXT)
