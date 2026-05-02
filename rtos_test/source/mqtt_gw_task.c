@@ -53,6 +53,7 @@
 #include "buffer_mgr.h"
 #include "persistent_buffer.h"
 #include "buffer_flush.h"
+#include "cmd_handler.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -97,6 +98,20 @@ static uint8_t *s_mqtt_net_buf = NULL;
 /** Reusable buffers (only used inside this task — no mutex needed) */
 static char s_metrics_json_buf[METRICS_JSON_BUF_SIZE];
 static char s_topic_buf[TOPIC_BUF_SIZE];
+
+/** JSON buffer for command responses */
+#define CMD_JSON_BUF_SIZE   384u
+static char s_cmd_json_buf[CMD_JSON_BUF_SIZE];
+
+/** Pending response slot: holds one response awaiting retry after publish failure */
+static bool           s_cmd_pending_valid = false;
+static cmd_response_t s_cmd_pending_resp;
+
+/** True when the cmd/request topic is successfully subscribed */
+static bool s_cmd_subscribed = false;
+
+/** Subscribed cmd topic string (for callback topic matching) */
+static char s_cmd_topic[TOPIC_BUF_SIZE];
 
 /** Backoff state */
 static uint32_t s_backoff_ms;
@@ -149,6 +164,10 @@ static inline bool publish_buffered_json(const char *topic, const char *payload,
 }
 static void backoff_reset(void);
 static void backoff_wait(void);
+static bool mqtt_subscribe_cmd_topic(void);
+static void process_cmd_raw_queue(void);
+static void process_cmd_response_queue(void);
+static bool publish_cmd_response(const cmd_response_t *resp);
 
 /** Volatile flag set from callback context, handled in main task loop. */
 static volatile bool s_disconnect_pending = false;
@@ -167,6 +186,8 @@ void mqtt_gw_task(void *pvParameters)
 
     s_mqtt_task_handle = xTaskGetCurrentTaskHandle();
     buffer_mgr_register_flush_task(s_mqtt_task_handle);
+    gateway_ipc_register_mqtt_task(s_mqtt_task_handle);
+    cmd_handler_init();
 
     /* ---- Wi-Fi ---- */
     cy_wcm_config_t wcm_cfg = { .interface = CY_WCM_INTERFACE_TYPE_STA };
@@ -224,6 +245,10 @@ void mqtt_gw_task(void *pvParameters)
         /* Connected! */
         gateway_ipc_set_mqtt_online(true);
         gateway_ipc_post_event(EVT_MQTT_CONNECTED, g_config.mqtt.host);
+        if (!mqtt_subscribe_cmd_topic())
+        {
+            gateway_ipc_post_event(EVT_CMD_SUBSCRIBE_FAIL, "cmd_subscribe_fail");
+        }
         backoff_reset();
         break;
     }
@@ -256,6 +281,7 @@ void mqtt_gw_task(void *pvParameters)
 
                 gateway_ipc_set_mqtt_online(false);
                 gateway_ipc_post_event(EVT_MQTT_DISCONNECTED, detail);
+                s_cmd_subscribed = false;
             }
         }
 
@@ -286,6 +312,10 @@ void mqtt_gw_task(void *pvParameters)
             {
                 gateway_ipc_set_mqtt_online(true);
                 gateway_ipc_post_event(EVT_MQTT_CONNECTED, g_config.mqtt.host);
+                if (!mqtt_subscribe_cmd_topic())
+                {
+                    gateway_ipc_post_event(EVT_CMD_SUBSCRIBE_FAIL, "cmd_subscribe_fail");
+                }
                 metrics_inc_mqtt_reconnects();
                 backoff_reset();
             }
@@ -303,6 +333,13 @@ void mqtt_gw_task(void *pvParameters)
 
         /* Metrics (opportunistic: only when publish path is idle) */
         maybe_publish_metrics(flushed);
+
+        /* --- Command path: responses then raw requests --- */
+        process_cmd_response_queue();
+        if (!s_cmd_pending_valid && s_cmd_subscribed)
+        {
+            process_cmd_raw_queue();
+        }
 
         if (g_config.buffer.flush_batch_size > 0u &&
             flushed == g_config.buffer.flush_batch_size)
@@ -489,8 +526,38 @@ static void mqtt_event_cb(cy_mqtt_t handle, cy_mqtt_event_t event,
             break;
 
         case CY_MQTT_EVENT_TYPE_SUBSCRIPTION_MESSAGE_RECEIVE:
-            /* Gateway is publish-only in MVP; ignore incoming messages */
+        {
+            /* Copy raw payload into cmd_raw_queue for processing
+             * in the main task loop (no MQTT API calls allowed here). */
+            cy_mqtt_received_msg_info_t *msg =
+                &event.data.pub_msg.received_message;
+
+            /* Only route messages from the cmd/request topic */
+            if (msg->topic == NULL || msg->topic_len == 0 ||
+                msg->topic_len != (uint16_t)strlen(s_cmd_topic) ||
+                memcmp(msg->topic, s_cmd_topic, msg->topic_len) != 0)
+            {
+                break;  /* Not our topic — ignore */
+            }
+
+            if (msg->payload_len > 0 &&
+                msg->payload_len <= CMD_RAW_PAYLOAD_MAX - 1u)
+            {
+                cmd_raw_t raw;
+                memcpy(raw.payload, msg->payload,
+                       msg->payload_len);
+                raw.payload[msg->payload_len] = '\0';
+                raw.payload_len = (uint16_t)msg->payload_len;
+
+                if (xQueueSend(gateway_ipc_cmd_raw_queue(),
+                               &raw, 0) == pdTRUE)
+                {
+                    gateway_ipc_notify_mqtt_task();
+                }
+                /* else: queue full — drop silently */
+            }
             break;
+        }
 
         default:
             break;
@@ -790,4 +857,214 @@ static void backoff_wait(void)
     }
 }
 
+/*******************************************************************************
+ * Command path: subscribe
+ ******************************************************************************/
+static bool mqtt_subscribe_cmd_topic(void)
+{
+    char topic[TOPIC_BUF_SIZE];
+    snprintf(topic, sizeof(topic), "%s/cmd/request", g_config.mqtt.base_topic);
+
+    /* Store for callback topic matching */
+    strncpy(s_cmd_topic, topic, sizeof(s_cmd_topic) - 1u);
+    s_cmd_topic[sizeof(s_cmd_topic) - 1u] = '\0';
+
+    cy_mqtt_subscribe_info_t sub = {
+        .qos        = (cy_mqtt_qos_t)g_config.mqtt.qos_control,
+        .topic      = topic,
+        .topic_len  = (uint16_t)strlen(topic),
+    };
+
+    cy_rslt_t res = cy_mqtt_subscribe(mqtt_connection, &sub, 1u);
+    if (res != CY_RSLT_SUCCESS)
+    {
+        printf("[MQTT] WARN: subscribe to %s failed (0x%lX)\n",
+               topic, (unsigned long)res);
+        return false;
+    }
+
+    printf("[MQTT] Subscribed to %s\n", topic);
+    s_cmd_subscribed = true;
+    return true;
+}
+
+/*******************************************************************************
+ * Command path: publish a response
+ ******************************************************************************/
+static bool publish_cmd_response(const cmd_response_t *resp)
+{
+    if (resp == NULL) return false;
+
+    int len = cmd_handler_encode_response(resp, s_cmd_json_buf,
+                                          CMD_JSON_BUF_SIZE);
+    if (len < 0)
+    {
+        printf("[MQTT] WARN: cmd response encode failed for id=%s\n",
+               resp->id);
+        return false;
+    }
+
+    char topic[TOPIC_BUF_SIZE];
+    snprintf(topic, sizeof(topic), "%s/cmd/response",
+             g_config.mqtt.base_topic);
+
+    return publish_control_json(topic, s_cmd_json_buf, (size_t)len);
+}
+
+/*******************************************************************************
+ * Command path: drain response queue + pending retry
+ ******************************************************************************/
+static void process_cmd_response_queue(void)
+{
+    /* 1. Try pending response first (from previous publish failure) */
+    if (s_cmd_pending_valid)
+    {
+        if (publish_cmd_response(&s_cmd_pending_resp))
+        {
+            cmd_inflight_remove(s_cmd_pending_resp.id);
+            cmd_cache_put(&s_cmd_pending_resp);
+            s_cmd_pending_valid = false;
+        }
+        else
+        {
+            /* Still can't publish — don't drain new responses */
+            return;
+        }
+    }
+
+    /* 2. Drain cmd_response_queue */
+    cmd_response_t resp;
+    while (xQueueReceive(gateway_ipc_cmd_response_queue(), &resp, 0)
+           == pdTRUE)
+    {
+        if (publish_cmd_response(&resp))
+        {
+            cmd_inflight_remove(resp.id);
+            cmd_cache_put(&resp);
+        }
+        else
+        {
+            /* Publish failed — park in pending slot, stop draining */
+            s_cmd_pending_resp  = resp;
+            s_cmd_pending_valid = true;
+            return;
+        }
+    }
+}
+
+/*******************************************************************************
+ * Command path: drain raw queue, parse, dedupe, enqueue requests
+ ******************************************************************************/
+static void process_cmd_raw_queue(void)
+{
+    cmd_raw_t raw;
+
+    while (xQueueReceive(gateway_ipc_cmd_raw_queue(), &raw, 0) == pdTRUE)
+    {
+        cmd_request_t req;
+        char id[CMD_ID_MAX];
+
+        cmd_parse_result_t pr = cmd_handler_parse(&raw, &req, id);
+
+        /* --- Drop: no recoverable ID --- */
+        if (pr == CMD_PARSE_BAD_JSON)
+        {
+            printf("[MQTT] WARN: cmd bad JSON, no id — dropped\n");
+            continue;
+        }
+
+        /* --- Error response with recovered ID --- */
+        if (pr == CMD_PARSE_BAD_JSON_WITH_ID ||
+            pr == CMD_PARSE_BAD_REQUEST ||
+            pr == CMD_PARSE_UNSUPPORTED)
+        {
+            cmd_status_t st;
+            switch (pr)
+            {
+                case CMD_PARSE_BAD_JSON_WITH_ID: st = CMD_STATUS_BAD_JSON;    break;
+                case CMD_PARSE_BAD_REQUEST:      st = CMD_STATUS_BAD_REQUEST; break;
+                case CMD_PARSE_UNSUPPORTED:       st = CMD_STATUS_UNSUPPORTED; break;
+                default:                          st = CMD_STATUS_BAD_REQUEST; break;
+            }
+
+            cmd_response_t err_resp;
+            cmd_handler_build_error(&err_resp, id, req.addr_7bit, st);
+
+            if (publish_cmd_response(&err_resp))
+            {
+                cmd_cache_put(&err_resp);
+            }
+            else
+            {
+                /* Park in pending slot — will be retried next loop */
+                s_cmd_pending_resp  = err_resp;
+                s_cmd_pending_valid = true;
+                return;
+            }
+            continue;
+        }
+
+        /* --- CMD_PARSE_OK: valid request --- */
+
+        /* Check dedupe cache first */
+        cmd_response_t cached;
+        if (cmd_cache_lookup(req.id, &cached))
+        {
+            (void)publish_cmd_response(&cached);
+            /* Cache hit: response already cached, no pending slot needed
+             * — loss on publish fail is acceptable (QoS1 client retries). */
+            continue;
+        }
+
+        /* Check if already in-flight */
+        if (cmd_inflight_check(req.id))
+        {
+            continue;  /* suppress duplicate */
+        }
+
+        /* Reserve in-flight slot first (backpressure if tracker full) */
+        if (!cmd_inflight_add(req.id))
+        {
+            cmd_response_t busy_resp;
+            cmd_handler_build_error(&busy_resp, req.id, req.addr_7bit,
+                                   CMD_STATUS_QUEUE_FULL);
+
+            if (publish_cmd_response(&busy_resp))
+            {
+                cmd_cache_put(&busy_resp);
+            }
+            else
+            {
+                s_cmd_pending_resp  = busy_resp;
+                s_cmd_pending_valid = true;
+                return;
+            }
+            continue;
+        }
+
+        /* Enqueue to request queue for poll task execution */
+        if (xQueueSend(gateway_ipc_cmd_request_queue(), &req, 0) != pdTRUE)
+        {
+            /* Queue full — undo in-flight reservation and respond */
+            cmd_inflight_remove(req.id);
+
+            cmd_response_t full_resp;
+            cmd_handler_build_error(&full_resp, req.id, req.addr_7bit,
+                                   CMD_STATUS_QUEUE_FULL);
+
+            if (publish_cmd_response(&full_resp))
+            {
+                cmd_cache_put(&full_resp);
+            }
+            else
+            {
+                s_cmd_pending_resp  = full_resp;
+                s_cmd_pending_valid = true;
+                return;
+            }
+        }
+    }
+}
+
 /* [] END OF FILE */
+

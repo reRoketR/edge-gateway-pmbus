@@ -106,6 +106,7 @@ void test_queue_reset_all(void)
  ******************************************************************************/
 
 static TickType_t s_tick = 0u;
+static uint32_t s_notify_count = 0u;
 
 void test_set_tick(TickType_t t)
 {
@@ -125,6 +126,7 @@ TaskHandle_t xTaskGetCurrentTaskHandle(void)
 BaseType_t xTaskNotifyGive(TaskHandle_t task)
 {
     (void)task;
+    s_notify_count++;
     return pdPASS;
 }
 
@@ -169,6 +171,16 @@ bool wallclock_is_synced(void)
 void wallclock_sntp_init(void)
 {
     /* no-op */
+}
+
+uint32_t test_notify_count(void)
+{
+    return s_notify_count;
+}
+
+void test_reset_notify_count(void)
+{
+    s_notify_count = 0u;
 }
 
 /* [] END OF FILE */

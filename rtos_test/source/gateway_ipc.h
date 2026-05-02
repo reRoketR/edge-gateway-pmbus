@@ -31,6 +31,7 @@
 
 #include "telemetry.h"
 #include "events.h"
+#include "cmd_handler.h"
 
 /*******************************************************************************
  * Queue depths (compile-time, tune per available RAM)
@@ -39,6 +40,9 @@
 #define IPC_TELEMETRY_QUEUE_DEPTH   64u
 #define IPC_STATUS_QUEUE_DEPTH      16u
 #define IPC_EVENT_QUEUE_DEPTH       16u
+#define IPC_CMD_RAW_QUEUE_DEPTH     CMD_QUEUE_DEPTH
+#define IPC_CMD_REQUEST_QUEUE_DEPTH CMD_QUEUE_DEPTH
+#define IPC_CMD_RESPONSE_QUEUE_DEPTH CMD_QUEUE_DEPTH
 
 /*******************************************************************************
  * Initialization
@@ -65,6 +69,15 @@ QueueHandle_t gateway_ipc_status_queue(void);
 
 /** Queue of event_record_t items (producer: any task). */
 QueueHandle_t gateway_ipc_event_queue(void);
+
+/** Queue of cmd_raw_t items (producer: MQTT callback). */
+QueueHandle_t gateway_ipc_cmd_raw_queue(void);
+
+/** Queue of cmd_request_t items (producer: MQTT task). */
+QueueHandle_t gateway_ipc_cmd_request_queue(void);
+
+/** Queue of cmd_response_t items (producer: pmbus_poll_task). */
+QueueHandle_t gateway_ipc_cmd_response_queue(void);
 
 /** Current telemetry queue depth (0 if queue is not initialised yet). */
 uint32_t gateway_ipc_telemetry_queue_depth(void);
@@ -154,5 +167,27 @@ bool gateway_ipc_try_post_status(const status_record_t *rec);
  * @param[in] detail  Detail string (truncated to EVT_DETAIL_MAX-1).
  */
 void gateway_ipc_post_event(event_type_t type, const char *detail);
+
+/*******************************************************************************
+ * MQTT task notification (for command response wake-up)
+ ******************************************************************************/
+
+/**
+ * @brief Register the MQTT task handle for notification-based wakeups.
+ *
+ * Called once from mqtt_gw_task at startup.
+ */
+void gateway_ipc_register_mqtt_task(TaskHandle_t handle);
+
+/**
+ * @brief Wake the MQTT task via xTaskNotifyGive.
+ *
+ * Called from:
+ *   - MQTT callback after enqueueing a raw command
+ *   - pmbus_poll_task after enqueueing a command response
+ *
+ * Safe to call when no task is registered (no-op).
+ */
+void gateway_ipc_notify_mqtt_task(void);
 
 /** @} */  /* end of gateway_ipc */

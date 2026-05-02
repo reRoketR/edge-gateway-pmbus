@@ -35,6 +35,7 @@
 #include "wallclock.h"
 #include "emergency_ring.h"
 #include "publish_filter.h"
+#include "cmd_handler.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -341,6 +342,44 @@ void pmbus_poll_task(void *pvParameters)
                         state->next_status_tick = current +
                             pdMS_TO_TICKS(status_period);
                     }
+                }
+            }
+        }
+
+        /* --- Remote command execution (max 1 per iteration) --- */
+        {
+            cmd_request_t cmd;
+            if (xQueueReceive(gateway_ipc_cmd_request_queue(), &cmd, 0)
+                == pdTRUE)
+            {
+                TickType_t t0 = xTaskGetTickCount();
+
+                cmd_response_t resp;
+                memset(&resp, 0, sizeof(resp));
+                strncpy(resp.id, cmd.id, CMD_ID_MAX - 1u);
+                resp.addr_7bit = cmd.addr_7bit;
+
+                pmbus_status_t st = pmbus_generic_transfer(
+                    cmd.addr_7bit,
+                    cmd.write_data, cmd.write_len,
+                    resp.read_data, cmd.read_len,
+                    cmd.pec);
+
+                resp.status   = (uint8_t)st;
+                resp.read_len = (st == PMBUS_OK) ? cmd.read_len : 0u;
+                resp.exec_ms  = (uint16_t)((xTaskGetTickCount() - t0)
+                                           * portTICK_PERIOD_MS);
+
+                if (xQueueSend(gateway_ipc_cmd_response_queue(),
+                               &resp, 0) != pdTRUE)
+                {
+                    printf("[POLL] WARN: cmd response queue full, "
+                           "dropping id=%s\n", resp.id);
+                    cmd_inflight_remove(resp.id);
+                }
+                else
+                {
+                    gateway_ipc_notify_mqtt_task();
                 }
             }
         }

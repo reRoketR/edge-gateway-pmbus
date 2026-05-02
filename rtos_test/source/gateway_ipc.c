@@ -23,12 +23,18 @@
 static QueueHandle_t s_telemetry_q;
 static QueueHandle_t s_status_q;
 static QueueHandle_t s_event_q;
+static QueueHandle_t s_cmd_raw_q;
+static QueueHandle_t s_cmd_request_q;
+static QueueHandle_t s_cmd_response_q;
 
 /** MQTT online flag — volatile for cross-task reads (single writer pattern) */
 static volatile bool s_mqtt_online;
 
 /** Global monotonic sequence counter */
 static volatile uint32_t s_seq_counter;
+
+/** MQTT task handle for notification-based wakeups */
+static TaskHandle_t s_ipc_mqtt_task = NULL;
 
 /*******************************************************************************
  * Initialization
@@ -41,8 +47,16 @@ bool gateway_ipc_init(void)
                                  sizeof(status_record_t));
     s_event_q     = xQueueCreate(IPC_EVENT_QUEUE_DEPTH,
                                  sizeof(event_record_t));
+    s_cmd_raw_q   = xQueueCreate(IPC_CMD_RAW_QUEUE_DEPTH,
+                                 sizeof(cmd_raw_t));
+    s_cmd_request_q  = xQueueCreate(IPC_CMD_REQUEST_QUEUE_DEPTH,
+                                    sizeof(cmd_request_t));
+    s_cmd_response_q = xQueueCreate(IPC_CMD_RESPONSE_QUEUE_DEPTH,
+                                    sizeof(cmd_response_t));
 
-    if (s_telemetry_q == NULL || s_status_q == NULL || s_event_q == NULL)
+    if (s_telemetry_q == NULL || s_status_q == NULL || s_event_q == NULL ||
+        s_cmd_raw_q == NULL || s_cmd_request_q == NULL ||
+        s_cmd_response_q == NULL)
     {
         printf("[IPC] ERROR: Failed to create queues\n");
         return false;
@@ -50,14 +64,15 @@ bool gateway_ipc_init(void)
 
     s_mqtt_online  = false;
     s_seq_counter  = 0u;
+    s_ipc_mqtt_task = NULL;
 
     /* Restore persistent sequence counter from Em_EEPROM A/B banks */
     persistent_seq_init();
     s_seq_counter = persistent_seq_get();
 
-    printf("[IPC] Queues created: telem=%u status=%u event=%u\n",
+    printf("[IPC] Queues created: telem=%u status=%u event=%u cmd_raw=%u\n",
            IPC_TELEMETRY_QUEUE_DEPTH, IPC_STATUS_QUEUE_DEPTH,
-           IPC_EVENT_QUEUE_DEPTH);
+           IPC_EVENT_QUEUE_DEPTH, IPC_CMD_RAW_QUEUE_DEPTH);
     printf("[IPC] Seq restored: %lu  (boot #%lu)\n",
            (unsigned long)s_seq_counter,
            (unsigned long)persistent_seq_get_boot_count());
@@ -71,6 +86,9 @@ bool gateway_ipc_init(void)
 QueueHandle_t gateway_ipc_telemetry_queue(void) { return s_telemetry_q; }
 QueueHandle_t gateway_ipc_status_queue(void)    { return s_status_q;    }
 QueueHandle_t gateway_ipc_event_queue(void)     { return s_event_q;     }
+QueueHandle_t gateway_ipc_cmd_raw_queue(void)      { return s_cmd_raw_q;      }
+QueueHandle_t gateway_ipc_cmd_request_queue(void)  { return s_cmd_request_q;  }
+QueueHandle_t gateway_ipc_cmd_response_queue(void) { return s_cmd_response_q; }
 uint32_t gateway_ipc_telemetry_queue_depth(void)
 {
     return (s_telemetry_q != NULL) ?
@@ -190,6 +208,22 @@ void gateway_ipc_post_event(event_type_t type, const char *detail)
     else
     {
         buffer_mgr_signal_spill_task();
+    }
+}
+
+/*******************************************************************************
+ * MQTT task notification
+ ******************************************************************************/
+void gateway_ipc_register_mqtt_task(TaskHandle_t handle)
+{
+    s_ipc_mqtt_task = handle;
+}
+
+void gateway_ipc_notify_mqtt_task(void)
+{
+    if (s_ipc_mqtt_task != NULL)
+    {
+        (void)xTaskNotifyGive(s_ipc_mqtt_task);
     }
 }
 

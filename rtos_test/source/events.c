@@ -35,6 +35,7 @@ static const char *event_type_names[] = {
     [EVT_I2C_CONTROLLER_RESET]    = "I2C_CONTROLLER_RESET",
     [EVT_SYSTEM_BOOT]             = "SYSTEM_BOOT",
     [EVT_SMBALERT_RECEIVED]      = "SMBALERT_RECEIVED",
+    [EVT_CMD_SUBSCRIBE_FAIL]     = "CMD_SUBSCRIBE_FAIL",
 };
 
 #define NUM_EVENT_TYPES (sizeof(event_type_names) / sizeof(event_type_names[0]))

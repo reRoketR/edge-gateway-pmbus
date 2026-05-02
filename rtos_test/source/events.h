@@ -42,6 +42,7 @@ typedef enum {
     EVT_I2C_CONTROLLER_RESET    = 8,  /**< D1-2: SCB disable/re-enable path */
     EVT_SYSTEM_BOOT              = 9,  /**< Posted once at startup with boot_count */
     EVT_SMBALERT_RECEIVED        = 10, /**< D2c-1: SMBALERT# detected via ARA   */
+    EVT_CMD_SUBSCRIBE_FAIL       = 11, /**< Remote cmd topic subscribe failed   */
 } event_type_t;
 
 /*******************************************************************************

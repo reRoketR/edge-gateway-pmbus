@@ -131,6 +131,41 @@ pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd,
 pmbus_status_t pmbus_send_byte(uint8_t addr_7bit, uint8_t cmd);
 
 /*******************************************************************************
+ * Generic SMBus Transfer (remote command path)
+ ******************************************************************************/
+
+/**
+ * @brief Execute a generic SMBus transfer (write, read, or write-then-read).
+ *
+ * Supports all transfer shapes needed for remote PMBus command execution:
+ *   - write-only:      wr_len > 0, rd_len == 0
+ *   - bare read:        wr_len == 0, rd_len > 0
+ *   - write-then-read: wr_len > 0, rd_len > 0
+ *
+ * PEC handling per SMBus spec:
+ *   - write-only: gateway computes PEC over [addr<<1|W, wr...] and appends it
+ *   - bare read:  gateway reads rd_len+1 bytes, verifies PEC over [addr<<1|R, rd...]
+ *   - write-then-read: no write PEC; reads rd_len+1 bytes, verifies PEC over
+ *     [addr<<1|W, wr..., addr<<1|R, rd...]
+ *
+ * Does NOT increment normal PMBus polling metrics.
+ * Does NOT have a retry loop (single attempt only).
+ *
+ * @param[in]  addr_7bit  7-bit I²C address
+ * @param[in]  wr         Write data (may be NULL if wr_len == 0)
+ * @param[in]  wr_len     Number of bytes to write (0..32)
+ * @param[out] rd         Read buffer (may be NULL if rd_len == 0)
+ * @param[in]  rd_len     Number of bytes to read (0..32)
+ * @param[in]  pec        Enable PEC for this transaction
+ *
+ * @return PMBUS_OK on success, error code otherwise.
+ */
+pmbus_status_t pmbus_generic_transfer(uint8_t addr_7bit,
+                                      const uint8_t *wr, uint8_t wr_len,
+                                      uint8_t *rd, uint8_t rd_len,
+                                      bool pec);
+
+/*******************************************************************************
  * Bus Recovery
  ******************************************************************************/
 

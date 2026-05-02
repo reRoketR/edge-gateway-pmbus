@@ -209,8 +209,12 @@ TEST_CC ?= gcc
 TEST_CFLAGS := -Wall -Wextra -Werror -Itests/stubs -Isource -Isource/profiles
 
 ifeq ($(OS),Windows_NT)
+ifeq ($(MAKECMDGOALS),test)
+SHELL := sh
+.SHELLFLAGS := -c
+endif
 TEST_EXEEXT := .exe
-TEST_RUN :=
+TEST_RUN := ./
 else
 TEST_EXEEXT :=
 TEST_RUN := ./
@@ -218,63 +222,36 @@ endif
 
 .PHONY: test
 test:
-	$(TEST_CC) $(TEST_CFLAGS) -o test_buffer_ring$(TEST_EXEEXT) \
-		tests/test_buffer_ring.c && $(TEST_RUN)test_buffer_ring$(TEST_EXEEXT)
-	$(TEST_CC) $(TEST_CFLAGS) -o test_pmbus_decode$(TEST_EXEEXT) \
-		tests/test_pmbus_decode.c source/pmbus_decode.c -lm \
-		&& $(TEST_RUN)test_pmbus_decode$(TEST_EXEEXT)
-	$(TEST_CC) $(TEST_CFLAGS) -o test_json_encode$(TEST_EXEEXT) \
-		tests/test_json_encode.c source/telemetry.c source/events.c \
-		source/metrics.c source/gateway_config.c source/pmbus_decode.c \
-		source/gw_util.c -lm && $(TEST_RUN)test_json_encode$(TEST_EXEEXT)
-	$(TEST_CC) $(TEST_CFLAGS) -o test_profile_default$(TEST_EXEEXT) \
-		tests/test_profile_default.c source/gateway_config.c \
-		&& $(TEST_RUN)test_profile_default$(TEST_EXEEXT)
-	$(TEST_CC) $(TEST_CFLAGS) -o test_profile_hil_smbalert$(TEST_EXEEXT) \
-		tests/test_profile_hil_smbalert.c \
-		&& $(TEST_RUN)test_profile_hil_smbalert$(TEST_EXEEXT)
-	$(TEST_CC) $(TEST_CFLAGS) -DPMBUS_TEST_HOOKS -o test_i2c_recovery$(TEST_EXEEXT) \
-		tests/test_i2c_recovery.c tests/stubs/i2c_mock.c source/pmbus_master.c \
-		&& $(TEST_RUN)test_i2c_recovery$(TEST_EXEEXT)
-	$(TEST_CC) $(TEST_CFLAGS) -DQSPI_BUF_HOST_TEST -o test_qspi_buffer$(TEST_EXEEXT) \
-		tests/test_qspi_buffer.c tests/stubs/qspi_mock.c source/qspi_buffer.c \
-		&& $(TEST_RUN)test_qspi_buffer$(TEST_EXEEXT)
-	$(TEST_CC) $(TEST_CFLAGS) -o test_flash_buffer_layout$(TEST_EXEEXT) \
-		tests/test_flash_buffer_layout.c && $(TEST_RUN)test_flash_buffer_layout$(TEST_EXEEXT)
-	$(TEST_CC) $(TEST_CFLAGS) -DPERSISTENT_SEQ_HOST_TEST \
-		-o test_persistent_seq$(TEST_EXEEXT) \
-		tests/test_persistent_seq.c tests/stubs/flash_mock.c \
-		source/persistent_seq.c \
-		&& $(TEST_RUN)test_persistent_seq$(TEST_EXEEXT)
-	$(TEST_CC) $(TEST_CFLAGS) -o test_publish_filter$(TEST_EXEEXT) \
-		tests/test_publish_filter.c source/publish_filter.c \
-		source/gateway_config.c \
-		&& $(TEST_RUN)test_publish_filter$(TEST_EXEEXT)
-	$(TEST_CC) $(TEST_CFLAGS) -o test_ara$(TEST_EXEEXT) \
-		tests/test_ara.c tests/stubs/i2c_mock.c source/pmbus_master.c \
-		&& $(TEST_RUN)test_ara$(TEST_EXEEXT)
-	$(TEST_CC) $(TEST_CFLAGS) \
-		-DBUFFER_BACKEND_QSPI -DQSPI_BUF_HOST_TEST \
-		-DBUFFER_MGR_HOST_TEST -DINTEGRATION_TEST \
-		-DPERSISTENT_SEQ_HOST_TEST \
-		-o test_integration_offline$(TEST_EXEEXT) \
-		tests/test_integration_offline.c \
-		tests/stubs/rtos_stubs.c \
-		tests/stubs/qspi_mock.c \
-		tests/stubs/publish_mock.c \
-		tests/stubs/flash_mock.c \
-		source/buffer_flush.c \
-		source/buffer_mgr.c \
-		source/gateway_ipc.c \
-		source/persistent_seq.c \
-		source/emergency_ring.c \
-		source/qspi_buffer.c \
-		source/telemetry.c \
-		source/events.c \
-		source/metrics.c \
-		source/pmbus_decode.c \
-		source/gw_util.c \
-		-lm && $(TEST_RUN)test_integration_offline$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_buffer_ring$(TEST_EXEEXT) tests/test_buffer_ring.c
+	$(TEST_RUN)test_buffer_ring$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_pmbus_decode$(TEST_EXEEXT) tests/test_pmbus_decode.c source/pmbus_decode.c -lm
+	$(TEST_RUN)test_pmbus_decode$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_json_encode$(TEST_EXEEXT) tests/test_json_encode.c source/telemetry.c source/events.c source/metrics.c source/gateway_config.c source/pmbus_decode.c source/gw_util.c -lm
+	$(TEST_RUN)test_json_encode$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_profile_default$(TEST_EXEEXT) tests/test_profile_default.c source/gateway_config.c
+	$(TEST_RUN)test_profile_default$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_profile_hil_smbalert$(TEST_EXEEXT) tests/test_profile_hil_smbalert.c
+	$(TEST_RUN)test_profile_hil_smbalert$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -DPMBUS_TEST_HOOKS -o test_i2c_recovery$(TEST_EXEEXT) tests/test_i2c_recovery.c tests/stubs/i2c_mock.c source/pmbus_master.c
+	$(TEST_RUN)test_i2c_recovery$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -DQSPI_BUF_HOST_TEST -o test_qspi_buffer$(TEST_EXEEXT) tests/test_qspi_buffer.c tests/stubs/qspi_mock.c source/qspi_buffer.c
+	$(TEST_RUN)test_qspi_buffer$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_flash_buffer_layout$(TEST_EXEEXT) tests/test_flash_buffer_layout.c
+	$(TEST_RUN)test_flash_buffer_layout$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -DPERSISTENT_SEQ_HOST_TEST -o test_persistent_seq$(TEST_EXEEXT) tests/test_persistent_seq.c tests/stubs/flash_mock.c source/persistent_seq.c
+	$(TEST_RUN)test_persistent_seq$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_publish_filter$(TEST_EXEEXT) tests/test_publish_filter.c source/publish_filter.c source/gateway_config.c
+	$(TEST_RUN)test_publish_filter$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_ara$(TEST_EXEEXT) tests/test_ara.c tests/stubs/i2c_mock.c source/pmbus_master.c
+	$(TEST_RUN)test_ara$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_cmd_handler$(TEST_EXEEXT) tests/test_cmd_handler.c source/cmd_handler.c source/gateway_config.c
+	$(TEST_RUN)test_cmd_handler$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -DPMBUS_TEST_HOOKS -o test_pmbus_generic_transfer$(TEST_EXEEXT) tests/test_pmbus_generic_transfer.c tests/stubs/i2c_mock.c source/pmbus_master.c
+	$(TEST_RUN)test_pmbus_generic_transfer$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -o test_cmd_pipeline$(TEST_EXEEXT) tests/test_cmd_pipeline.c tests/stubs/rtos_stubs.c source/cmd_handler.c source/gateway_ipc.c
+	$(TEST_RUN)test_cmd_pipeline$(TEST_EXEEXT)
+	$(TEST_CC) $(TEST_CFLAGS) -DBUFFER_BACKEND_QSPI -DQSPI_BUF_HOST_TEST -DBUFFER_MGR_HOST_TEST -DINTEGRATION_TEST -DPERSISTENT_SEQ_HOST_TEST -o test_integration_offline$(TEST_EXEEXT) tests/test_integration_offline.c tests/stubs/rtos_stubs.c tests/stubs/qspi_mock.c tests/stubs/publish_mock.c tests/stubs/flash_mock.c source/buffer_flush.c source/buffer_mgr.c source/gateway_ipc.c source/persistent_seq.c source/emergency_ring.c source/qspi_buffer.c source/telemetry.c source/events.c source/metrics.c source/pmbus_decode.c source/gw_util.c -lm
+	$(TEST_RUN)test_integration_offline$(TEST_EXEEXT)
 	@echo "All host-side tests passed."
 
 # When the goal is only 'test', skip ModusToolbox include entirely

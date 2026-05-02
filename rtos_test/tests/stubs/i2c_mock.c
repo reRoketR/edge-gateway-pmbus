@@ -21,12 +21,20 @@ static TickType_t s_tick_count;
 static TickType_t s_last_delay_ticks;
 static TickType_t s_total_delay_ticks;
 
-/* ARA test state (D2c-1) */
-static uint8_t  s_read_buf[4];
+/* Host-side I2C transaction capture */
+static uint8_t  s_read_buf[64];
 static uint8_t  s_read_buf_len = 0;
+static uint8_t  s_last_write_buf[64];
+static uint32_t s_last_write_len = 0;
+static uint32_t s_last_read_len = 0;
+static uint8_t  s_last_write_slave_addr = 0;
 static uint8_t  s_last_read_slave_addr = 0;
-static bool     s_read_called = false;
+static bool     s_last_write_xfer_pending = false;
+static bool     s_last_read_xfer_pending = false;
+static uint32_t s_read_calls = 0;
 static uint32_t s_i2c_write_calls = 0;
+static cy_en_scb_i2c_status_t s_master_write_result = CY_SCB_I2C_SUCCESS;
+static cy_en_scb_i2c_status_t s_master_read_result = CY_SCB_I2C_SUCCESS;
 
 int mock_pmbus_controller_hw = 0;
 const int PMBUS_CONTROLLER_config = 0;
@@ -44,15 +52,25 @@ void i2c_mock_reset(void)
     s_tick_count = 0u;
     s_last_delay_ticks = 0u;
     s_total_delay_ticks = 0u;
-    /* ARA test state */
+    /* Host-side I2C transaction capture */
     memset(s_read_buf, 0, sizeof(s_read_buf));
     s_read_buf_len = 0u;
+    memset(s_last_write_buf, 0, sizeof(s_last_write_buf));
+    s_last_write_len = 0u;
+    s_last_read_len = 0u;
+    s_last_write_slave_addr = 0u;
     s_last_read_slave_addr = 0u;
-    s_read_called = false;
+    s_last_write_xfer_pending = false;
+    s_last_read_xfer_pending = false;
+    s_read_calls = 0u;
     s_i2c_write_calls = 0u;
+    s_master_write_result = CY_SCB_I2C_SUCCESS;
+    s_master_read_result = CY_SCB_I2C_SUCCESS;
 }
 
 void i2c_mock_set_master_status(uint32_t status) { s_master_status = status; }
+void i2c_mock_set_write_result(cy_en_scb_i2c_status_t status) { s_master_write_result = status; }
+void i2c_mock_set_read_result(cy_en_scb_i2c_status_t status) { s_master_read_result = status; }
 void i2c_mock_set_scl_level(uint32_t level) { s_scl_level = level; }
 void i2c_mock_set_sda_level(uint32_t level) { s_sda_level = level; }
 void i2c_mock_set_scl_hsiom(en_hsiom_sel_t hsiom) { s_scl_hsiom = hsiom; }
@@ -65,7 +83,7 @@ TickType_t i2c_mock_last_delay_ticks(void) { return s_last_delay_ticks; }
 TickType_t i2c_mock_total_delay_ticks(void) { return s_total_delay_ticks; }
 TickType_t i2c_mock_tick_count(void) { return s_tick_count; }
 
-/* ARA test accessors (D2c-1) */
+/* Host-side I2C capture accessors */
 void i2c_mock_set_read_data(const uint8_t *data, uint8_t len)
 {
     if (len > sizeof(s_read_buf)) len = sizeof(s_read_buf);
@@ -73,9 +91,24 @@ void i2c_mock_set_read_data(const uint8_t *data, uint8_t len)
     s_read_buf_len = len;
 }
 
+uint8_t i2c_mock_last_write_slave_addr(void) { return s_last_write_slave_addr; }
 uint8_t i2c_mock_last_read_slave_addr(void) { return s_last_read_slave_addr; }
-bool    i2c_mock_read_was_called(void)      { return s_read_called; }
+bool    i2c_mock_read_was_called(void)      { return s_read_calls > 0u; }
 bool    i2c_mock_i2c_write_was_called_since_reset(void) { return s_i2c_write_calls > 0u; }
+uint32_t i2c_mock_i2c_write_call_count(void) { return s_i2c_write_calls; }
+uint32_t i2c_mock_i2c_read_call_count(void) { return s_read_calls; }
+uint32_t i2c_mock_last_write_len(void) { return s_last_write_len; }
+uint32_t i2c_mock_last_read_len(void) { return s_last_read_len; }
+bool i2c_mock_last_write_xfer_pending(void) { return s_last_write_xfer_pending; }
+bool i2c_mock_last_read_xfer_pending(void) { return s_last_read_xfer_pending; }
+uint8_t i2c_mock_last_write_byte(uint32_t index)
+{
+    if (index >= s_last_write_len)
+    {
+        return 0u;
+    }
+    return s_last_write_buf[index];
+}
 
 TickType_t xTaskGetTickCount(void)
 {
@@ -137,10 +170,21 @@ cy_en_scb_i2c_status_t Cy_SCB_I2C_MasterWrite(
     cy_stc_scb_i2c_context_t *context)
 {
     (void)base;
-    (void)config;
     (void)context;
+
+    s_last_write_slave_addr = (uint8_t)config->slaveAddress;
+    s_last_write_len = config->bufferSize;
+    s_last_write_xfer_pending = config->xferPending;
+    if (s_last_write_len > sizeof(s_last_write_buf))
+    {
+        s_last_write_len = sizeof(s_last_write_buf);
+    }
+    if (config->buffer != NULL && s_last_write_len > 0u)
+    {
+        memcpy(s_last_write_buf, config->buffer, s_last_write_len);
+    }
     s_i2c_write_calls++;
-    return CY_SCB_I2C_SUCCESS;
+    return s_master_write_result;
 }
 
 cy_en_scb_i2c_status_t Cy_SCB_I2C_MasterRead(
@@ -150,8 +194,10 @@ cy_en_scb_i2c_status_t Cy_SCB_I2C_MasterRead(
 {
     (void)base;
     (void)context;
-    s_read_called = true;
+    s_read_calls++;
     s_last_read_slave_addr = (uint8_t)config->slaveAddress;
+    s_last_read_len = config->bufferSize;
+    s_last_read_xfer_pending = config->xferPending;
     /* Copy preloaded data into caller's buffer */
     if (s_read_buf_len > 0u && config->buffer != NULL)
     {
@@ -159,7 +205,7 @@ cy_en_scb_i2c_status_t Cy_SCB_I2C_MasterRead(
         if (copy_len > s_read_buf_len) copy_len = s_read_buf_len;
         memcpy(config->buffer, s_read_buf, copy_len);
     }
-    return CY_SCB_I2C_SUCCESS;
+    return s_master_read_result;
 }
 
 void Cy_SCB_I2C_MasterAbortWrite(void *base, cy_stc_scb_i2c_context_t *context)

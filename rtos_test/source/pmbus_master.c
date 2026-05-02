@@ -1026,6 +1026,202 @@ send_retry:
 }
 
 /*******************************************************************************
+ * Generic SMBus Transfer (remote command path)
+ *
+ * Supports:
+ *   write-only:      [S][addr+W][wr_data...][PEC?][P]
+ *   bare read:        [S][addr+R][rd_data...][PEC?][P]
+ *   write-then-read: [S][addr+W][wr_data...][Sr][addr+R][rd_data...][PEC?][P]
+ *
+ * Single attempt, no retry loop, no polling metrics.
+ ******************************************************************************/
+
+/* Local buffer sizes — must match CMD_MAX_WRITE_LEN / CMD_MAX_READ_LEN
+ * in cmd_handler.h. Duplicated here to avoid circular include. */
+#define GENERIC_XFER_MAX_WR  32u
+#define GENERIC_XFER_MAX_RD  32u
+pmbus_status_t pmbus_generic_transfer(uint8_t addr_7bit,
+                                      const uint8_t *wr, uint8_t wr_len,
+                                      uint8_t *rd, uint8_t rd_len,
+                                      bool pec)
+{
+    if (!pmbus_initialized) return PMBUS_ERR_NOT_INIT;
+
+    /* Validate transfer shape: at least one direction required */
+    if (wr_len == 0 && rd_len == 0) return PMBUS_ERR_ARG;
+    if (wr_len > 0 && wr == NULL)   return PMBUS_ERR_ARG;
+    if (rd_len > 0 && rd == NULL)   return PMBUS_ERR_ARG;
+    if (wr_len > GENERIC_XFER_MAX_WR) return PMBUS_ERR_ARG;
+    if (rd_len > GENERIC_XFER_MAX_RD) return PMBUS_ERR_ARG;
+
+    cy_en_scb_i2c_status_t pdl_st;
+    pmbus_status_t result = PMBUS_ERR_BUS_FAULT;
+
+    wait_for_bus_backoff();
+
+    /* ================================================================
+     * WRITE-ONLY: [S][addr+W][wr_data...][PEC?][P]
+     * ================================================================ */
+    if (wr_len > 0 && rd_len == 0)
+    {
+        uint8_t tx_buf[GENERIC_XFER_MAX_WR + 1u]; /* +1 for PEC */
+        memcpy(tx_buf, wr, wr_len);
+        uint8_t tx_total = wr_len;
+
+        if (pec)
+        {
+            /* PEC over [addr<<1|W, wr_data...] */
+            uint8_t pec_buf[1 + GENERIC_XFER_MAX_WR];
+            pec_buf[0] = (uint8_t)(addr_7bit << 1u) | 0u;
+            memcpy(pec_buf + 1, wr, wr_len);
+            tx_buf[tx_total] = pmbus_crc8(pec_buf, 1u + wr_len);
+            tx_total++;
+        }
+
+        cy_stc_scb_i2c_master_xfer_config_t wr_cfg = {
+            .slaveAddress = addr_7bit,
+            .buffer       = tx_buf,
+            .bufferSize   = tx_total,
+            .xferPending  = false,
+        };
+
+        pdl_st = Cy_SCB_I2C_MasterWrite(PMBUS_CONTROLLER_HW, &wr_cfg,
+                                        &pmbus_i2c_ctx);
+        if (CY_SCB_I2C_SUCCESS != pdl_st)
+        {
+            return map_pdl_status(pdl_st);
+        }
+
+        result = wait_for_completion(pmbus_transaction_timeout_ms);
+        return result;
+    }
+
+    /* ================================================================
+     * BARE READ: [S][addr+R][rd_data...][PEC?][P]
+     * ================================================================ */
+    if (wr_len == 0 && rd_len > 0)
+    {
+        uint8_t actual_rd = pec ? (rd_len + 1u) : rd_len;
+        uint8_t rd_buf[GENERIC_XFER_MAX_RD + 1u]; /* +1 for PEC */
+
+        cy_stc_scb_i2c_master_xfer_config_t rd_cfg = {
+            .slaveAddress = addr_7bit,
+            .buffer       = rd_buf,
+            .bufferSize   = actual_rd,
+            .xferPending  = false,
+        };
+
+        pdl_st = Cy_SCB_I2C_MasterRead(PMBUS_CONTROLLER_HW, &rd_cfg,
+                                       &pmbus_i2c_ctx);
+        if (CY_SCB_I2C_SUCCESS != pdl_st)
+        {
+            return map_pdl_status(pdl_st);
+        }
+
+        result = wait_for_completion(pmbus_transaction_timeout_ms);
+        if (result != PMBUS_OK)
+        {
+            return result;
+        }
+
+        /* PEC verify: CRC over [addr<<1|R, rd_data...] */
+        if (pec)
+        {
+            uint8_t pec_buf[1 + GENERIC_XFER_MAX_RD];
+            pec_buf[0] = (uint8_t)(addr_7bit << 1u) | 1u;
+            memcpy(pec_buf + 1, rd_buf, rd_len);
+            uint8_t computed = pmbus_crc8(pec_buf, 1u + rd_len);
+            if (computed != rd_buf[rd_len])
+            {
+                return PMBUS_ERR_PEC;
+            }
+        }
+
+        memcpy(rd, rd_buf, rd_len);
+        return PMBUS_OK;
+    }
+
+    /* ================================================================
+     * WRITE-THEN-READ: [S][addr+W][wr...][Sr][addr+R][rd...][PEC?][P]
+     * No separate write PEC — single PEC at end of read phase covers
+     * the entire combined transaction.
+     * ================================================================ */
+    {
+        /* Phase 1: Write with xferPending=true (no STOP, repeated start) */
+        uint8_t tx_buf[GENERIC_XFER_MAX_WR];
+        memcpy(tx_buf, wr, wr_len);
+
+        cy_stc_scb_i2c_master_xfer_config_t wr_cfg = {
+            .slaveAddress = addr_7bit,
+            .buffer       = tx_buf,
+            .bufferSize   = wr_len,
+            .xferPending  = true,  /* No STOP — follow with restart */
+        };
+
+        pdl_st = Cy_SCB_I2C_MasterWrite(PMBUS_CONTROLLER_HW, &wr_cfg,
+                                        &pmbus_i2c_ctx);
+        if (CY_SCB_I2C_SUCCESS != pdl_st)
+        {
+            return map_pdl_status(pdl_st);
+        }
+
+        result = wait_for_completion(pmbus_transaction_timeout_ms);
+        if (result != PMBUS_OK)
+        {
+            return result;
+        }
+
+        /* Phase 2: Read rd_len bytes (+ PEC byte if enabled) */
+        uint8_t actual_rd = pec ? (rd_len + 1u) : rd_len;
+        uint8_t rd_buf[GENERIC_XFER_MAX_RD + 1u];
+
+        cy_stc_scb_i2c_master_xfer_config_t rd_cfg = {
+            .slaveAddress = addr_7bit,
+            .buffer       = rd_buf,
+            .bufferSize   = actual_rd,
+            .xferPending  = false,  /* Generate STOP */
+        };
+
+        pdl_st = Cy_SCB_I2C_MasterRead(PMBUS_CONTROLLER_HW, &rd_cfg,
+                                       &pmbus_i2c_ctx);
+        if (CY_SCB_I2C_SUCCESS != pdl_st)
+        {
+            return map_pdl_status(pdl_st);
+        }
+
+        result = wait_for_completion(pmbus_transaction_timeout_ms);
+        if (result != PMBUS_OK)
+        {
+            return result;
+        }
+
+        /* PEC verify: CRC over [addr<<1|W, wr..., addr<<1|R, rd...] */
+        if (pec)
+        {
+            uint8_t pec_buf[1 + GENERIC_XFER_MAX_WR + 1 + GENERIC_XFER_MAX_RD];
+            uint8_t pec_len = 0;
+
+            pec_buf[pec_len++] = (uint8_t)(addr_7bit << 1u) | 0u; /* addr+W */
+            memcpy(pec_buf + pec_len, wr, wr_len);
+            pec_len += wr_len;
+
+            pec_buf[pec_len++] = (uint8_t)(addr_7bit << 1u) | 1u; /* addr+R */
+            memcpy(pec_buf + pec_len, rd_buf, rd_len);
+            pec_len += rd_len;
+
+            uint8_t computed = pmbus_crc8(pec_buf, pec_len);
+            if (computed != rd_buf[rd_len])
+            {
+                return PMBUS_ERR_PEC;
+            }
+        }
+
+        memcpy(rd, rd_buf, rd_len);
+        return PMBUS_OK;
+    }
+}
+
+/*******************************************************************************
  * ARA (Alert Response Address) — D2c-1
  *
  * Wire protocol:
