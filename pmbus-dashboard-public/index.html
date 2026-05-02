@@ -1179,9 +1179,9 @@
               <label>Read Len</label>
               <input id="cmd-custom-len" type="number" min="0" max="32" value="2" placeholder="Bytes" style="width:50px;" />
             </div>
-            <div class="field">
+            <div class="field" id="cmd-vout-exp-field" style="display:none;">
               <label title="Exponent for Linear-16 (e.g. READ_VOUT)">VOUT Exp</label>
-              <input id="cmd-vout-exp" type="number" value="-12" style="width:50px;" />
+              <input id="cmd-vout-exp" type="number" value="-12" min="-16" max="15" style="width:50px;" />
             </div>
             <button class="cmd-send" id="btn-cmd-send" onclick="sendCommand()" disabled>Send</button>
           </div>
@@ -2018,11 +2018,14 @@
     // ══════════════════════════════════════════════════════════════════════
     const _pendingCmds = {};  // request_id → { el, timer }
 
-    // Show/hide custom hex code and length fields
+    // Show/hide custom hex code, length fields, and VOUT exp
     document.getElementById('cmd-select').addEventListener('change', e => {
-      const isCustom = e.target.value === 'custom';
+      const val = e.target.value;
+      const isCustom = val === 'custom';
+      const isVout = val === '0x8B' || isCustom;
       document.getElementById('cmd-custom-field').style.display = isCustom ? '' : 'none';
       document.getElementById('cmd-custom-len-field').style.display = isCustom ? '' : 'none';
+      document.getElementById('cmd-vout-exp-field').style.display = isVout ? '' : 'none';
     });
 
     function sendCommand() {
