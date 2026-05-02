@@ -2071,7 +2071,7 @@
       };
 
       const gw = document.getElementById('inp-gw').value.trim() || 'gw01';
-      const topic = `${g_config?.mqtt?.base_topic || 'pmbus/' + gw}/cmd/request`;
+      const topic = `pmbus/${gw}/cmd/request`;
       const msg = new Paho.Message(JSON.stringify(payload));
       msg.destinationName = topic;
       msg.qos = 1;
