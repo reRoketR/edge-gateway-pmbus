@@ -22,19 +22,39 @@ def on_message(client, userdata, msg):
             req = json.loads(msg.payload.decode())
             print(f"Received command: {req}")
             
+            # Extract fields from new schema
+            req_id = req.get("id", "unknown")
+            addr = req.get("addr", 0)
+            wr = req.get("wr", [])
+            rd_len = req.get("rd_len", 0)
+            
             # mock response
             res = {
-                "request_id": req.get("request_id"),
-                "status": "ok",
-                "value": 12.0 + random.random(),
-                "unit": "V",
-                "raw": "0x0000"
+                "id": req_id,
+                "addr": addr,
+                "status": "OK",
+                "data": [],
+                "exec_ms": random.randint(2, 8)
             }
-            if req.get("register") == "0xFF":
-                res["status"] = "error"
-                
+            
+            if wr and len(wr) > 0 and wr[0] == 0xFF:
+                res["status"] = "I2C_NACK"
+            else:
+                # Generate mock data if read requested
+                if rd_len > 0:
+                    if wr and len(wr) > 0:
+                        cmd = wr[0]
+                        if cmd == 0x88: # READ_VIN
+                            res["data"] = [0x00, 0x18] # dummy bytes
+                        elif cmd == 0x8B: # READ_VOUT
+                            res["data"] = [0x50, 0x10] # dummy bytes
+                        else:
+                            res["data"] = [random.randint(0, 255) for _ in range(rd_len)]
+                    else:
+                        res["data"] = [random.randint(0, 255) for _ in range(rd_len)]
+
             client.publish(f"pmbus/{GW_ID}/cmd/response", json.dumps(res))
-            print("-> Sent response")
+            print(f"-> Sent response: {res}")
         except Exception as e:
             print(f"Error parsing command: {e}")
 

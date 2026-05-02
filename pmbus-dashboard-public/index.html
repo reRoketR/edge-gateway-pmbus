@@ -1175,6 +1175,14 @@
               <label>Hex Code</label>
               <input id="cmd-custom-code" placeholder="0xNN" />
             </div>
+            <div class="field" id="cmd-custom-len-field" style="display:none;">
+              <label>Read Len</label>
+              <input id="cmd-custom-len" type="number" min="0" max="32" value="2" placeholder="Bytes" style="width:50px;" />
+            </div>
+            <div class="field">
+              <label title="Exponent for Linear-16 (e.g. READ_VOUT)">VOUT Exp</label>
+              <input id="cmd-vout-exp" type="number" value="-12" style="width:50px;" />
+            </div>
             <button class="cmd-send" id="btn-cmd-send" onclick="sendCommand()" disabled>Send</button>
           </div>
           <div class="cmd-log" id="cmd-log">
@@ -2010,39 +2018,57 @@
     // ══════════════════════════════════════════════════════════════════════
     const _pendingCmds = {};  // request_id → { el, timer }
 
-    // Show/hide custom hex code field
+    // Show/hide custom hex code and length fields
     document.getElementById('cmd-select').addEventListener('change', e => {
-      document.getElementById('cmd-custom-field').style.display =
-        e.target.value === 'custom' ? '' : 'none';
+      const isCustom = e.target.value === 'custom';
+      document.getElementById('cmd-custom-field').style.display = isCustom ? '' : 'none';
+      document.getElementById('cmd-custom-len-field').style.display = isCustom ? '' : 'none';
     });
 
     function sendCommand() {
       if (!client || !client.isConnected()) { alert('Not connected to broker.'); return; }
 
       const sel = document.getElementById('cmd-select');
-      const addrVal = document.getElementById('cmd-addr').value.trim();
-      let register = sel.value;
-      let format = sel.selectedOptions[0]?.dataset?.fmt || 'none';
+      const addrStr = document.getElementById('cmd-addr').value.trim();
+      const addrVal = parseInt(addrStr, 16);
+      if (isNaN(addrVal) || addrVal < 0 || addrVal > 127) {
+        alert('Invalid I2C address (0-127 or 0x00-0x7F).'); return;
+      }
 
-      if (register === 'custom') {
-        register = document.getElementById('cmd-custom-code').value.trim();
+      let registerHex = sel.value;
+      let format = sel.selectedOptions[0]?.dataset?.fmt || 'none';
+      let wrArray = [];
+      let rdLen = 2; // Default for reads
+
+      if (registerHex === 'custom') {
+        registerHex = document.getElementById('cmd-custom-code').value.trim();
         format = 'raw';
-        if (!register) { alert('Enter a hex command code.'); return; }
+        rdLen = parseInt(document.getElementById('cmd-custom-len').value, 10) || 0;
+        if (!registerHex) { alert('Enter a hex command code.'); return; }
+        // Parse comma-separated or space-separated hex bytes (e.g. "0x01, 0x02")
+        const bytes = registerHex.split(/[\s,]+/).map(s => parseInt(s, 16));
+        if (bytes.some(isNaN)) { alert('Invalid custom hex data.'); return; }
+        wrArray = bytes;
+      } else {
+        const cmdCode = parseInt(registerHex, 16);
+        wrArray = [cmdCode];
+        if (cmdCode === 0x03) { // CLEAR_FAULTS is write-only
+          rdLen = 0;
+        }
       }
 
       const requestId = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      const cmdType = register === '0x03' ? 'pmbus_write' : 'pmbus_read';
 
       const payload = {
-        cmd: cmdType,
-        device: addrVal,
-        register: register,
-        format: format,
-        request_id: requestId,
+        id: requestId,
+        addr: addrVal,
+        wr: wrArray,
+        rd_len: rdLen,
+        pec: true
       };
 
       const gw = document.getElementById('inp-gw').value.trim() || 'gw01';
-      const topic = `pmbus/${gw}/cmd/request`;
+      const topic = `${g_config?.mqtt?.base_topic || 'pmbus/' + gw}/cmd/request`;
       const msg = new Paho.Message(JSON.stringify(payload));
       msg.destinationName = topic;
       msg.qos = 1;
@@ -2057,7 +2083,9 @@
       entry.className = 'cmd-log-entry';
       entry.id = 'cmd-' + requestId;
       const tsStr = new Date().toLocaleTimeString(undefined, { hour12: false });
-      entry.innerHTML = `<span class="cmd-dir sent">▶ SENT</span> ${sel.value === 'custom' ? register : sel.selectedOptions[0]?.textContent} → ${addrVal}<span class="cmd-ts">${tsStr}</span>`;
+      const cmdName = sel.value === 'custom' ? `Custom [${wrArray.map(b=>'0x'+b.toString(16).padStart(2,'0')).join(',')}] rd=${rdLen}` : sel.selectedOptions[0]?.textContent;
+      entry.innerHTML = `<span class="cmd-dir sent">▶ SENT</span> ${cmdName} → ${addrStr}<span class="cmd-ts">${tsStr}</span>`;
+      entry.dataset.format = format; // Store format for response decoding
       log.prepend(entry);
 
       // Timeout after 5s
@@ -2076,18 +2104,56 @@
       while (log.children.length > 20) log.removeChild(log.lastChild);
     }
 
+    function decodeLinear11(word) {
+      // Linear 11: Y = 11-bit mantissa (two's complement), N = 5-bit exponent (two's complement)
+      let Y = word & 0x07FF;
+      if (Y & 0x0400) Y = Y - 0x0800; // sign extend 11-bit
+      let N = (word >> 11) & 0x001F;
+      if (N & 0x0010) N = N - 0x0020; // sign extend 5-bit
+      return Y * Math.pow(2, N);
+    }
+
+    function decodeLinear16(word, exp) {
+      // Linear 16: mantissa is full 16-bit word (unsigned for VOUT usually, but can be unsigned/signed depending on mode)
+      // Usually VOUT is unsigned. We'll treat it as unsigned here.
+      return word * Math.pow(2, exp);
+    }
+
     function handleCmdResponse(obj) {
-      const rid = obj.request_id;
+      const rid = obj.id;
       if (!rid || !_pendingCmds[rid]) return;
 
       clearTimeout(_pendingCmds[rid].timer);
       const el = document.getElementById('cmd-' + rid);
       if (el && !el.dataset.resolved) {
-        const statusTxt = obj.status === 'ok' ? '✔ OK' : `✘ ${obj.status || 'ERROR'}`;
+        const statusTxt = obj.status === 'OK' ? '✔ OK' : `✘ ${obj.status || 'ERROR'}`;
         let details = '';
-        if (obj.value != null) details += ` value=${obj.value}`;
-        if (obj.unit) details += ` ${obj.unit}`;
-        if (obj.raw) details += ` raw=${obj.raw}`;
+        
+        if (obj.exec_ms !== undefined) details += ` <span style="color:var(--muted);font-size:9px;">(${obj.exec_ms}ms)</span>`;
+        
+        if (obj.status === 'OK' && obj.data && obj.data.length > 0) {
+          const format = el.dataset.format || 'raw';
+          let word = 0;
+          if (obj.data.length >= 2) {
+             word = (obj.data[1] << 8) | obj.data[0];
+          } else if (obj.data.length === 1) {
+             word = obj.data[0];
+          }
+
+          const rawStr = '0x' + obj.data.map(b => b.toString(16).padStart(2,'0').toUpperCase()).reverse().join('');
+          
+          if (format === 'lin11' && obj.data.length >= 2) {
+            const val = decodeLinear11(word);
+            details += ` value=<b>${val.toFixed(3)}</b> raw=${rawStr}`;
+          } else if (format === 'lin16' && obj.data.length >= 2) {
+            const exp = parseInt(document.getElementById('cmd-vout-exp').value, 10) || -12;
+            const val = decodeLinear16(word, exp);
+            details += ` value=<b>${val.toFixed(3)}</b> raw=${rawStr}`;
+          } else {
+            details += ` raw=<b>${rawStr}</b>`;
+          }
+        }
+        
         el.innerHTML += `<br><span class="cmd-dir recv">${statusTxt}</span>${details}`;
         el.dataset.resolved = '1';
       }
