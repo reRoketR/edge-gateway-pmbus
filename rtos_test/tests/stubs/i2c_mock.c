@@ -220,6 +220,14 @@ void Cy_SCB_I2C_MasterAbortRead(void *base, cy_stc_scb_i2c_context_t *context)
     (void)context;
 }
 
+cy_en_scb_i2c_status_t Cy_SCB_I2C_MasterSendStop(void *base, uint32_t timeoutMs, cy_stc_scb_i2c_context_t *context)
+{
+    (void)base;
+    (void)timeoutMs;
+    (void)context;
+    return CY_SCB_I2C_SUCCESS;
+}
+
 int Cy_SysInt_Init(const cy_stc_sysint_t *cfg, void (*isr)(void))
 {
     (void)cfg;

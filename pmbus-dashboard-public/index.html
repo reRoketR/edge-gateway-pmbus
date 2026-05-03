@@ -1173,7 +1173,7 @@
             </div>
             <div class="field" id="cmd-custom-field" style="display:none;">
               <label>Hex Code</label>
-              <input id="cmd-custom-code" placeholder="0xNN" />
+              <input id="cmd-custom-code" placeholder="0xNN" oninput="this.value = this.value.replace(/[^0-9a-fA-F,xX\\s]/g, '')" />
             </div>
             <div class="field" id="cmd-custom-len-field" style="display:none;">
               <label>Read Len</label>
@@ -2049,8 +2049,13 @@
         rdLen = parseInt(document.getElementById('cmd-custom-len').value, 10) || 0;
         if (!registerHex) { alert('Enter a hex command code.'); return; }
         // Parse comma-separated or space-separated hex bytes (e.g. "0x01, 0x02")
-        const bytes = registerHex.split(/[\s,]+/).map(s => parseInt(s, 16));
-        if (bytes.some(isNaN)) { alert('Invalid custom hex data.'); return; }
+        const parts = registerHex.split(/[\s,]+/).filter(s => s.length > 0);
+        if (parts.length === 0) { alert('Enter valid hex data.'); return; }
+        const bytes = parts.map(s => {
+          if (!/^0x[0-9a-fA-F]+$/i.test(s) && !/^[0-9a-fA-F]+$/i.test(s)) return NaN;
+          return parseInt(s, 16);
+        });
+        if (bytes.some(isNaN)) { alert('Invalid custom hex data. Must be hex (e.g. 0x08).'); return; }
         wrArray = bytes;
       } else {
         const cmdCode = parseInt(registerHex, 16);

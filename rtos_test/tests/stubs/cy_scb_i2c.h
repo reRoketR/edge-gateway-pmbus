@@ -43,6 +43,10 @@ cy_en_scb_i2c_status_t Cy_SCB_I2C_MasterRead(
     void *base,
     cy_stc_scb_i2c_master_xfer_config_t *config,
     cy_stc_scb_i2c_context_t *context);
+cy_en_scb_i2c_status_t Cy_SCB_I2C_MasterSendStop(
+    void *base,
+    uint32_t timeoutMs,
+    cy_stc_scb_i2c_context_t *context);
 void Cy_SCB_I2C_MasterAbortWrite(void *base, cy_stc_scb_i2c_context_t *context);
 void Cy_SCB_I2C_MasterAbortRead(void *base, cy_stc_scb_i2c_context_t *context);
 

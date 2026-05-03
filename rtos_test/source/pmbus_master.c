@@ -711,6 +711,8 @@ pmbus_status_t pmbus_read_word(uint8_t addr_7bit, uint8_t cmd,
         result = wait_for_completion(pmbus_transaction_timeout_ms);
         if (PMBUS_OK != result)
         {
+            /* Explicitly abort to release the bus if Phase 1 failed */
+            (void)Cy_SCB_I2C_MasterSendStop(PMBUS_CONTROLLER_HW, pmbus_transaction_timeout_ms, &pmbus_i2c_ctx);
             scb_status = Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
                                                     &pmbus_i2c_ctx);
             log_i2c_error("read_word", "write-complete",
@@ -860,6 +862,8 @@ pmbus_status_t pmbus_read_byte(uint8_t addr_7bit, uint8_t cmd,
         result = wait_for_completion(pmbus_transaction_timeout_ms);
         if (PMBUS_OK != result)
         {
+            /* Explicitly abort to release the bus if Phase 1 failed */
+            (void)Cy_SCB_I2C_MasterSendStop(PMBUS_CONTROLLER_HW, pmbus_transaction_timeout_ms, &pmbus_i2c_ctx);
             scb_status = Cy_SCB_I2C_MasterGetStatus(PMBUS_CONTROLLER_HW,
                                                     &pmbus_i2c_ctx);
             log_i2c_error("read_byte", "write-complete",
@@ -1168,6 +1172,8 @@ pmbus_status_t pmbus_generic_transfer(uint8_t addr_7bit,
         result = wait_for_completion(pmbus_transaction_timeout_ms);
         if (result != PMBUS_OK)
         {
+            /* Explicitly abort to release the bus if Phase 1 failed */
+            (void)Cy_SCB_I2C_MasterSendStop(PMBUS_CONTROLLER_HW, pmbus_transaction_timeout_ms, &pmbus_i2c_ctx);
             return result;
         }
 
