@@ -1,6 +1,13 @@
+# Historical Implementation Guide
+
+This file is the original implementation guide and is not the current source of
+truth. Some scope statements, including the original 1-2 target wording, are
+outdated. Use `README.md`, `docs/architecture.md`, `docs/mqtt_topics.md`, and
+the source under `rtos_test/source/` for the current implementation.
+
 # agent.md — PMBus↔MQTT Edge Gateway (CY8CKIT-062S2-43012) — implementation guide for Copilot
 
-> **Goal (MVP):** Build a Wi‑Fi edge gateway on **CY8CKIT-062S2-43012** that polls **1–2 PMBus/SMBus targets (PSC3M5)** and publishes **telemetry + status + metrics + events** to an MQTT broker. Include **store‑and‑forward** buffering for offline periods and produce **4 reproducible experiments** for the thesis defense.
+> **Goal (MVP):** Build a Wi‑Fi edge gateway on **CY8CKIT-062S2-43012** that polls configured **PMBus/SMBus targets (PSC3M5)** and publishes **telemetry + status + metrics + events** to an MQTT broker. Include **store‑and‑forward** buffering for offline periods and produce reproducible experiments for the thesis defense.
 
 ---
 

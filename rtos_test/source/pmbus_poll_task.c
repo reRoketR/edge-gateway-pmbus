@@ -63,9 +63,6 @@ static volatile bool s_smbalert_pending = false;
 /** Base tick interval: the task wakes this often to check deadlines. */
 #define POLL_TICK_MS    10u
 
-/** Maximum number of devices we support (avoids VLA) */
-#define MAX_DEVICES     4u
-
 /** After this many consecutive failures, slow the poll period for the device */
 #define OFFLINE_FAIL_THRESHOLD    3u
 
@@ -103,7 +100,8 @@ typedef struct {
     status_filter_state_t status_fs;
 } device_state_t;
 
-static device_state_t s_dev_state[MAX_DEVICES];
+/** Per-device runtime state, allocated for the active profile's device count. */
+static device_state_t *s_dev_state = NULL;
 
 /*******************************************************************************
  * Forward declarations
@@ -190,7 +188,21 @@ void pmbus_poll_task(void *pvParameters)
 
     /* --- Initialise per-device state --- */
     uint8_t num_dev = g_config.num_devices;
-    if (num_dev > MAX_DEVICES) num_dev = MAX_DEVICES;
+    if ((num_dev == 0u) || (g_config.devices == NULL))
+    {
+        printf("[POLL] No PMBus devices configured. Task will idle.\n");
+        for (;;) vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+
+    s_dev_state = (device_state_t *)pvPortMalloc(
+        (size_t)num_dev * sizeof(device_state_t));
+    if (s_dev_state == NULL)
+    {
+        printf("[POLL] ERROR: failed to allocate state for %u device(s). "
+               "Task will idle.\n", (unsigned)num_dev);
+        for (;;) vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+    memset(s_dev_state, 0, (size_t)num_dev * sizeof(device_state_t));
 
     TickType_t now = xTaskGetTickCount();
 
@@ -708,6 +720,7 @@ static void poll_telemetry(const device_cfg_t *dev, device_state_t *state)
     }
 
 telemetry_done:
+    ;
     TickType_t t_end = xTaskGetTickCount();
     uint32_t read_ms = (uint32_t)(t_end - t_start) * portTICK_PERIOD_MS;
 

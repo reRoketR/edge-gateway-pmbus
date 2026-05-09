@@ -26,6 +26,7 @@ The active runtime is always-buffered:
 pmbus_poll_task -> gateway_ipc queues/rescue rings
 buffer_task     -> JSON encode -> buffer_mgr
 mqtt_gw_task    -> flush persistent tier -> flush RAM tier -> publish
+mqtt_gw_task    -> cmd/request subscribe -> cmd/response publish
 ```
 
 ## Module Reference
@@ -37,6 +38,7 @@ mqtt_gw_task    -> flush persistent tier -> flush RAM tier -> publish
 - @ref pmbus_poll_task - Task A: periodic PMBus polling
 - @ref buffer_mgr - Task C: store-and-forward buffering
 - @ref mqtt_gw_task - Task B: Wi-Fi/MQTT connection and publish
+- @ref cmd_handler - MQTT command parse, dedupe, response encoding
 - @ref telemetry - telemetry/status structures and JSON encoding
 - @ref metrics - counters, gauges, timing, and JSON encoding
 - @ref events - event records and JSON encoding
@@ -58,6 +60,11 @@ Current profiles:
 - `exp3_offline` - offline buffering experiments
 - `exp4_pec_off` - PEC disabled comparison
 - `raw` - low-level capture/debug
+
+Profiles declare a `devices[]` array and `num_devices`. The polling task
+allocates runtime state for the configured entries at startup, so firmware
+scaling is constrained by SMBus timing, queue/buffer sizing, and heap capacity
+rather than a fixed four-device cap.
 
 ## Building
 

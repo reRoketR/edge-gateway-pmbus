@@ -142,6 +142,15 @@ void vTaskDelay(TickType_t ticks)
     (void)ticks;
 }
 
+void vTaskDelayUntil(TickType_t *previous_wake_time, TickType_t time_increment)
+{
+    if (previous_wake_time != NULL)
+    {
+        *previous_wake_time += time_increment;
+        s_tick = *previous_wake_time;
+    }
+}
+
 int xTaskGetSchedulerState(void)
 {
     return taskSCHEDULER_RUNNING;

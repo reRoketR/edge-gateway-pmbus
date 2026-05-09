@@ -105,7 +105,11 @@ typedef struct {
 
     /* ---- Device list ---- */
     const device_cfg_t *devices;    /**< Array of target devices             */
-    uint8_t  num_devices;           /**< Number of entries in devices[]      */
+    uint8_t  num_devices;           /**< Number of entries in devices[].
+                                         Polling state is allocated per entry;
+                                         practical scale is bounded by bus
+                                         timing, queues, and heap, not by a
+                                         fixed firmware device cap.            */
 
     /* ---- Metrics ---- */
     uint32_t metrics_period_ms;     /**< Metrics publish interval (ms)       */

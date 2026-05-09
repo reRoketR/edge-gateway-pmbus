@@ -6,7 +6,7 @@ PMBus->MQTT edge gateway.
 ## 1. Hardware Overview
 
 ```text
-KIT_PSC3M5_EVK (target, addr 0x58)
+KIT_PSC3M5_EVK (target, default addr 0x58)
   SCB0 P9_0/P9_2  ---- I2C/SMBus ----  SCB3 P6_0/P6_1
                                             |
                                             v
@@ -43,7 +43,8 @@ Gateway CYBSP_D7 (P5_7)  ----  Target CYBSP_D7 (P3_0)
 | `pmbus_poll_task.*` | Task A: periodic polling, status sampling, SMBALERT handling |
 | `buffer_mgr.*` | Task C: queue/rescue draining and two-tier buffering |
 | `buffer_flush.*` | Flush helper used by MQTT task |
-| `mqtt_gw_task.*` | Task B: Wi-Fi, MQTT, buffered publish, metrics publish |
+| `mqtt_gw_task.*` | Task B: Wi-Fi, MQTT, buffered publish, metrics publish, command subscription |
+| `cmd_handler.*` | MQTT command parsing, deduplication, response encoding |
 | `telemetry.*` | JSON encoding for telemetry/status |
 | `events.*` | Event types and JSON encoding |
 | `metrics.*` | Counters, gauges, latency rings, JSON encoding |
@@ -58,6 +59,11 @@ Gateway CYBSP_D7 (P5_7)  ----  Target CYBSP_D7 (P3_0)
 default simulator address is `0x58`. It provides synthetic telemetry, status
 responses, and SMBALERT support for HIL experiments.
 
+Profiles can configure more than one PMBus target on the same bus. The default
+profile stays single-target so that the one-gateway + one-simulator lab setup
+works without extra hardware, while stress/debug profiles can add additional
+target addresses such as `0x59`.
+
 ## 3. Task Model
 
 The gateway runtime uses four FreeRTOS tasks:
@@ -65,7 +71,7 @@ The gateway runtime uses four FreeRTOS tasks:
 | Task | Priority | Responsibility |
 |------|----------|----------------|
 | `pmbus_poll_task` | 4 | Poll PMBus devices, decode values, post telemetry/status/events, react to SMBALERT |
-| `mqtt_gw_task` | 3 | Maintain Wi-Fi/MQTT, flush buffered data, publish metrics |
+| `mqtt_gw_task` | 3 | Maintain Wi-Fi/MQTT, flush buffered data, publish metrics, handle command topics |
 | `buffer_task` | 2 | Drain IPC queues and rescue rings, encode records, store into RAM/persistent buffer |
 | `blinky_task` | 1 | Heartbeat LED only |
 
@@ -86,6 +92,7 @@ Task B: mqtt_gw_task
   -> flushes persistent tier first
   -> flushes RAM tier second
   -> publishes metrics
+  -> subscribes to remote command requests
 ```
 
 Key ownership rules:
@@ -142,6 +149,27 @@ When MQTT is available, `mqtt_gw_task` flushes in this order:
 Because only older RAM records are migrated to persistent storage, this
 `persistent -> RAM` flush order preserves end-to-end FIFO ordering.
 
+### 4.5 Remote command path
+
+The gateway also implements a request/response MQTT command path for generic
+SMBus transfers:
+
+```text
+MQTT broker
+  -> pmbus/{gw_id}/cmd/request
+  -> mqtt_gw_task callback
+  -> cmd_raw queue
+  -> cmd_handler parse/dedupe
+  -> cmd_request queue
+  -> pmbus_poll_task executes pmbus_generic_transfer()
+  -> cmd_response queue
+  -> mqtt_gw_task publishes pmbus/{gw_id}/cmd/response
+```
+
+This command path is for explicit PMBus/SMBus transactions. Runtime profile
+editing is still not implemented; polling profiles remain compile-time
+configuration inputs.
+
 ## 5. Buffering Model
 
 ### 5.1 RAM tier
@@ -166,8 +194,9 @@ The selected backend is compile-time only.
 ### 5.3 Durability scope
 
 Persistent storage is integrity-checked and recovers after reboot, but it is
-not claimed to be transactionally crash-safe. The current design intentionally
-defers a full commit/journal redesign.
+not claimed to be transactionally crash-safe. The QSPI backend has metadata
+journaling and CRC validation, while stronger commit/valid-marker semantics
+remain outside the current design scope.
 
 ## 6. Metrics and Events
 
@@ -189,6 +218,16 @@ Events include connection changes, buffer overflows, and SMBALERT handling.
 Configuration is compile-time only. `gateway_config.c` instantiates `g_config`
 from the selected profile header.
 
+The device list is represented as `devices[]` plus `num_devices`. The polling
+task allocates per-device runtime state for the active profile at startup, so
+there is no fixed four-device firmware cap. Practical scaling is bounded by:
+
+- the SMBus/I2C address space and the selected bus speed;
+- the number of PMBus commands read per target;
+- `poll_period_ms` and `status_period_ms`;
+- timeout/retry behavior for offline or faulty targets;
+- queue, buffer, and FreeRTOS heap capacity.
+
 Default profile characteristics:
 
 - one target: `0x58`
@@ -198,6 +237,9 @@ Default profile characteristics:
 - Em_EEPROM persistent capacity: `61` records
 
 This default profile matches the common one-gateway + one-simulator lab setup.
+Multi-target profiles such as `exp1_fast`, `exp4_pec_off`, and `raw` already
+include `0x59` where that is useful for latency, PEC, or low-level capture
+experiments.
 
 ## 8. Build and Test Surfaces
 
@@ -228,5 +270,6 @@ cd rtos_test
 make test
 ```
 
-The host test suite includes offline integration coverage for mixed
-RAM/persistent ordering and rescue-ring behavior.
+The host test suite includes coverage for I2C recovery, persistent sequence
+checkpointing, QSPI buffering, remote command handling, and offline integration
+coverage for mixed RAM/persistent ordering and rescue-ring behavior.

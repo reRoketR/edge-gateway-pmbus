@@ -1,3 +1,12 @@
+# Historical Planning Note
+
+This file is not a current implementation reference. Several items marked here
+as planned or missing are now implemented, including persistent sequence
+checkpointing, QSPI buffering, MQTT command request/response topics, and
+multi-device polling via `devices[]`. Use `README.md`,
+`docs/architecture.md`, `docs/mqtt_topics.md`, and `rtos_test/source/` as the
+current references.
+
 # Diploma Implementation Plan — Edge Gateway for Digital Power Management Telemetry → MQTT
 
 **Створено:** 2026-03-01  

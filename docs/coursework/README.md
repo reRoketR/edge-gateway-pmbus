@@ -1,5 +1,11 @@
 # Coursework Package: PMBus-MQTT Gateway
 
+> Historical coursework snapshot. This folder, including
+> `defense_package/KI405_SYMANYSHYN/source/`, may contain copied source and
+> report text from an earlier milestone. Do not use it as the current firmware
+> reference; use `../../README.md`, `../architecture.md`, and
+> `../../rtos_test/source/` instead.
+
 This folder contains a ready-to-fill coursework package based on the methodical
 guidelines and the current implementation in `rtos_test/`.
 

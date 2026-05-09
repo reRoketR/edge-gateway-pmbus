@@ -149,6 +149,13 @@ make build TOOLCHAIN=GCC_ARM CONFIG=Debug GW_PROFILE=exp1_fast
 The default profile is intentionally single-target (`0x58`) so one gateway
 board plus one simulator board works out of the box.
 
+The firmware is not limited to the two-device experiment profiles. Profiles
+define a `devices[]` array and `num_devices`; `pmbus_poll_task` allocates
+per-device runtime state for the active profile at startup. Practical scaling
+is therefore determined by SMBus timing, the number of PMBus commands per
+target, queue/buffer sizing, and FreeRTOS heap capacity rather than a fixed
+four-device cap.
+
 ## Runtime Architecture
 
 The runtime is an always-buffered pipeline.
@@ -167,6 +174,7 @@ Task B: mqtt_gw_task
   -> sole MQTT publisher
   -> flushes persistent tier first, then RAM
   -> publishes metrics
+  -> subscribes to command requests and publishes command responses
 ```
 
 Important properties:
@@ -204,6 +212,8 @@ Representative topics for the default profile:
 | `pmbus/thesis_gw01/dev/0x58/status` | 1 | PMBus status records |
 | `pmbus/thesis_gw01/events` | 1 | Gateway events |
 | `pmbus/thesis_gw01/metrics` | 0 | Counters, gauges, timings |
+| `pmbus/thesis_gw01/cmd/request` | 1 | Generic SMBus command request |
+| `pmbus/thesis_gw01/cmd/response` | 1 | Generic SMBus command response |
 
 Full payload reference: [docs/mqtt_topics.md](docs/mqtt_topics.md)
 
@@ -252,12 +262,16 @@ Current host suites:
 - `test_pmbus_decode`
 - `test_json_encode`
 - `test_profile_default`
+- `test_profile_hil_smbalert`
 - `test_i2c_recovery`
 - `test_qspi_buffer`
 - `test_flash_buffer_layout`
 - `test_persistent_seq`
 - `test_publish_filter`
 - `test_ara`
+- `test_cmd_handler`
+- `test_pmbus_generic_transfer`
+- `test_cmd_pipeline`
 - `test_integration_offline`
 
 The offline integration suite covers mixed RAM/persistent ordering, batch

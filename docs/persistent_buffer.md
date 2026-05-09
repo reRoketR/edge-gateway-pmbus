@@ -188,9 +188,10 @@ The current persistent implementation is:
 
 It is **not** documented as transactionally crash-safe.
 
-This remediation pass intentionally does **not** redesign backend commit order,
-journaling rules, or valid-marker semantics. Crash-safe persistence remains a
-follow-up story.
+The QSPI backend already uses a metadata journal and CRC validation. What is
+not claimed here is a fully transactional commit protocol with strict
+valid-marker semantics for every possible power-loss point. Stronger crash-safe
+persistence remains a follow-up story.
 
 ## 12. Backend Capacity Caveats
 

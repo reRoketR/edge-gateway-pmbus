@@ -19,6 +19,16 @@ Base topic: `pmbus/{gw_id}`
 ### 1.4 Gateway events
 - Topic: `pmbus/{gw_id}/events`
 
+### 1.5 Remote command request
+- Topic: `pmbus/{gw_id}/cmd/request`
+- Direction: MQTT client -> gateway
+- Purpose: execute one explicit generic SMBus/PMBus transfer.
+
+### 1.6 Remote command response
+- Topic: `pmbus/{gw_id}/cmd/response`
+- Direction: gateway -> MQTT client
+- Purpose: return the result of a command request with the same correlation ID.
+
 ---
 
 ## 2) QoS / retain policy (MVP)
@@ -29,10 +39,15 @@ Base topic: `pmbus/{gw_id}`
 | status   | 1   | false  |
 | events   | 1   | false  |
 | metrics  | 0   | false  |
+| cmd/request | 1 | false |
+| cmd/response | 1 | false |
 
 Notes:
 - QoS1 may produce duplicates after reconnects; this mainly applies to `status` and `events`.
 - Telemetry uses QoS0 in the current firmware to reduce publish-path latency and tail jitter.
+- Command requests/responses use a correlation `id`; the firmware keeps a
+  recent-response cache to suppress duplicate QoS1 request execution where
+  possible.
 - `retain=false` for all streams to avoid stale state surprises.
 
 ---
@@ -184,6 +199,61 @@ Event types (MVP):
 - `PMBUS_BUS_RECOVERY`, `PMBUS_BUS_RECOVERY_FAILED`
 - `I2C_CONTROLLER_RESET` (D1-2: SCB disable/re-enable path on timeout/not-ready)
 - `BUFFER_OVERFLOW`, `QUEUE_OVERFLOW`
+
+### 4.5 Remote command request
+
+Topic: `pmbus/{gw_id}/cmd/request`
+
+```json
+{
+  "id": "r001",
+  "addr": 88,
+  "wr": [136],
+  "rd_len": 2,
+  "pec": true
+}
+```
+
+Field rules:
+- `id` is a caller-supplied correlation ID, max `CMD_ID_MAX - 1` characters.
+- `addr` is the 7-bit SMBus/I2C address as a number, for example `88` for
+  `0x58`.
+- `wr` is an optional byte array, max `CMD_MAX_WRITE_LEN` bytes.
+- `rd_len` is the requested read length, max `CMD_MAX_READ_LEN` bytes.
+- `pec` is optional; when omitted, the request parser uses the default command
+  path behavior.
+
+Supported transfer shapes:
+
+- write-only: `wr` present, `rd_len = 0`;
+- read-only: no `wr`, `rd_len > 0`;
+- write-then-read: `wr` present, `rd_len > 0`.
+
+The command path executes explicit SMBus transactions only. It does not edit
+the active polling profile at runtime.
+
+### 4.6 Remote command response
+
+Topic: `pmbus/{gw_id}/cmd/response`
+
+```json
+{
+  "id": "r001",
+  "addr": 88,
+  "status": "OK",
+  "data": [52, 18],
+  "exec_ms": 4
+}
+```
+
+Field rules:
+- `id` echoes the request correlation ID.
+- `addr` echoes the target address.
+- `status` is a PMBus/SMBus result (`OK`, `NACK`, `TIMEOUT`, `PEC`, etc.) or a
+  command-layer error (`BAD_JSON`, `BAD_REQUEST`, `UNSUPPORTED`,
+  `QUEUE_FULL`).
+- `data` is present for successful read transfers.
+- `exec_ms` is measured on the gateway with the monotonic FreeRTOS timer.
 
 ---
 
