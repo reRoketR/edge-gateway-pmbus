@@ -89,6 +89,15 @@ typedef struct {
     uint32_t read_to_publish_rolling_max_us;
     uint16_t read_to_publish_rolling_sample_count;
 
+    /* Same-record telemetry path decomposition.
+     * These use the exact same telemetry samples as read_to_publish_*:
+     *   read_to_publish = telemetry_before_publish + telemetry_publish
+     * The first component includes the PMBus read plus any wait before the
+     * MQTT publish begins.  It is intentionally separate from the all-poll
+     * pmbus_txn_* aggregate below. */
+    uint32_t telemetry_before_publish_avg_us;
+    uint32_t telemetry_publish_avg_us;
+
     /* PMBus transaction time only */
     uint32_t pmbus_txn_avg_us;
     uint32_t pmbus_txn_max_us;
@@ -183,6 +192,17 @@ void metrics_set_storage_backend(uint8_t backend);
  * @brief Record a read-to-publish latency sample (in microseconds).
  */
 void metrics_record_read_to_publish_us(uint32_t latency_us);
+
+/**
+ * @brief Record one telemetry-path sample using same-record timing bounds.
+ *
+ * @param[in] read_to_publish_us       Read start -> MQTT publish complete
+ * @param[in] before_publish_us        Read start -> MQTT publish start
+ * @param[in] telemetry_publish_us     MQTT publish start -> publish complete
+ */
+void metrics_record_telemetry_path_us(uint32_t read_to_publish_us,
+                                      uint32_t before_publish_us,
+                                      uint32_t telemetry_publish_us);
 
 /**
  * @brief Record a PMBus transaction latency sample (in microseconds).

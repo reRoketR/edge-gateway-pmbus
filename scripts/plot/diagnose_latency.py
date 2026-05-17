@@ -131,6 +131,8 @@ def diagnose_window(row: dict[str, Any]) -> str:
 
     mqtt_avg = to_float(get_nested(timing, "mqtt_publish_avg", default=math.nan))
     pmbus_avg = to_float(get_nested(timing, "pmbus_txn_avg", default=math.nan))
+    telem_pub_avg = to_float(get_nested(timing, "telemetry_publish_avg", default=math.nan))
+    before_pub_avg = to_float(get_nested(timing, "telemetry_before_publish_avg", default=math.nan))
     ctrl_resets = int(get_nested(counters, "i2c_controller_resets", default=0))
     bus_recoveries = int(get_nested(counters, "i2c_bus_recoveries", default=0))
     mqtt_reconnects = int(get_nested(counters, "mqtt_reconnects", default=0))
@@ -143,6 +145,10 @@ def diagnose_window(row: dict[str, Any]) -> str:
         return "likely I2C recovery-induced tail"
     if not math.isnan(mqtt_avg) and mqtt_avg >= 100.0:
         return "likely slow MQTT publish path"
+    if not math.isnan(telem_pub_avg) and telem_pub_avg >= 100.0:
+        return "likely slow telemetry publish path"
+    if not math.isnan(before_pub_avg) and before_pub_avg >= 100.0:
+        return "likely pre-publish wait/backlog path"
     if not math.isnan(pmbus_avg) and pmbus_avg >= 30.0:
         return "likely slow PMBus transaction path"
     if queue_drops > 0:
@@ -193,6 +199,12 @@ def main() -> int:
     ]
     t_mqtt_avg = [to_float(get_nested(r, "timing_ms", "mqtt_publish_avg", default=math.nan)) for r in metrics_rows]
     t_pmbus_avg = [to_float(get_nested(r, "timing_ms", "pmbus_txn_avg", default=math.nan)) for r in metrics_rows]
+    t_telem_before_pub_avg = [
+        window_latency(r, "telemetry_before_publish_avg") for r in metrics_rows
+    ]
+    t_telem_pub_avg = [
+        window_latency(r, "telemetry_publish_avg") for r in metrics_rows
+    ]
 
     sum_ctrl_resets = sum(int(get_nested(r, "counters_delta", "i2c_controller_resets", default=0)) for r in metrics_rows)
     sum_bus_recoveries = sum(int(get_nested(r, "counters_delta", "i2c_bus_recoveries", default=0)) for r in metrics_rows)
@@ -205,6 +217,8 @@ def main() -> int:
     print(f"  read_to_publish_p95   : {fmt_stat(t_read_p95)}")
     print(f"  read_to_publish_max   : {fmt_stat(t_read_max)}")
     print(f"  rolling_r2p_max       : {fmt_stat(t_read_rolling_max)}")
+    print(f"  telem_before_pub_avg  : {fmt_stat(t_telem_before_pub_avg)}")
+    print(f"  telem_publish_avg     : {fmt_stat(t_telem_pub_avg)}")
     print(f"  mqtt_publish_avg      : {fmt_stat(t_mqtt_avg)}")
     print(f"  pmbus_txn_avg         : {fmt_stat(t_pmbus_avg)}")
     print(f"  i2c_controller_resets : {sum_ctrl_resets}")
@@ -265,6 +279,12 @@ def main() -> int:
         print(
             "      rolling r2p max    = "
             f"{to_float(get_nested(rolling_timing, 'read_to_publish_max', default=math.nan)):.1f} ms"
+        )
+        print(
+            "      telem avg split    = "
+            f"{window_latency(row, 'read_to_publish_avg'):.1f} = "
+            f"{window_latency(row, 'telemetry_before_publish_avg'):.1f} + "
+            f"{window_latency(row, 'telemetry_publish_avg'):.1f} ms"
         )
         print(
             "      mqtt/pmbus avg     = "

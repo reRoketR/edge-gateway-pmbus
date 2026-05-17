@@ -12,6 +12,7 @@ Usage:
 
 Output (PNG files in --out-dir, default: <log-dir>/figures/):
   latency.png       — per-window read_to_publish p95/avg/max vs time
+  latency_breakdown.png — per-window additive average latency decomposition
   buffer.png        — buffer_depth_ram vs time (offline window shaded)
   errors.png        — pmbus_reads_fail / retries / pec_fail vs time
   throughput.png    — telemetry msgs/s and pmbus cmds/s vs time
@@ -160,6 +161,46 @@ def plot_latency(df_m: pd.DataFrame, out_dir: str, offline_start, offline_end):
     ax.set_title("End-to-end latency per metrics window: read → MQTT publish")
     ax.legend()
     save(fig, os.path.join(out_dir, "latency.png"))
+
+
+def plot_latency_breakdown(df_m: pd.DataFrame, out_dir: str, offline_start, offline_end):
+    if df_m.empty:
+        print("  SKIP latency_breakdown.png — no metrics data")
+        return
+
+    t = elapsed_s(df_m)
+
+    def to_float(col):
+        if col not in df_m.columns:
+            return pd.Series([float("nan")] * len(df_m))
+        return pd.to_numeric(df_m[col], errors="coerce")
+
+    total = to_float("timing_ms.read_to_publish_avg")
+    before_pub = to_float("timing_ms.telemetry_before_publish_avg")
+    telem_pub = to_float("timing_ms.telemetry_publish_avg")
+
+    sample_col = "timing_samples.read_to_publish_window"
+    if sample_col in df_m.columns:
+        samples = pd.to_numeric(df_m[sample_col], errors="coerce")
+        has_samples = samples > 0
+        total = total.where(has_samples)
+        before_pub = before_pub.where(has_samples)
+        telem_pub = telem_pub.where(has_samples)
+
+    if before_pub.isna().all() or telem_pub.isna().all():
+        print("  SKIP latency_breakdown.png — telemetry breakdown fields not present")
+        return
+
+    fig, ax = plt.subplots()
+    ax.plot(t, total, color=COLORS["avg"], label="e2e avg")
+    ax.plot(t, before_pub, color=COLORS["p95"], label="before publish avg")
+    ax.plot(t, telem_pub, color=COLORS["max"], label="telemetry publish avg")
+    shade_offline(ax, offline_start, offline_end)
+    ax.set_xlabel("Elapsed time (s)")
+    ax.set_ylabel("Latency (ms)")
+    ax.set_title("Average telemetry latency decomposition: e2e = before publish + publish")
+    ax.legend()
+    save(fig, os.path.join(out_dir, "latency_breakdown.png"))
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +420,7 @@ def main():
     oe_  = args.offline_end
 
     plot_latency(   df_m, out_dir, os_, oe_)
+    plot_latency_breakdown(df_m, out_dir, os_, oe_)
     plot_buffer(    df_m, out_dir, os_, oe_)
     plot_errors(    df_m, out_dir, os_, oe_)
     plot_throughput(df_m, out_dir, os_, oe_)

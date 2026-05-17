@@ -58,6 +58,8 @@ typedef struct {
 } latency_ring_t;
 
 static latency_ring_t s_window_read_to_pub;
+static latency_ring_t s_window_telemetry_before_pub;
+static latency_ring_t s_window_telemetry_pub;
 static latency_ring_t s_ring_read_to_pub;
 static latency_ring_t s_ring_pmbus_txn;
 static latency_ring_t s_ring_mqtt_pub;
@@ -146,6 +148,8 @@ void metrics_init(void)
     memset((void *)&s_counters, 0, sizeof(s_counters));
     memset((void *)&s_gauges, 0, sizeof(s_gauges));
     memset(&s_window_read_to_pub, 0, sizeof(s_window_read_to_pub));
+    memset(&s_window_telemetry_before_pub, 0, sizeof(s_window_telemetry_before_pub));
+    memset(&s_window_telemetry_pub, 0, sizeof(s_window_telemetry_pub));
     memset(&s_ring_read_to_pub, 0, sizeof(s_ring_read_to_pub));
     memset(&s_ring_pmbus_txn, 0, sizeof(s_ring_pmbus_txn));
     memset(&s_ring_mqtt_pub, 0, sizeof(s_ring_mqtt_pub));
@@ -221,6 +225,15 @@ void metrics_record_read_to_publish_us(uint32_t us)
     ring_add(&s_window_read_to_pub, us);
     ring_add(&s_ring_read_to_pub, us);
 }
+
+void metrics_record_telemetry_path_us(uint32_t read_to_publish_us,
+                                      uint32_t before_publish_us,
+                                      uint32_t telemetry_publish_us)
+{
+    metrics_record_read_to_publish_us(read_to_publish_us);
+    ring_add(&s_window_telemetry_before_pub, before_publish_us);
+    ring_add(&s_window_telemetry_pub, telemetry_publish_us);
+}
 void metrics_record_pmbus_txn_us(uint32_t us)       { ring_add(&s_ring_pmbus_txn, us);   }
 void metrics_record_mqtt_publish_us(uint32_t us)     { ring_add(&s_ring_mqtt_pub, us);    }
 
@@ -279,7 +292,32 @@ void metrics_snapshot_and_reset(metrics_snapshot_t *snap,
                   &snap->timing.read_to_publish_rolling_max_us);
     snap->timing.read_to_publish_rolling_sample_count = s_ring_read_to_pub.count;
 
+    {
+        uint32_t dummy_p95;
+        uint32_t dummy_max;
+        compute_stats(&s_window_telemetry_before_pub,
+                      &snap->timing.telemetry_before_publish_avg_us,
+                      &dummy_p95,
+                      &dummy_max);
+        compute_stats(&s_window_telemetry_pub,
+                      &snap->timing.telemetry_publish_avg_us,
+                      &dummy_p95,
+                      &dummy_max);
+        /* Preserve an exact additive contract at the exported average level.
+         * The component rings use the same samples, so any difference here can
+         * only come from integer-division truncation in the two averages. */
+        if (snap->timing.read_to_publish_avg_us >=
+            snap->timing.telemetry_before_publish_avg_us)
+        {
+            snap->timing.telemetry_publish_avg_us =
+                snap->timing.read_to_publish_avg_us -
+                snap->timing.telemetry_before_publish_avg_us;
+        }
+    }
+
     ring_reset(&s_window_read_to_pub);
+    ring_reset(&s_window_telemetry_before_pub);
+    ring_reset(&s_window_telemetry_pub);
 
     {
         uint32_t dummy_p95;
@@ -442,6 +480,12 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
 
     fmt_us_to_ms_1dp(t, sizeof(t), snap->timing.read_to_publish_max_us);
     M_PRINTF("\"read_to_publish_max\":%s,", t);
+
+    fmt_us_to_ms_1dp(t, sizeof(t), snap->timing.telemetry_before_publish_avg_us);
+    M_PRINTF("\"telemetry_before_publish_avg\":%s,", t);
+
+    fmt_us_to_ms_1dp(t, sizeof(t), snap->timing.telemetry_publish_avg_us);
+    M_PRINTF("\"telemetry_publish_avg\":%s,", t);
 
     fmt_us_to_ms_1dp(t, sizeof(t), snap->timing.pmbus_txn_avg_us);
     M_PRINTF("\"pmbus_txn_avg\":%s,", t);

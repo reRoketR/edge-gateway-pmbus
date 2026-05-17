@@ -28,7 +28,7 @@
 /*******************************************************************************
  * Runtime-contract constants
  ******************************************************************************/
-#define TEST_METRICS_RUNTIME_BUF_SIZE 1280u
+#define TEST_METRICS_RUNTIME_BUF_SIZE 1408u
 
 /*******************************************************************************
  * Minimal test framework
@@ -319,7 +319,9 @@ static void test_metrics_json(void)
     {
         metrics_inc_pmbus_reads_ok();
         metrics_record_pmbus_txn_us(5000 + i * 100);  /* 5.0..14.9 ms */
-        metrics_record_read_to_publish_us(15000 + i * 200); /* 15..34.8 ms */
+        metrics_record_telemetry_path_us(15000 + i * 200,
+                                         12000 + i * 100,
+                                         3000 + i * 100); /* sums to 15..34.8 ms */
     }
 
     metrics_inc_pmbus_reads_fail();
@@ -391,6 +393,16 @@ static void test_metrics_json(void)
     TEST_ASSERT_MSG(snap.timing.read_to_publish_rolling_sample_count == 100u,
                     "r2p_rolling_samples=%u",
                     (unsigned)snap.timing.read_to_publish_rolling_sample_count);
+    TEST_ASSERT_MSG(snap.timing.telemetry_before_publish_avg_us == 16950u,
+                    "telem_before_pub_avg=%u",
+                    (unsigned)snap.timing.telemetry_before_publish_avg_us);
+    TEST_ASSERT_MSG(snap.timing.telemetry_publish_avg_us == 7950u,
+                    "telem_pub_avg=%u",
+                    (unsigned)snap.timing.telemetry_publish_avg_us);
+    TEST_ASSERT_MSG((snap.timing.telemetry_before_publish_avg_us +
+                     snap.timing.telemetry_publish_avg_us) ==
+                    snap.timing.read_to_publish_avg_us,
+                    "same-record avg decomposition must add up");
 
     /* Keep this in sync with the runtime buffer in mqtt_gw_task.c */
     char buf[TEST_METRICS_RUNTIME_BUF_SIZE];
@@ -409,6 +421,8 @@ static void test_metrics_json(void)
     TEST_ASSERT_TRUE(json_contains(buf, "\"wifi_rssi_dbm\":-56"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"read_to_publish_avg\":"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"read_to_publish_p95\":"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"telemetry_before_publish_avg\":"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"telemetry_publish_avg\":"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"timing_rolling_ms\":"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"timing_samples\":"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"read_to_publish_window\":100"));
