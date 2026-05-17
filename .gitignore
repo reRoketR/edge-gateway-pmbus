@@ -43,6 +43,9 @@ mtb_shared/
 # Secrets — local Wi-Fi credentials
 rtos_test/configs/wifi_config_local.h
 
+#thesis report
+docs/thesis
+
 # Original MTB template README
 rtos_test/README_original.md
 

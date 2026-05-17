@@ -85,6 +85,10 @@ From `metrics.jsonl`:
 | Avg latency | `timing_ms.read_to_publish_avg` |
 | P95 latency | `timing_ms.read_to_publish_p95` |
 | Max latency | `timing_ms.read_to_publish_max` |
+| Avg before telemetry publish | `timing_ms.telemetry_before_publish_avg` |
+| Avg telemetry publish component | `timing_ms.telemetry_publish_avg` |
+| Window sample count | `timing_samples.read_to_publish_window` |
+| Rolling tail max | `timing_rolling_ms.read_to_publish_max` |
 | PMBus txn avg | `timing_ms.pmbus_txn_avg` |
 | PMBus txn max | `timing_ms.pmbus_txn_max` |
 | MQTT pub avg | `timing_ms.mqtt_publish_avg` |
@@ -107,6 +111,10 @@ From `metrics.jsonl`:
 ## Plots
 
 1. **Latency over time** — `timing_ms.read_to_publish_p95` per metrics window
+   (skip windows where `timing_samples.read_to_publish_window == 0`)
+2. **Average decomposition** —
+   `read_to_publish_avg = telemetry_before_publish_avg + telemetry_publish_avg`
+   for the same telemetry samples in each window
 2. **Latency histogram** — distribution of per-sample latencies (if captured)
 3. **Throughput over time** — `rates.telemetry_msgs_per_s`
 4. **Error timeline** — retries + timeouts + NACKs per window

@@ -56,6 +56,7 @@ python plot.py --log-dir ../logs/exp1_fast --out-dir ../logs/exp1_fast
 
 ### Key Metrics to Report
 - `read_to_publish_avg_us`, `read_to_publish_p95_us`, `read_to_publish_max_us`
+- `read_to_publish_sample_count` (skip zero-sample windows in latency plots)
 - `pmbus_txn_avg_us`, `mqtt_publish_avg_us`
 
 ---

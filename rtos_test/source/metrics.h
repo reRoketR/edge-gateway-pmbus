@@ -7,7 +7,7 @@
  * Three categories of metrics:
  *   1. **Delta counters** — reset after each metrics publish
  *   2. **Gauges** — point-in-time values (buffer depth, RSSI, uptime)
- *   3. **Timing** — ring buffer of latency samples for avg/p95/max
+ *   3. **Timing** — per-window read-to-publish stats plus rolling rings
  *
  * Counter increments use one shared critical-section policy for consistency.
  * The publish function atomically snapshots and resets counters.
@@ -28,7 +28,7 @@
  * Configuration
  ******************************************************************************/
 
-/** Ring buffer size for latency samples (current firmware uses 100 samples) */
+/** Ring/window buffer size for latency samples (current firmware uses 100 samples) */
 #define METRICS_LATENCY_RING_SIZE   100u
 
 /*******************************************************************************
@@ -71,13 +71,32 @@ typedef struct {
 } metrics_gauges_t;
 
 /*******************************************************************************
- * Timing statistics (computed from ring buffer)
+ * Timing statistics
  ******************************************************************************/
 typedef struct {
-    /* read_to_publish = PMBus read start → MQTT publish complete */
-    uint32_t read_to_publish_avg_us;    /**< Average in microseconds          */
-    uint32_t read_to_publish_p95_us;    /**< 95th percentile in microseconds  */
-    uint32_t read_to_publish_max_us;    /**< Maximum in microseconds          */
+    /* read_to_publish = PMBus read start -> MQTT publish complete.
+     * The primary fields are reset after every metrics snapshot and therefore
+     * describe the just-finished metrics window. */
+    uint32_t read_to_publish_avg_us;    /**< Window average in microseconds   */
+    uint32_t read_to_publish_p95_us;    /**< Window 95th percentile           */
+    uint32_t read_to_publish_max_us;    /**< Window maximum                   */
+    uint16_t read_to_publish_sample_count; /**< Samples in the metrics window */
+
+    /* Rolling read-to-publish context kept separate so old outliers are not
+     * mistaken for the current metrics window. */
+    uint32_t read_to_publish_rolling_avg_us;
+    uint32_t read_to_publish_rolling_p95_us;
+    uint32_t read_to_publish_rolling_max_us;
+    uint16_t read_to_publish_rolling_sample_count;
+
+    /* Same-record telemetry path decomposition.
+     * These use the exact same telemetry samples as read_to_publish_*:
+     *   read_to_publish = telemetry_before_publish + telemetry_publish
+     * The first component includes the PMBus read plus any wait before the
+     * MQTT publish begins.  It is intentionally separate from the all-poll
+     * pmbus_txn_* aggregate below. */
+    uint32_t telemetry_before_publish_avg_us;
+    uint32_t telemetry_publish_avg_us;
 
     /* PMBus transaction time only */
     uint32_t pmbus_txn_avg_us;
@@ -164,14 +183,26 @@ void metrics_set_storage_backend(uint8_t backend);
 /*******************************************************************************
  * Timing sample recorders
  *
- * Call these to add a latency sample to the ring buffer.
- * The ring buffer wraps around, keeping the latest N samples.
+ * Call these to add latency samples. Read-to-publish samples feed both the
+ * current metrics window and the explicit rolling history; the other timing
+ * families keep the previous rolling-ring behavior.
  ******************************************************************************/
 
 /**
  * @brief Record a read-to-publish latency sample (in microseconds).
  */
 void metrics_record_read_to_publish_us(uint32_t latency_us);
+
+/**
+ * @brief Record one telemetry-path sample using same-record timing bounds.
+ *
+ * @param[in] read_to_publish_us       Read start -> MQTT publish complete
+ * @param[in] before_publish_us        Read start -> MQTT publish start
+ * @param[in] telemetry_publish_us     MQTT publish start -> publish complete
+ */
+void metrics_record_telemetry_path_us(uint32_t read_to_publish_us,
+                                      uint32_t before_publish_us,
+                                      uint32_t telemetry_publish_us);
 
 /**
  * @brief Record a PMBus transaction latency sample (in microseconds).
@@ -189,11 +220,11 @@ void metrics_record_mqtt_publish_us(uint32_t latency_us);
 
 /**
  * @brief Take a snapshot of all metrics, reset delta counters, and compute
- *        timing statistics from the ring buffers.
+ *        timing statistics.
  *
  * This is called by the metrics publish cycle. After calling this function,
- * delta counters are reset to zero. Ring buffers are NOT cleared (they
- * continue to accumulate for the next window).
+ * delta counters are reset to zero. Read-to-publish window samples are also
+ * cleared, while explicit rolling timing rings continue across windows.
  *
  * @param[out] snap             Pointer to snapshot struct to fill
  * @param[in]  ts_ms            Current wall-clock timestamp for JSON `ts_ms`

@@ -72,7 +72,7 @@
 #define METRICS_MAX_DEFERRAL_MS     5000u
 
 /** JSON encoding buffer for metrics (keep in sync with test_json_encode.c) */
-#define METRICS_JSON_BUF_SIZE       1024u
+#define METRICS_JSON_BUF_SIZE       1408u
 
 /** Topic string buffer */
 #define TOPIC_BUF_SIZE              80u

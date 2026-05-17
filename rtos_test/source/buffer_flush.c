@@ -37,17 +37,25 @@ uint16_t buffer_flush_records(buffer_publish_fn_t publish_fn)
                 break;
             }
 
+            uint32_t publish_start_ms = gateway_ipc_monotonic_ms();
             if (!publish_fn(rec.topic, rec.payload, rec.payload_len))
             {
                 persistent_buffer_unlock();
                 break;  /* Stop flushing on first failure */
             }
+            uint32_t publish_done_ms = gateway_ipc_monotonic_ms();
             uint32_t latency_us;
+            uint32_t before_publish_us;
             if (buffer_record_same_boot_latency_us(&rec, current_boot_gen,
-                                                   gateway_ipc_monotonic_ms(),
-                                                   &latency_us))
+                                                   publish_done_ms,
+                                                   &latency_us) &&
+                buffer_record_same_boot_latency_us(&rec, current_boot_gen,
+                                                   publish_start_ms,
+                                                   &before_publish_us))
             {
-                metrics_record_read_to_publish_us(latency_us);
+                metrics_record_telemetry_path_us(latency_us,
+                                                 before_publish_us,
+                                                 latency_us - before_publish_us);
             }
             persistent_buffer_consume();
             persistent_buffer_unlock();
@@ -59,16 +67,24 @@ uint16_t buffer_flush_records(buffer_publish_fn_t publish_fn)
     while (flushed < g_config.buffer.flush_batch_size &&
            buffer_mgr_peek(&rec))
     {
+        uint32_t publish_start_ms = gateway_ipc_monotonic_ms();
         if (!publish_fn(rec.topic, rec.payload, rec.payload_len))
         {
             break;  /* Stop flushing on first failure */
         }
+        uint32_t publish_done_ms = gateway_ipc_monotonic_ms();
         uint32_t latency_us;
+        uint32_t before_publish_us;
         if (buffer_record_same_boot_latency_us(&rec, current_boot_gen,
-                                               gateway_ipc_monotonic_ms(),
-                                               &latency_us))
+                                               publish_done_ms,
+                                               &latency_us) &&
+            buffer_record_same_boot_latency_us(&rec, current_boot_gen,
+                                               publish_start_ms,
+                                               &before_publish_us))
         {
-            metrics_record_read_to_publish_us(latency_us);
+            metrics_record_telemetry_path_us(latency_us,
+                                             before_publish_us,
+                                             latency_us - before_publish_us);
         }
         buffer_mgr_consume();
         flushed++;

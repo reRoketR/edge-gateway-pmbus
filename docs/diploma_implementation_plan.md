@@ -25,7 +25,7 @@ current references.
 | Linear11/16 decode | `pmbus_decode.c/.h` | ✅ + host tests |
 | Telemetry/status JSON encode | `telemetry.c/.h` | ✅ bounds-checked `buf_printf` |
 | Events JSON encode | `events.c/.h` | ✅ 8 event types |
-| Metrics (counters + gauges + p95 ring + JSON) | `metrics.c/.h` | ✅ 200-sample ring, insertion sort p95 |
+| Metrics (counters + gauges + windowed/rolling latency + JSON) | `metrics.c/.h` | ✅ window stats + rolling p95 history |
 | MQTT publish pipeline (single publisher) | `mqtt_gw_task.c` | ✅ `cy_mqtt_publish()` тільки з Task B |
 | RAM ring buffer | `buffer_mgr.c/.h` | ✅ critical section, drop_oldest/newest |
 | Flash ring buffer (Em_EEPROM, CRC, boot recovery) | `flash_buffer.c/.h` | ✅ 63 records, metadata row, auto-discard corrupted |

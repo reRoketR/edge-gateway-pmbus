@@ -1098,9 +1098,12 @@
           id="s-reconn">—</span></div>
       <div class="stat"><span class="stat-label">Buf RAM</span><span class="stat-value" id="s-buf">—</span></div>
       <div class="stat"><span class="stat-label">Wi-Fi RSSI</span><span class="stat-value" id="s-rssi">—</span></div>
-      <div class="stat"><span class="stat-label">Poll (ms)</span><span class="stat-value" id="s-pmbus-avg">—</span>
+      <div class="stat"><span class="stat-label">E2E avg (ms)</span><span class="stat-value" id="s-r2p-avg">—</span></div>
+      <div class="stat"><span class="stat-label">Before pub (ms)</span><span class="stat-value" id="s-telem-before-pub">—</span></div>
+      <div class="stat"><span class="stat-label">Telem pub (ms)</span><span class="stat-value" id="s-telem-pub">—</span></div>
+      <div class="stat"><span class="stat-label">Poll all (ms)</span><span class="stat-value" id="s-pmbus-avg">—</span>
       </div>
-      <div class="stat"><span class="stat-label">Pub (ms)</span><span class="stat-value" id="s-mqtt-avg">—</span></div>
+      <div class="stat"><span class="stat-label">Pub all (ms)</span><span class="stat-value" id="s-mqtt-avg">—</span></div>
     </div>
 
     <!-- ── Charts + Events ────────────────────────────────────────────── -->
@@ -1108,8 +1111,8 @@
 
       <!-- Row 1 Col 1: Latency -->
       <div class="card">
-        <div class="card-header">End-to-End Latency
-          <span class="card-tag">metrics</span>
+        <div class="card-header">End-to-End Latency (window)
+          <span class="card-tag" id="latency-sample-tag">metrics</span>
           <div class="card-actions">
             <button class="export-btn" title="Export CSV" onclick="exportCSV(cLatency,'latency')">&#x2B73; CSV</button>
             <button class="icon-btn" title="Reset zoom" onclick="resetZoom(cLatency)">&#x2B1C;</button>
@@ -1622,11 +1625,26 @@
     function handleMetrics(obj) {
       const t = now();
       const tm = obj.timing_ms || {};
+      const ts = obj.timing_samples || {};
       const p95 = toNum(tm.read_to_publish_p95);
       const avg = toNum(tm.read_to_publish_avg);
       const mx = toNum(tm.read_to_publish_max);
+      const beforePubAvg = toNum(tm.telemetry_before_publish_avg);
+      const telemPubAvg = toNum(tm.telemetry_publish_avg);
+      const windowSamples = toNum(ts.read_to_publish_window);
+      const hasWindowSamples = isNaN(windowSamples) || windowSamples > 0;
 
-      if (!isNaN(p95)) {
+      const latencyTag = document.getElementById('latency-sample-tag');
+      if (latencyTag && !isNaN(windowSamples)) {
+        if (!isNaN(avg) && !isNaN(beforePubAvg) && !isNaN(telemPubAvg)) {
+          latencyTag.textContent =
+            `n=${windowSamples} | avg ${avg.toFixed(1)} = ${beforePubAvg.toFixed(1)} + ${telemPubAvg.toFixed(1)}`;
+        } else {
+          latencyTag.textContent = `window n=${windowSamples}`;
+        }
+      }
+
+      if (hasWindowSamples && !isNaN(p95)) {
         push(cLatency, 0, p95);
         push(cLatency, 1, avg);
         push(cLatency, 2, mx);
@@ -1669,6 +1687,12 @@
       if (!isNaN(pmbusAvg)) stat('s-pmbus-avg', pmbusAvg.toFixed(1));
       const mqttAvg = toNum(tm.mqtt_publish_avg);
       if (!isNaN(mqttAvg)) stat('s-mqtt-avg', mqttAvg.toFixed(1));
+      if (hasWindowSamples && !isNaN(avg)) stat('s-r2p-avg', avg.toFixed(1));
+      else stat('s-r2p-avg', '—');
+      if (hasWindowSamples && !isNaN(beforePubAvg)) stat('s-telem-before-pub', beforePubAvg.toFixed(1));
+      else stat('s-telem-before-pub', '—');
+      if (hasWindowSamples && !isNaN(telemPubAvg)) stat('s-telem-pub', telemPubAvg.toFixed(1));
+      else stat('s-telem-pub', '—');
     }
 
     // ── Handle telemetry message ──────────────────────────────────────────

@@ -28,7 +28,7 @@
 /*******************************************************************************
  * Runtime-contract constants
  ******************************************************************************/
-#define TEST_METRICS_RUNTIME_BUF_SIZE 1024u
+#define TEST_METRICS_RUNTIME_BUF_SIZE 1408u
 
 /*******************************************************************************
  * Minimal test framework
@@ -319,7 +319,9 @@ static void test_metrics_json(void)
     {
         metrics_inc_pmbus_reads_ok();
         metrics_record_pmbus_txn_us(5000 + i * 100);  /* 5.0..14.9 ms */
-        metrics_record_read_to_publish_us(15000 + i * 200); /* 15..34.8 ms */
+        metrics_record_telemetry_path_us(15000 + i * 200,
+                                         12000 + i * 100,
+                                         3000 + i * 100); /* sums to 15..34.8 ms */
     }
 
     metrics_inc_pmbus_reads_fail();
@@ -382,6 +384,25 @@ static void test_metrics_json(void)
     /* max = 15000 + 99*200 = 34800 us */
     TEST_ASSERT_MSG(snap.timing.read_to_publish_max_us == 34800,
                     "r2p_max=%u", (unsigned)snap.timing.read_to_publish_max_us);
+    TEST_ASSERT_MSG(snap.timing.read_to_publish_sample_count == 100u,
+                    "r2p_samples=%u",
+                    (unsigned)snap.timing.read_to_publish_sample_count);
+    TEST_ASSERT_MSG(snap.timing.read_to_publish_rolling_max_us == 34800u,
+                    "r2p_rolling_max=%u",
+                    (unsigned)snap.timing.read_to_publish_rolling_max_us);
+    TEST_ASSERT_MSG(snap.timing.read_to_publish_rolling_sample_count == 100u,
+                    "r2p_rolling_samples=%u",
+                    (unsigned)snap.timing.read_to_publish_rolling_sample_count);
+    TEST_ASSERT_MSG(snap.timing.telemetry_before_publish_avg_us == 16950u,
+                    "telem_before_pub_avg=%u",
+                    (unsigned)snap.timing.telemetry_before_publish_avg_us);
+    TEST_ASSERT_MSG(snap.timing.telemetry_publish_avg_us == 7950u,
+                    "telem_pub_avg=%u",
+                    (unsigned)snap.timing.telemetry_publish_avg_us);
+    TEST_ASSERT_MSG((snap.timing.telemetry_before_publish_avg_us +
+                     snap.timing.telemetry_publish_avg_us) ==
+                    snap.timing.read_to_publish_avg_us,
+                    "same-record avg decomposition must add up");
 
     /* Keep this in sync with the runtime buffer in mqtt_gw_task.c */
     char buf[TEST_METRICS_RUNTIME_BUF_SIZE];
@@ -400,6 +421,11 @@ static void test_metrics_json(void)
     TEST_ASSERT_TRUE(json_contains(buf, "\"wifi_rssi_dbm\":-56"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"read_to_publish_avg\":"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"read_to_publish_p95\":"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"telemetry_before_publish_avg\":"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"telemetry_publish_avg\":"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"timing_rolling_ms\":"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"timing_samples\":"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"read_to_publish_window\":100"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"telemetry_suppressed\":20"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"status_suppressed\":5"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"storage\":{\"backend\":\"qspi\",\"total_writes\":5000}"));
@@ -411,6 +437,15 @@ static void test_metrics_json(void)
                     "after reset reads_ok=%u", (unsigned)snap2.counters.pmbus_reads_ok);
     TEST_ASSERT_MSG(snap2.window_ms == 2000,
                     "window_ms=%u", (unsigned)snap2.window_ms);
+    TEST_ASSERT_MSG(snap2.timing.read_to_publish_avg_us == 0u,
+                    "window avg after reset=%u",
+                    (unsigned)snap2.timing.read_to_publish_avg_us);
+    TEST_ASSERT_MSG(snap2.timing.read_to_publish_sample_count == 0u,
+                    "window samples after reset=%u",
+                    (unsigned)snap2.timing.read_to_publish_sample_count);
+    TEST_ASSERT_MSG(snap2.timing.read_to_publish_rolling_max_us == 34800u,
+                    "rolling max after reset=%u",
+                    (unsigned)snap2.timing.read_to_publish_rolling_max_us);
 }
 
 static void test_same_boot_latency_helper(void)
@@ -439,6 +474,12 @@ static void test_same_boot_latency_helper(void)
                     "same-boot p95=%u", (unsigned)snap.timing.read_to_publish_p95_us);
     TEST_ASSERT_MSG(snap.timing.read_to_publish_max_us == 45000u,
                     "same-boot max=%u", (unsigned)snap.timing.read_to_publish_max_us);
+    TEST_ASSERT_MSG(snap.timing.read_to_publish_sample_count == 1u,
+                    "same-boot window samples=%u",
+                    (unsigned)snap.timing.read_to_publish_sample_count);
+    TEST_ASSERT_MSG(snap.timing.read_to_publish_rolling_max_us == 45000u,
+                    "same-boot rolling max=%u",
+                    (unsigned)snap.timing.read_to_publish_rolling_max_us);
 
     metrics_init();
     TEST_ASSERT_TRUE(!buffer_record_same_boot_latency_us(&rec, 8u, 145u, &latency_us));
@@ -449,6 +490,9 @@ static void test_same_boot_latency_helper(void)
                     "mismatch p95=%u", (unsigned)snap.timing.read_to_publish_p95_us);
     TEST_ASSERT_MSG(snap.timing.read_to_publish_max_us == 0u,
                     "mismatch max=%u", (unsigned)snap.timing.read_to_publish_max_us);
+    TEST_ASSERT_MSG(snap.timing.read_to_publish_sample_count == 0u,
+                    "mismatch samples=%u",
+                    (unsigned)snap.timing.read_to_publish_sample_count);
 
     metrics_init();
     rec.origin_read_start_ms = 0u;
