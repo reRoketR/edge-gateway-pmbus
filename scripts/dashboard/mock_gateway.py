@@ -137,6 +137,15 @@ try:
                     "pmbus_txn_avg": 2.5 + abs(noise(0.5)),
                     "mqtt_publish_avg": 0.5 + abs(noise(0.1))
                 },
+                "timing_rolling_ms": {
+                    "read_to_publish_p95": 16.0 + abs(noise(2.0)),
+                    "read_to_publish_avg": 11.0 + abs(noise(1.0)),
+                    "read_to_publish_max": 24.0 + abs(noise(5.0))
+                },
+                "timing_samples": {
+                    "read_to_publish_window": 8,
+                    "read_to_publish_rolling": 100
+                },
                 "rates": {
                     "telemetry_msgs_per_s": 8.0,
                     "pmbus_cmds_per_s": 1.0

@@ -11,7 +11,7 @@ Usage:
   python plot.py --log-dir logs/exp3_offline   --offline-start 60 --offline-end 180
 
 Output (PNG files in --out-dir, default: <log-dir>/figures/):
-  latency.png       — read_to_publish p95/avg/max vs time
+  latency.png       — per-window read_to_publish p95/avg/max vs time
   buffer.png        — buffer_depth_ram vs time (offline window shaded)
   errors.png        — pmbus_reads_fail / retries / pec_fail vs time
   throughput.png    — telemetry msgs/s and pmbus cmds/s vs time
@@ -139,6 +139,17 @@ def plot_latency(df_m: pd.DataFrame, out_dir: str, offline_start, offline_end):
     avg = to_float("timing_ms.read_to_publish_avg")
     mx  = to_float("timing_ms.read_to_publish_max")
 
+    # Newer firmware reports per-window sample counts.  Windows with no
+    # telemetry samples encode latency stats as 0 for a fixed JSON schema;
+    # mask those values so plots do not show fake zero-latency points.
+    sample_col = "timing_samples.read_to_publish_window"
+    if sample_col in df_m.columns:
+        samples = pd.to_numeric(df_m[sample_col], errors="coerce")
+        has_samples = samples > 0
+        p95 = p95.where(has_samples)
+        avg = avg.where(has_samples)
+        mx = mx.where(has_samples)
+
     fig, ax = plt.subplots()
     ax.plot(t, p95, color=COLORS["p95"], label="p95")
     ax.plot(t, avg, color=COLORS["avg"], label="avg")
@@ -146,7 +157,7 @@ def plot_latency(df_m: pd.DataFrame, out_dir: str, offline_start, offline_end):
     shade_offline(ax, offline_start, offline_end)
     ax.set_xlabel("Elapsed time (s)")
     ax.set_ylabel("Read→publish latency (ms)")
-    ax.set_title("End-to-end latency: read → MQTT publish")
+    ax.set_title("End-to-end latency per metrics window: read → MQTT publish")
     ax.legend()
     save(fig, os.path.join(out_dir, "latency.png"))
 

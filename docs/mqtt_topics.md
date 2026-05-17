@@ -166,6 +166,15 @@ Topic: `.../metrics`
     "mqtt_publish_avg": 4.1,
     "mqtt_publish_max": 20.0
   },
+  "timing_rolling_ms": {
+    "read_to_publish_avg": 19.8,
+    "read_to_publish_p95": 40.0,
+    "read_to_publish_max": 120.0
+  },
+  "timing_samples": {
+    "read_to_publish_window": 98,
+    "read_to_publish_rolling": 100
+  },
   "rates": {
     "telemetry_msgs_per_s": 49.0,
     "pmbus_cmds_per_s": 120.0
@@ -176,8 +185,13 @@ Topic: `.../metrics`
 Rules:
 - `counters_delta` are increments over `window_ms` and are reset after publish.
 - `read_to_publish_*` MUST be measured on the gateway using a monotonic timer.
-- `p95` is computed over a ring buffer of the last `N` latency samples. The current firmware uses `N=100`.
-- Timing percentiles are diagnostic/approximate snapshots, not a hard real-time measurement contract; the snapshot path does not freeze producer updates while computing timing stats.
+- `timing_ms.read_to_publish_*` are **per metrics window** and reset after every
+  metrics publish. Consumers should treat them as absent when
+  `timing_samples.read_to_publish_window == 0`.
+- `timing_rolling_ms.read_to_publish_*` keep the latest `N` samples for
+  long-tail diagnosis. The current firmware uses `N=100`.
+- Timing percentiles are diagnostic/approximate snapshots, not a hard real-time
+  measurement contract.
 
 ### 4.4 Events payload
 
@@ -272,7 +286,6 @@ Once synced, subsequent values are wall-clock.
 
 ### 5.2 Monotonic timing fields
 
-All timing/latency fields (`read_to_publish_*`, `pmbus_txn_*`, `mqtt_publish_*`,
-`window_ms`) MUST be produced by the gateway using a **monotonic millisecond
-timer** (FreeRTOS tick).  Consumers MUST NOT infer latency from receive
-timestamps.
+All timing/latency fields (`timing_ms.*`, `timing_rolling_ms.*`, `window_ms`)
+MUST be produced by the gateway using a **monotonic millisecond timer**
+(FreeRTOS tick).  Consumers MUST NOT infer latency from receive timestamps.

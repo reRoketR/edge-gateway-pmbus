@@ -7,9 +7,9 @@
  *                - Delta counters: critical-section protected increments,
  *                  reset on snapshot
  *                - Gauges: written by setter, read on snapshot
- *                - Timing: 3 ring buffers (read-to-pub, pmbus txn, mqtt pub)
- *                  Each holds METRICS_LATENCY_RING_SIZE samples.
- *                  On snapshot: copy → sort → extract avg/p95/max.
+ *                - Timing: current-window read-to-pub samples plus rolling
+ *                  rings for read-to-pub, PMBus txn, and MQTT publish.
+ *                  On snapshot: copy -> sort -> extract avg/p95/max.
  *
  * Related Document: agent.md §7, docs/mqtt_topics.md §4.3
  *
@@ -57,6 +57,7 @@ typedef struct {
     uint16_t count;     /**< Number of valid samples (≤ RING_SIZE) */
 } latency_ring_t;
 
+static latency_ring_t s_window_read_to_pub;
 static latency_ring_t s_ring_read_to_pub;
 static latency_ring_t s_ring_pmbus_txn;
 static latency_ring_t s_ring_mqtt_pub;
@@ -69,6 +70,11 @@ static void ring_add(latency_ring_t *ring, uint32_t value)
     {
         ring->count++;
     }
+}
+
+static void ring_reset(latency_ring_t *ring)
+{
+    memset(ring, 0, sizeof(*ring));
 }
 
 /*******************************************************************************
@@ -139,6 +145,7 @@ void metrics_init(void)
 {
     memset((void *)&s_counters, 0, sizeof(s_counters));
     memset((void *)&s_gauges, 0, sizeof(s_gauges));
+    memset(&s_window_read_to_pub, 0, sizeof(s_window_read_to_pub));
     memset(&s_ring_read_to_pub, 0, sizeof(s_ring_read_to_pub));
     memset(&s_ring_pmbus_txn, 0, sizeof(s_ring_pmbus_txn));
     memset(&s_ring_mqtt_pub, 0, sizeof(s_ring_mqtt_pub));
@@ -209,7 +216,11 @@ void metrics_set_storage_backend(uint8_t backend)    { s_gauges.storage_backend 
 /*******************************************************************************
  * Timing sample recorders
  ******************************************************************************/
-void metrics_record_read_to_publish_us(uint32_t us) { ring_add(&s_ring_read_to_pub, us); }
+void metrics_record_read_to_publish_us(uint32_t us)
+{
+    ring_add(&s_window_read_to_pub, us);
+    ring_add(&s_ring_read_to_pub, us);
+}
 void metrics_record_pmbus_txn_us(uint32_t us)       { ring_add(&s_ring_pmbus_txn, us);   }
 void metrics_record_mqtt_publish_us(uint32_t us)     { ring_add(&s_ring_mqtt_pub, us);    }
 
@@ -254,11 +265,21 @@ void metrics_snapshot_and_reset(metrics_snapshot_t *snap,
     snap->gauges = *(const metrics_gauges_t *)&s_gauges;
     snap->gauges.uptime_s = (uint32_t)((now_monotonic_ms - s_boot_ms) / 1000u);
 
-    /* Compute timing stats from ring buffers */
-    compute_stats(&s_ring_read_to_pub,
+    /* Compute current-window read-to-publish stats, then retain explicit
+     * rolling context separately for long-tail diagnosis. */
+    compute_stats(&s_window_read_to_pub,
                   &snap->timing.read_to_publish_avg_us,
                   &snap->timing.read_to_publish_p95_us,
                   &snap->timing.read_to_publish_max_us);
+    snap->timing.read_to_publish_sample_count = s_window_read_to_pub.count;
+
+    compute_stats(&s_ring_read_to_pub,
+                  &snap->timing.read_to_publish_rolling_avg_us,
+                  &snap->timing.read_to_publish_rolling_p95_us,
+                  &snap->timing.read_to_publish_rolling_max_us);
+    snap->timing.read_to_publish_rolling_sample_count = s_ring_read_to_pub.count;
+
+    ring_reset(&s_window_read_to_pub);
 
     {
         uint32_t dummy_p95;
@@ -410,7 +431,7 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
              (snap->gauges.storage_backend == 0u) ? "eeprom" : "none",
              (unsigned)snap->gauges.storage_total_writes);
 
-    /* timing_ms (values stored in us, output in ms with 1 decimal) */
+    /* timing_ms (window values stored in us, output in ms with 1 decimal) */
     M_PRINTF(",\"timing_ms\":{");
 
     fmt_us_to_ms_1dp(t, sizeof(t), snap->timing.read_to_publish_avg_us);
@@ -433,6 +454,24 @@ int encode_metrics_json(const metrics_snapshot_t *snap,
 
     fmt_us_to_ms_1dp(t, sizeof(t), snap->timing.mqtt_publish_max_us);
     M_PRINTF("\"mqtt_publish_max\":%s}", t);
+
+    /* Explicit rolling read-to-publish history for tail diagnosis. */
+    M_PRINTF(",\"timing_rolling_ms\":{");
+
+    fmt_us_to_ms_1dp(t, sizeof(t), snap->timing.read_to_publish_rolling_avg_us);
+    M_PRINTF("\"read_to_publish_avg\":%s,", t);
+
+    fmt_us_to_ms_1dp(t, sizeof(t), snap->timing.read_to_publish_rolling_p95_us);
+    M_PRINTF("\"read_to_publish_p95\":%s,", t);
+
+    fmt_us_to_ms_1dp(t, sizeof(t), snap->timing.read_to_publish_rolling_max_us);
+    M_PRINTF("\"read_to_publish_max\":%s}", t);
+
+    M_PRINTF(",\"timing_samples\":{"
+             "\"read_to_publish_window\":%u,"
+             "\"read_to_publish_rolling\":%u}",
+             (unsigned)snap->timing.read_to_publish_sample_count,
+             (unsigned)snap->timing.read_to_publish_rolling_sample_count);
 
     /* rates (stored as ×10, output with 1 decimal) */
     M_PRINTF(",\"rates\":{"

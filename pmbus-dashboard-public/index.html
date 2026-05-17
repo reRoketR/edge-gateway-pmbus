@@ -1108,8 +1108,8 @@
 
       <!-- Row 1 Col 1: Latency -->
       <div class="card">
-        <div class="card-header">End-to-End Latency
-          <span class="card-tag">metrics</span>
+        <div class="card-header">End-to-End Latency (window)
+          <span class="card-tag" id="latency-sample-tag">metrics</span>
           <div class="card-actions">
             <button class="export-btn" title="Export CSV" onclick="exportCSV(cLatency,'latency')">&#x2B73; CSV</button>
             <button class="icon-btn" title="Reset zoom" onclick="resetZoom(cLatency)">&#x2B1C;</button>
@@ -1622,11 +1622,19 @@
     function handleMetrics(obj) {
       const t = now();
       const tm = obj.timing_ms || {};
+      const ts = obj.timing_samples || {};
       const p95 = toNum(tm.read_to_publish_p95);
       const avg = toNum(tm.read_to_publish_avg);
       const mx = toNum(tm.read_to_publish_max);
+      const windowSamples = toNum(ts.read_to_publish_window);
+      const hasWindowSamples = isNaN(windowSamples) || windowSamples > 0;
 
-      if (!isNaN(p95)) {
+      const latencyTag = document.getElementById('latency-sample-tag');
+      if (latencyTag && !isNaN(windowSamples)) {
+        latencyTag.textContent = `window n=${windowSamples}`;
+      }
+
+      if (hasWindowSamples && !isNaN(p95)) {
         push(cLatency, 0, p95);
         push(cLatency, 1, avg);
         push(cLatency, 2, mx);

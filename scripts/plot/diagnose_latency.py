@@ -5,7 +5,7 @@ diagnose_latency.py — compact latency-spike diagnosis for gateway JSONL logs
 Reads `metrics.jsonl` and `events.jsonl` from a capture folder and prints:
 
   1. aggregate timing/counter summary
-  2. windows where read_to_publish_max/p95 exceeds a threshold
+  2. windows where per-window read_to_publish_max/p95 exceeds a threshold
   3. a simple cause hint based on counters and timing fields
 
 Usage:
@@ -152,6 +152,23 @@ def diagnose_window(row: dict[str, Any]) -> str:
     return "likely sporadic queue/scheduler jitter"
 
 
+def window_sample_count(row: dict[str, Any]) -> int | None:
+    value = get_nested(row, "timing_samples", "read_to_publish_window", default=None)
+    return int(value) if value is not None else None
+
+
+def rolling_sample_count(row: dict[str, Any]) -> int | None:
+    value = get_nested(row, "timing_samples", "read_to_publish_rolling", default=None)
+    return int(value) if value is not None else None
+
+
+def window_latency(row: dict[str, Any], key: str) -> float:
+    samples = window_sample_count(row)
+    if samples == 0:
+        return math.nan
+    return to_float(get_nested(row, "timing_ms", key, default=math.nan))
+
+
 def main() -> int:
     args = parse_args()
     metrics_path = os.path.join(args.log_dir, "metrics.jsonl")
@@ -167,9 +184,13 @@ def main() -> int:
     metrics_rows.sort(key=ts_key)
     events_rows.sort(key=ts_key)
 
-    t_read_avg = [to_float(get_nested(r, "timing_ms", "read_to_publish_avg", default=math.nan)) for r in metrics_rows]
-    t_read_p95 = [to_float(get_nested(r, "timing_ms", "read_to_publish_p95", default=math.nan)) for r in metrics_rows]
-    t_read_max = [to_float(get_nested(r, "timing_ms", "read_to_publish_max", default=math.nan)) for r in metrics_rows]
+    t_read_avg = [window_latency(r, "read_to_publish_avg") for r in metrics_rows]
+    t_read_p95 = [window_latency(r, "read_to_publish_p95") for r in metrics_rows]
+    t_read_max = [window_latency(r, "read_to_publish_max") for r in metrics_rows]
+    t_read_rolling_max = [
+        to_float(get_nested(r, "timing_rolling_ms", "read_to_publish_max", default=math.nan))
+        for r in metrics_rows
+    ]
     t_mqtt_avg = [to_float(get_nested(r, "timing_ms", "mqtt_publish_avg", default=math.nan)) for r in metrics_rows]
     t_pmbus_avg = [to_float(get_nested(r, "timing_ms", "pmbus_txn_avg", default=math.nan)) for r in metrics_rows]
 
@@ -183,6 +204,7 @@ def main() -> int:
     print(f"  read_to_publish_avg   : {fmt_stat(t_read_avg)}")
     print(f"  read_to_publish_p95   : {fmt_stat(t_read_p95)}")
     print(f"  read_to_publish_max   : {fmt_stat(t_read_max)}")
+    print(f"  rolling_r2p_max       : {fmt_stat(t_read_rolling_max)}")
     print(f"  mqtt_publish_avg      : {fmt_stat(t_mqtt_avg)}")
     print(f"  pmbus_txn_avg         : {fmt_stat(t_pmbus_avg)}")
     print(f"  i2c_controller_resets : {sum_ctrl_resets}")
@@ -200,8 +222,8 @@ def main() -> int:
     spike_rows = [
         row for row in metrics_rows
         if (
-            to_float(get_nested(row, "timing_ms", "read_to_publish_max", default=math.nan)) >= args.threshold
-            or to_float(get_nested(row, "timing_ms", "read_to_publish_p95", default=math.nan)) >= args.threshold
+            window_latency(row, "read_to_publish_max") >= args.threshold
+            or window_latency(row, "read_to_publish_p95") >= args.threshold
         )
     ]
 
@@ -212,8 +234,8 @@ def main() -> int:
     spike_rows.sort(
         key=lambda row: (
             max(
-                to_float(get_nested(row, "timing_ms", "read_to_publish_max", default=math.nan)),
-                to_float(get_nested(row, "timing_ms", "read_to_publish_p95", default=math.nan)),
+                window_latency(row, "read_to_publish_max"),
+                window_latency(row, "read_to_publish_p95"),
             )
         ),
         reverse=True,
@@ -224,6 +246,7 @@ def main() -> int:
         ts_ms = ts_key(row)
         window_ms = int(get_nested(row, "window_ms", default=0))
         timing = get_nested(row, "timing_ms", default={})
+        rolling_timing = get_nested(row, "timing_rolling_ms", default={})
         counters = get_nested(row, "counters_delta", default={})
         related_events = select_events_for_window(events_rows, ts_ms, window_ms)
         event_types = [evt.get("type", "UNKNOWN") for evt in related_events]
@@ -231,9 +254,17 @@ def main() -> int:
         print(f"  [{index}] ts_ms={ts_ms} window_ms={window_ms}")
         print(
             "      r2p avg/p95/max    = "
-            f"{to_float(get_nested(timing, 'read_to_publish_avg', default=math.nan)):.1f}/"
-            f"{to_float(get_nested(timing, 'read_to_publish_p95', default=math.nan)):.1f}/"
-            f"{to_float(get_nested(timing, 'read_to_publish_max', default=math.nan)):.1f} ms"
+            f"{window_latency(row, 'read_to_publish_avg'):.1f}/"
+            f"{window_latency(row, 'read_to_publish_p95'):.1f}/"
+            f"{window_latency(row, 'read_to_publish_max'):.1f} ms"
+        )
+        print(
+            "      samples win/roll   = "
+            f"{window_sample_count(row)}/{rolling_sample_count(row)}"
+        )
+        print(
+            "      rolling r2p max    = "
+            f"{to_float(get_nested(rolling_timing, 'read_to_publish_max', default=math.nan)):.1f} ms"
         )
         print(
             "      mqtt/pmbus avg     = "

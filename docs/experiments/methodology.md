@@ -163,7 +163,7 @@ The following are computed from raw JSONL during analysis:
 
 | Metric | Source | Computation |
 |--------|--------|-------------|
-| End-to-end latency | `metrics.jsonl` → `timing_ms.read_to_publish_avg/p95/max` | Direct from gateway metrics |
+| End-to-end latency | `metrics.jsonl` → `timing_ms.read_to_publish_avg/p95/max` | Per metrics window; ignore windows where `timing_samples.read_to_publish_window == 0` |
 | Throughput (msg/s) | `metrics.jsonl` → `rates.telemetry_msgs_per_s` | Direct from gateway metrics |
 | Error rate (%) | `metrics.jsonl` → `counters_delta` | `reads_fail / (reads_ok + reads_fail) × 100` |
 | Buffer occupancy | `metrics.jsonl` → `gauges.buffer_depth_ram` | Time series plot |

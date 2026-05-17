@@ -47,7 +47,7 @@ Gateway CYBSP_D7 (P5_7)  ----  Target CYBSP_D7 (P3_0)
 | `cmd_handler.*` | MQTT command parsing, deduplication, response encoding |
 | `telemetry.*` | JSON encoding for telemetry/status |
 | `events.*` | Event types and JSON encoding |
-| `metrics.*` | Counters, gauges, latency rings, JSON encoding |
+| `metrics.*` | Counters, gauges, windowed + rolling latency stats, JSON encoding |
 | `emergency_ring.*` | Rescue rings for telemetry/status/events |
 | `persistent_buffer.h` | Backend abstraction: Em_EEPROM or QSPI |
 | `flash_buffer.*` | Internal persistent backend |
