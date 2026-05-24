@@ -36,6 +36,7 @@
 #include "emergency_ring.h"
 #include "publish_filter.h"
 #include "cmd_handler.h"
+#include "persistent_seq.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -730,6 +731,7 @@ telemetry_done:
     /* Fill metadata */
     rec.ts_ms    = gateway_ipc_now_ms();
     rec.time_synced = wallclock_is_synced();
+    rec.boot_count = persistent_seq_get_boot_count();
     rec.seq      = gateway_ipc_next_seq();
     rec.addr_7bit = addr;
     rec.label    = dev->label;

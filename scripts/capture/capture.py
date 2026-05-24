@@ -41,6 +41,12 @@ def parse_args():
     p.add_argument("--host",     default="192.168.1.2",  help="MQTT broker host")
     p.add_argument("--port",     default=1883, type=int, help="MQTT broker port")
     p.add_argument("--gw",       default="+",            help="Gateway ID filter (default: all)")
+    p.add_argument("--client-id", default="pmbus-capture", help="MQTT client ID")
+    p.add_argument("--qos",      default=1, type=int, choices=(0, 1), help="Subscribe QoS")
+    p.add_argument("--reconnect-min", default=1, type=int, help="Reconnect backoff minimum seconds")
+    p.add_argument("--reconnect-max", default=5, type=int, help="Reconnect backoff maximum seconds")
+    p.add_argument("--ephemeral-session", action="store_true",
+                   help="Use clean session instead of a persistent broker session")
     p.add_argument("--out-dir",  default=None,           help="Output directory (default: logs/<timestamp>)")
     p.add_argument("--duration", default=0, type=float,  help="Stop after N seconds (0 = run forever)")
     p.add_argument("--quiet",    action="store_true",    help="Suppress per-message console output")
@@ -115,33 +121,53 @@ class Capture:
 # MQTT callbacks
 # ---------------------------------------------------------------------------
 def make_client(args, capture: Capture) -> mqtt.Client:
-    client = mqtt.Client(CallbackAPIVersion.VERSION1, client_id="pmbus-capture", protocol=mqtt.MQTTv311)
+    client = mqtt.Client(
+        CallbackAPIVersion.VERSION1,
+        client_id=args.client_id,
+        clean_session=not args.ephemeral_session,
+        protocol=mqtt.MQTTv311,
+        reconnect_on_failure=True,
+    )
+    client.reconnect_delay_set(min_delay=args.reconnect_min, max_delay=args.reconnect_max)
 
     def on_connect(c, userdata, flags, rc):
         if rc != 0:
             print(f"[CAP] Connect failed: rc={rc}", file=sys.stderr)
             return
+        session_present = False
+        if isinstance(flags, dict):
+            session_present = bool(flags.get("session present"))
         gw     = args.gw
         topics = [
-            (f"pmbus/{gw}/dev/+/telemetry", 0),
-            (f"pmbus/{gw}/dev/+/status",    0),
-            (f"pmbus/{gw}/metrics",         0),
-            (f"pmbus/{gw}/events",          0),
+            (f"pmbus/{gw}/dev/+/telemetry", args.qos),
+            (f"pmbus/{gw}/dev/+/status",    args.qos),
+            (f"pmbus/{gw}/metrics",         args.qos),
+            (f"pmbus/{gw}/events",          args.qos),
         ]
-        c.subscribe(topics)
-        print(f"[CAP] Connected to {args.host}:{args.port}")
-        for t, _ in topics:
-            print(f"[CAP]   subscribed: {t}")
+        print(f"[CAP] Connected to {args.host}:{args.port} (session_present={session_present})")
+        if session_present:
+            print("[CAP]   broker session resumed; reusing existing subscriptions")
+            return
+        result, _mid = c.subscribe(topics)
+        if result != mqtt.MQTT_ERR_SUCCESS:
+            print(f"[CAP] Subscribe failed: result={result}", file=sys.stderr)
+            return
+        for t, qos in topics:
+            print(f"[CAP]   subscribed: {t} qos={qos}")
 
     def on_disconnect(c, userdata, rc):
         if rc != 0:
             print(f"[CAP] Unexpected disconnect rc={rc} — will reconnect", file=sys.stderr)
+
+    def on_connect_fail(c, userdata):
+        print("[CAP] Connect attempt failed; waiting for retry", file=sys.stderr)
 
     def on_message(c, userdata, msg):
         capture.record(msg.topic, msg.payload)
 
     client.on_connect    = on_connect
     client.on_disconnect = on_disconnect
+    client.on_connect_fail = on_connect_fail
     client.on_message    = on_message
     return client
 
@@ -168,7 +194,7 @@ def main():
         signal.signal(signal.SIGTERM, _sig)
 
     client   = make_client(args, capture)
-    client.connect(args.host, args.port, keepalive=60)
+    client.connect_async(args.host, args.port, keepalive=60)
     client.loop_start()
 
     deadline = (time.time() + args.duration) if args.duration > 0 else None

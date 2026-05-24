@@ -278,6 +278,7 @@ static inline void buffer_record_to_telemetry(const buffer_record_t *src,
     dst->ts_ms = src->payload.telemetry.ts_ms;
     dst->read_start_ms = src->origin_read_start_ms;
     dst->time_synced = (src->payload.telemetry.time_synced != 0u);
+    dst->boot_count = src->origin_boot_gen;
     dst->seq = src->payload.telemetry.seq;
     dst->addr_7bit = src->payload.telemetry.addr_7bit;
     dst->label = label;
@@ -342,4 +343,3 @@ static inline void buffer_record_to_event(const buffer_record_t *src,
     memcpy(dst->detail, src->payload.event.detail, detail_len);
     dst->detail[detail_len] = '\0';
 }
-

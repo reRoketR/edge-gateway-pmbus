@@ -74,6 +74,8 @@ static void test_telemetry_json(void)
     telemetry_record_t rec = {0};
     rec.ts_ms     = 1730000000000ULL;
     rec.time_synced = true;
+    rec.boot_count = 42u;
+    rec.read_start_ms = 98765u;
     rec.seq       = 12345;
     rec.addr_7bit = 0x58;
     rec.label     = "psu_a";
@@ -103,6 +105,8 @@ static void test_telemetry_json(void)
     /* Verify key fields present */
     TEST_ASSERT_TRUE(json_contains(buf, "\"ts_ms\":1730000000000"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"time_synced\":true"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"boot_count\":42"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"sample_monotonic_ms\":98765"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"seq\":12345"));
 
     char expected_gw_id[64];
@@ -143,6 +147,8 @@ static void test_telemetry_partial(void)
     telemetry_record_t rec = {0};
     rec.ts_ms      = 1000;
     rec.time_synced = false;
+    rec.boot_count  = 2u;
+    rec.read_start_ms = 1234u;
     rec.seq        = 1;
     rec.addr_7bit  = 0x59;
     rec.label      = "psu_b";
@@ -160,6 +166,8 @@ static void test_telemetry_partial(void)
     printf("  JSON (%d bytes): %s\n", len, buf);
 
     /* VOUT present */
+    TEST_ASSERT_TRUE(json_contains(buf, "\"boot_count\":2"));
+    TEST_ASSERT_TRUE(json_contains(buf, "\"sample_monotonic_ms\":1234"));
     TEST_ASSERT_TRUE(json_contains(buf, "\"vout\":3.30"));
 
     /* VIN, IIN, IOUT, TEMP1, POUT should NOT be present */

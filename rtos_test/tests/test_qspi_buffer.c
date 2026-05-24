@@ -88,6 +88,7 @@ static buffer_record_t make_telem_record(uint8_t addr, uint32_t seq,
     memset(&src, 0, sizeof(src));
     src.ts_ms = 1000000u + seq;
     src.time_synced = true;
+    src.boot_count = origin_boot_gen;
     src.seq = seq;
     src.addr_7bit = addr;
     src.label = "psu_a";

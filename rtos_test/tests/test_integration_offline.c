@@ -24,6 +24,7 @@
 #include "gateway_ipc.h"
 #include "emergency_ring.h"
 #include "persistent_buffer.h"
+#include "persistent_seq.h"
 #include "telemetry.h"
 #include "events.h"
 #include "metrics.h"
@@ -157,6 +158,7 @@ static telemetry_record_t make_telem(uint8_t addr, uint32_t seq, uint32_t read_s
     memset(&r, 0, sizeof(r));
     r.ts_ms         = 1000000u + seq;
     r.time_synced   = true;
+    r.boot_count    = persistent_seq_get_boot_count();
     r.seq           = seq;
     r.addr_7bit     = addr;
     r.label         = "psu_a";
@@ -525,6 +527,13 @@ static void test_H_normal_flush(void)
     /* Verify records are telemetry JSON with identifiable content */
     TEST_ASSERT_TRUE(strstr(publish_mock_get_topic(0), "telemetry") != NULL);
     TEST_ASSERT_TRUE(strstr(publish_mock_get_payload(0), "vin") != NULL);
+    {
+        char expected_boot[32];
+        snprintf(expected_boot, sizeof(expected_boot), "\"boot_count\":%lu",
+                 (unsigned long)persistent_seq_get_boot_count());
+        TEST_ASSERT_TRUE(strstr(publish_mock_get_payload(0), expected_boot) != NULL);
+    }
+    TEST_ASSERT_TRUE(strstr(publish_mock_get_payload(0), "\"sample_monotonic_ms\":900") != NULL);
 
     metrics_snapshot_t snap;
     metrics_snapshot_and_reset(&snap, 1000000u, 10000u);

@@ -8,6 +8,10 @@ The dashboard connects to an MQTT broker via **WebSocket** (Paho MQTT JS
 client). Enter the broker host, WS port, and optional base topic in the
 header bar, then click **Connect**.
 
+Telemetry CSV export preserves the gateway-side provenance fields
+`seq`, `boot_count`, `sample_monotonic_ms`, and `time_synced` when they are
+present in the MQTT payload.
+
 ## Known Limitations
 
 The following limitations are intentional for the coursework scope and are

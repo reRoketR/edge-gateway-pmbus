@@ -1354,13 +1354,13 @@
     }
 
     // ── Per-device telemetry history ──────────────────────────────────────
-    // deviceData[addr] = { vin:[], vout:[], iout:[], temp:[], status:{} }
+    // deviceData[addr] = { vin:[], vout:[], iout:[], temp:[], status:{}, samples:[] }
     const deviceData = {};
     let activeAddr = null;
 
     function ensureDevice(addr) {
       if (deviceData[addr]) return;
-      deviceData[addr] = { vin: [], vout: [], iout: [], temp: [], status: {} };
+      deviceData[addr] = { vin: [], vout: [], iout: [], temp: [], status: {}, samples: [] };
       renderDeviceTabs();
       if (!activeAddr) switchDevice(addr);   // auto-select first device
     }
@@ -1703,7 +1703,7 @@
       const v = obj.v || {};
       const a = obj.a || {};
       const c = obj.c || {};
-      const ts = (obj.ts_ms && typeof obj.ts_ms === 'number') ? obj.ts_ms : now();
+      const ts = (obj.time_synced === true && typeof obj.ts_ms === 'number') ? obj.ts_ms : now();
 
       const vin = toNum(v.vin);
       const vout = toNum(v.vout);
@@ -1716,6 +1716,18 @@
       if (!isNaN(vout)) d.vout.push({ x: ts, y: vout });
       if (!isNaN(iout)) d.iout.push({ x: ts, y: iout });
       if (!isNaN(temp)) d.temp.push({ x: ts, y: temp });
+      d.samples.push({
+        ts,
+        iso_time: new Date(ts).toISOString(),
+        seq: Number.isFinite(toNum(obj.seq)) ? toNum(obj.seq) : '',
+        boot_count: Number.isFinite(toNum(obj.boot_count)) ? toNum(obj.boot_count) : '',
+        sample_monotonic_ms: Number.isFinite(toNum(obj.sample_monotonic_ms)) ? toNum(obj.sample_monotonic_ms) : '',
+        time_synced: obj.time_synced === true,
+        vin: !isNaN(vin) ? vin : '',
+        vout: !isNaN(vout) ? vout : '',
+        iout: !isNaN(iout) ? iout : '',
+        temp: !isNaN(temp) ? temp : '',
+      });
 
       // Prune old entries (keep 2× window to survive tab switches)
       const maxAge = DURATION_MS() * 2;
@@ -1723,6 +1735,7 @@
       ['vin', 'vout', 'iout', 'temp'].forEach(k => {
         while (d[k].length && d[k][0].x < cutoff) d[k].shift();
       });
+      while (d.samples.length && d.samples[0].ts < cutoff) d.samples.shift();
 
       // Push to live charts only for the active device
       if (addr === activeAddr) {
@@ -2011,22 +2024,32 @@
       // Export all 4 telemetry sub-charts as one CSV
       if (!activeAddr || !deviceData[activeAddr]) { alert('No telemetry data.'); return; }
       const d = deviceData[activeAddr];
-      const tsSet = new Set();
-      ['vin', 'vout', 'iout', 'temp'].forEach(k => d[k].forEach(pt => tsSet.add(pt.x)));
-      const timestamps = [...tsSet].sort((a, b) => a - b);
-
-      const lookups = ['vin', 'vout', 'iout', 'temp'].map(k => {
-        const m = new Map();
-        d[k].forEach(pt => m.set(pt.x, pt.y));
-        return m;
-      });
-
-      const header = ['timestamp', 'iso_time', 'VIN_V', 'VOUT_V', 'IOUT_A', 'TEMP_C'];
+      const header = [
+        'timestamp',
+        'iso_time',
+        'seq',
+        'boot_count',
+        'sample_monotonic_ms',
+        'time_synced',
+        'VIN_V',
+        'VOUT_V',
+        'IOUT_A',
+        'TEMP_C'
+      ];
       const rows = [header.join(',')];
-      timestamps.forEach(ts => {
-        const iso = new Date(ts).toISOString();
-        const vals = lookups.map(m => m.has(ts) ? m.get(ts) : '');
-        rows.push([ts, iso, ...vals].join(','));
+      d.samples.forEach(sample => {
+        rows.push([
+          sample.ts,
+          sample.iso_time,
+          sample.seq,
+          sample.boot_count,
+          sample.sample_monotonic_ms,
+          sample.time_synced,
+          sample.vin,
+          sample.vout,
+          sample.iout,
+          sample.temp
+        ].join(','));
       });
 
       const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });

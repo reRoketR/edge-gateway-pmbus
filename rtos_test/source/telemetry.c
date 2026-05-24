@@ -121,11 +121,14 @@ int encode_telemetry_json(const telemetry_record_t *rec,
 
     /* Open + metadata */
     if (buf_printf(&pos, end,
-            "{\"ts_ms\":%s,\"time_synced\":%s,\"seq\":%u,"
+            "{\"ts_ms\":%s,\"time_synced\":%s,\"boot_count\":%u,"
+            "\"sample_monotonic_ms\":%u,\"seq\":%u,"
             "\"gw_id\":\"%s\",\"addr\":\"0x%02X\",\"label\":\"%s\","
             "\"pec\":%s,\"read_ms\":%u,\"retries\":%u",
             ts_buf,
             rec->time_synced ? "true" : "false",
+            (unsigned)rec->boot_count,
+            (unsigned)rec->read_start_ms,
             (unsigned)rec->seq,
             g_config.gw_id,
             (unsigned)rec->addr_7bit,

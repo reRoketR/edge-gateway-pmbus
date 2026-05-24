@@ -73,6 +73,8 @@ client.loop_start()
 
 time_ms = 0
 uptime = 0
+seq = 0
+boot_count = 1
 last_metrics_time = time.time()
 last_status_time = time.time()
 last_events_time = time.time()
@@ -97,6 +99,10 @@ try:
             obj = {
                 "addr": addr,
                 "ts_ms": int(now * 1000),
+                "time_synced": True,
+                "boot_count": boot_count,
+                "sample_monotonic_ms": int(time_ms),
+                "seq": seq,
                 "v": {
                     "vin": 48.0 + noise(1.0),
                     "vout": max(0, voutBase + math.sin(time_ms / 2000.0 + phase) * 0.5 + noise(0.05))
@@ -109,6 +115,7 @@ try:
                 }
             }
             client.publish(f"pmbus/{GW_ID}/dev/{addr}/telemetry", json.dumps(obj))
+            seq += 1
             
         # 2. Status
         if now - last_status_time >= status_interval:

@@ -26,6 +26,7 @@
 #include "gateway_ipc.h"
 #include "metrics.h"
 #include "emergency_ring.h"
+#include "persistent_seq.h"
 #if defined(BUFFER_BACKEND_QSPI)
 #include "qspi_flash.h"
 #endif
@@ -110,7 +111,7 @@ static void buffer_mgr_try_init_persistent(void)
     }
 
     s_persistent_ready = true;
-    s_current_boot_gen = persistent_buffer_total_writes() + 1u;
+    s_current_boot_gen = persistent_seq_get_boot_count();
     if (s_current_boot_gen == 0u)
     {
         s_current_boot_gen = 1u;
@@ -158,7 +159,11 @@ bool buffer_mgr_init(void)
     s_persistent_requested = (g_config.buffer.flash_max_records > 0u);
     s_persistent_ready = false;
     s_persistent_init_attempted = false;
-    s_current_boot_gen = 1u;
+    s_current_boot_gen = persistent_seq_get_boot_count();
+    if (s_current_boot_gen == 0u)
+    {
+        s_current_boot_gen = 1u;
+    }
 
     /* Defer persistent tier init until the scheduler is running because
      * some backends (QSPI serial-flash) use RTOS mutexes for erase/write.

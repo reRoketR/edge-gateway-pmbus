@@ -79,6 +79,8 @@ Topic: `.../telemetry`
 {
   "ts_ms": 1730000000000,
   "time_synced": true,
+  "boot_count": 42,
+  "sample_monotonic_ms": 98765,
   "seq": 12345,
   "gw_id": "gw01",
   "addr": "0x58",
@@ -96,6 +98,8 @@ Topic: `.../telemetry`
 
 Field rules:
 - `time_synced` — always present. `true` once SNTP has obtained a valid epoch; `false` when `ts_ms` is an uptime-ms fallback.
+- `boot_count` — always present. Persistent boot/session identifier restored from `persistent_seq`.
+- `sample_monotonic_ms` — always present. Monotonic sample timestamp from the FreeRTOS tick domain; resets on reboot and is intended to be interpreted together with `boot_count`.
 - Units are SI base units: V, A, °C, W.
 - `read_ms` = PMBus snapshot duration only (first PMBus command start → last PMBus response received). Excludes MQTT publish.
 - `retries` = total retries used across all PMBus commands in this snapshot.
