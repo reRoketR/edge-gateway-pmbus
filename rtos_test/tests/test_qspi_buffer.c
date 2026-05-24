@@ -47,6 +47,19 @@ static void reset_and_init(void)
     TEST_ASSERT_TRUE(qspi_buffer_init());
 }
 
+static void test_geometry_constants(void)
+{
+    printf("--- test_geometry_constants ---\n");
+    TEST_ASSERT_EQ_U32(256u, QSPI_FLASH_TOTAL_SECTORS);
+    TEST_ASSERT_EQ_U32(2u, QSPI_BUF_JOURNAL_SECTORS);
+    TEST_ASSERT_EQ_U32(1u, QSPI_BUF_RESERVED_TAIL_SECTORS);
+    TEST_ASSERT_EQ_U32(255u, QSPI_BUF_TOTAL_SECTORS);
+    TEST_ASSERT_EQ_U32(253u, QSPI_BUF_DATA_SECTORS);
+    TEST_ASSERT_EQ_U32(262144u, QSPI_BUF_SECTOR_SIZE);
+    TEST_ASSERT_EQ_U32(66846720u, QSPI_BUF_REGION_SIZE);
+    TEST_ASSERT_EQ_U32(524288u, QSPI_BUF_DATA_START);
+}
+
 static buffer_record_t make_telem_record(uint8_t addr, uint32_t seq,
                                          uint32_t read_start_ms,
                                          uint32_t origin_boot_gen)
@@ -254,6 +267,7 @@ int main(void)
 {
     printf("=== QSPI Buffer Host Tests ===\n\n");
 
+    test_geometry_constants();
     test_roundtrip_telemetry_record();
     test_invalid_record_is_rejected();
     test_sector_boundary_crossing_erases_next_sector();

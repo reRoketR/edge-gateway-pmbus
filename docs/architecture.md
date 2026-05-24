@@ -178,7 +178,8 @@ The RAM tier is a fixed-size ring of pre-encoded `buffer_record_t` objects.
 
 Properties:
 
-- stores topic + payload + origin timing metadata
+- stores compact binary payload + origin timing metadata
+- reconstructs topic and JSON only at publish time
 - used for all buffered records first
 - does not survive reboot
 
@@ -187,7 +188,7 @@ Properties:
 Two backends are available through `persistent_buffer.h`:
 
 - Em_EEPROM backend (default): internal flash, 61 records
-- QSPI backend: external flash, about 5300 records with current record sizes
+- QSPI backend: external flash, about 923,476 records for the default telemetry/status mix
 
 The selected backend is compile-time only.
 

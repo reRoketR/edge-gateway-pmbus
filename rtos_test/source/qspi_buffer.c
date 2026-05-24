@@ -29,6 +29,16 @@ static bool              s_is_initialized = false;
 // Forward declaration
 static bool qspi_buffer_consume_internal(bool is_drop);
 
+#if !defined(QSPI_BUF_HOST_TEST)
+extern const uint8_t __cy_xip_start[];
+extern const uint8_t __cy_xip_end[];
+
+static bool qspi_buffer_xip_region_in_use(void)
+{
+    return ((uintptr_t)__cy_xip_end > (uintptr_t)__cy_xip_start);
+}
+#endif
+
 static bool qspi_set_xip_enabled(bool enable)
 {
 #if defined(QSPI_BUF_HOST_TEST)
@@ -173,8 +183,8 @@ static bool metadata_recover(void)
     uint32_t max_seq = 0;
     bool found_valid = false;
 
-    // Scan Sector 0 and Sector 1
-    for (uint32_t sec = 0; sec <= 1; sec++) {
+    // Scan both metadata journal sectors.
+    for (uint32_t sec = 0; sec < QSPI_BUF_JOURNAL_SECTORS; sec++) {
         uintptr_t mapped_base = QSPI_MEM_MAPPED_BASE + QSPI_BUF_REGION_START + (sec * QSPI_BUF_SECTOR_SIZE);
         const uint8_t* mapped_journal = (const uint8_t*)mapped_base;
 
@@ -189,7 +199,7 @@ static bool metadata_recover(void)
                 if (computed_crc == entry.crc32) {
                     if (entry.seq > max_seq) {
                         // Clamp loaded pointers just in case! (Issue #2 FIX)
-                        uint32_t max_possible_records = (QSPI_BUF_REGION_SIZE) / 12; // sanity max limits
+                        uint32_t max_possible_records = (QSPI_BUF_REGION_SIZE) / 12; // sanity max limit
                         if (entry.head_offset >= QSPI_BUF_DATA_START && entry.head_offset < QSPI_BUF_REGION_SIZE &&
                             entry.tail_offset >= QSPI_BUF_DATA_START && entry.tail_offset < QSPI_BUF_REGION_SIZE &&
                             entry.count <= max_possible_records) {
@@ -233,9 +243,16 @@ bool qspi_buffer_init(void)
             return false;
         }
     }
+
+    if (qspi_buffer_xip_region_in_use()) {
+        printf("[QSPI_BUF] WARNING: .cy_xip is non-empty; refusing to own external flash buffer region\n");
+        s_is_initialized = false;
+        return false;
+    }
 #endif
 
     if (!qspi_set_xip_enabled(true)) {
+        s_is_initialized = false;
         return false;
     }
 
@@ -243,6 +260,7 @@ bool qspi_buffer_init(void)
         s_is_initialized = true;
         return true;
     }
+    s_is_initialized = false;
     return false;
 }
 
@@ -512,7 +530,7 @@ bool qspi_buffer_erase_all(void)
 {
     QSPI_LOCK();
     printf("[QSPI_BUF] Erasing completely...\n");
-    for (uint32_t i = 2; i < QSPI_BUF_TOTAL_SECTORS; i++) { // Start at 2 to spare 0/1 journal
+    for (uint32_t i = QSPI_BUF_JOURNAL_SECTORS; i < QSPI_BUF_TOTAL_SECTORS; i++) {
         uint32_t offset = QSPI_BUF_REGION_START + (i * QSPI_BUF_SECTOR_SIZE);
         if (!qspi_flash_erase_sync(offset, QSPI_BUF_SECTOR_SIZE)) {
             QSPI_UNLOCK();

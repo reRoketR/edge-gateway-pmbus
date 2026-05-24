@@ -4,13 +4,16 @@
  * @ingroup buffer_mgr
  *
  * @details
- * Uses the external S25FL512S NOR flash as a high-capacity persistent ring buffer.
- * Allocates a 2 MB region starting at 0x00000000.
+ * Uses the external S25FL512S NOR flash as a high-capacity persistent ring
+ * buffer. The buffer owns sectors 0-254 in QSPI address space and leaves the
+ * final flash sector reserved for qspi_flash_self_test().
  *
  * Architecture:
- *   - Region Size: 2 MB (8 sectors × 256 KB)
+ *   - Flash Geometry: 64 MB (256 sectors x 256 KB)
+ *   - Buffer-Owned Region: 255 sectors (0-254)
  *   - Sector 0-1: Metadata Journal Ping-Pong (wear leveling & power-safe rollover)
- *   - Sectors 2-7: Data Ring Buffer (records appended sequentially, wrapped)
+ *   - Sectors 2-254: Data Ring Buffer (records appended sequentially, wrapped)
+ *   - Sector 255: Reserved for qspi_flash_self_test()
  *
  * @see docs/persistent_buffer.md
  */
@@ -26,32 +29,42 @@
  ******************************************************************************/
 
 /** Flash start address for the buffer region (0x00000000 in QSPI space) */
-#define QSPI_BUF_REGION_START     (0x00000000UL)
+#define QSPI_BUF_REGION_START          (0x00000000UL)
 
 /** Flash sector size (256 KB for S25FL512S) */
-#define QSPI_BUF_SECTOR_SIZE      (262144UL)
+#define QSPI_BUF_SECTOR_SIZE           (262144UL)
 
-/** Total region size (2 MB) */
-#define QSPI_BUF_REGION_SIZE      (2097152UL)
+/** Total sectors in the S25FL512S device */
+#define QSPI_FLASH_TOTAL_SECTORS       (256UL)
 
-/** Total sectors in the allocated region */
-#define QSPI_BUF_TOTAL_SECTORS    (QSPI_BUF_REGION_SIZE / QSPI_BUF_SECTOR_SIZE) /* 8 */
+/** Journal mapping uses the first two sectors */
+#define QSPI_BUF_JOURNAL_SECTORS       (2UL)
 
-/** Journal mapping: Sectors 0 and 1 */
-#define QSPI_BUF_JOURNAL_0_OFFSET (0UL)
-#define QSPI_BUF_JOURNAL_1_OFFSET (QSPI_BUF_SECTOR_SIZE)
+/** Reserve the final flash sector for qspi_flash_self_test() */
+#define QSPI_BUF_RESERVED_TAIL_SECTORS (1UL)
 
-/** Data Region boundaries: Sectors 2 to 7 */
-#define QSPI_BUF_DATA_START       (2UL * QSPI_BUF_SECTOR_SIZE)
-#define QSPI_BUF_DATA_SECTORS     (QSPI_BUF_TOTAL_SECTORS - 2U) /* 6 sectors */
+/** Total sectors owned by the QSPI buffer */
+#define QSPI_BUF_TOTAL_SECTORS \
+    (QSPI_FLASH_TOTAL_SECTORS - QSPI_BUF_RESERVED_TAIL_SECTORS) /* 255 */
+
+/** Total region size owned by the QSPI buffer */
+#define QSPI_BUF_REGION_SIZE           (QSPI_BUF_TOTAL_SECTORS * QSPI_BUF_SECTOR_SIZE)
+
+/** Journal mapping: sectors 0 and 1 */
+#define QSPI_BUF_JOURNAL_0_OFFSET      (0UL)
+#define QSPI_BUF_JOURNAL_1_OFFSET      (QSPI_BUF_SECTOR_SIZE)
+
+/** Data region boundaries: sectors 2 to 254 */
+#define QSPI_BUF_DATA_START            (QSPI_BUF_JOURNAL_SECTORS * QSPI_BUF_SECTOR_SIZE)
+#define QSPI_BUF_DATA_SECTORS          (QSPI_BUF_TOTAL_SECTORS - QSPI_BUF_JOURNAL_SECTORS) /* 253 */
 
 /** Memory-mapped base address of the QSPI memory in the PSoC 6 address space */
 #ifndef QSPI_MEM_MAPPED_BASE
 #ifdef QSPI_BUF_HOST_TEST
 #include "qspi_mock.h"
-#define QSPI_MEM_MAPPED_BASE      ((uintptr_t)qspi_mock_mmap_base())
+#define QSPI_MEM_MAPPED_BASE           ((uintptr_t)qspi_mock_mmap_base())
 #else
-#define QSPI_MEM_MAPPED_BASE      (0x18000000UL)
+#define QSPI_MEM_MAPPED_BASE           (0x18000000UL)
 #endif
 #endif
 

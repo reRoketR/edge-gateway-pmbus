@@ -26,7 +26,7 @@ Task A: pmbus_poll_task
 Task C: buffer_task
   -> drains queues first
   -> drains rescue rings second
-  -> JSON-encodes records
+  -> builds compact buffer records
   -> stores records via buffer_mgr
 
 Task B: mqtt_gw_task
@@ -94,10 +94,10 @@ The RAM tier is a fixed-size ring of `buffer_record_t` objects.
 
 Each record stores:
 
-- MQTT topic
-- pre-encoded JSON payload
-- payload length
+- compact binary payload
+- record kind / device selector
 - origin timing metadata for same-boot latency tracking
+- topic and JSON are reconstructed only at publish time
 
 Properties:
 
@@ -145,22 +145,55 @@ Optional backend selected with `BUFFER_BACKEND=QSPI`. Uses the external
 
 Current practical characteristics:
 
-- about `5300` records with the current average record size
+- about `923,476` records for the default telemetry/status mix
+- approximately `9d 17h 12m` of offline buffering at the current 1.1 records/s workload
+- binary on-flash layout stores only typed fields, not full JSON strings
 - metadata journal across dedicated sectors
+- QSPI buffer owns sectors `0-254`; sector `255` remains reserved for `qspi_flash_self_test()`
+- backend initialization is refused if the linker places data into `.cy_xip`
 - larger capacity for long-duration outage experiments
 - survives reboot
 
 Like the Em_EEPROM backend, this pass does not alter on-flash commit semantics.
+
+For the current default profile the capacity increase can be written explicitly:
+
+```text
+Usable QSPI data region:
+  253 sectors x 262,144 B = 66,322,432 B
+
+Binary-backed record sizes:
+  telemetry = 16 + 55 + 4 = 75 B
+  status    = 16 + 20 + 4 = 40 B
+  weighted average (10 telemetry : 1 status)
+             = (10 x 75 + 40) / 11
+             = 71.8181818 B/record
+  capacity   = floor(66,322,432 / 71.8181818)
+             = 923,476 records
+
+Previous 6-sector QSPI layout:
+  usable data region = 6 x 262,144 = 1,572,864 B
+  capacity           = floor(1,572,864 / 71.8181818)
+                     = 21,900 records
+
+Capacity gain from the larger QSPI partition:
+  923,476 / 21,900 = 42.17x
+
+Outage tolerance at the current 1.1 records/s workload:
+  previous layout = 21,900 / 1.1 = 5 h 31 min 49 s
+  new layout      = 923,476 / 1.1 = 9 d 17 h 12 min 04 s
+```
 
 ## 9. Flush Procedure
 
 While MQTT is online, `mqtt_gw_task` calls the buffer flush path:
 
 1. peek oldest persistent record
-2. publish
-3. consume on success
-4. repeat until persistent tier empty or publish fails
-5. then do the same for the RAM tier
+2. rebuild topic and JSON at publish time
+3. publish
+4. consume on success
+5. repeat until persistent tier empty or publish fails
+6. then do the same for the RAM tier
 
 On publish failure, flushing stops and retries later.
 
@@ -202,7 +235,7 @@ Current expectations:
 | Build | Backend | Typical capacity |
 |------|---------|------------------|
 | default build | Em_EEPROM | 61 records |
-| `BUFFER_BACKEND=QSPI` | QSPI flash | about 5300 records |
+| `BUFFER_BACKEND=QSPI` | QSPI flash | about 923,476 records for the default telemetry/status mix |
 
 Profiles intended for long outage experiments should be explicit about QSPI.
 
