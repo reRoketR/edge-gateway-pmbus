@@ -801,29 +801,6 @@
       display: inline;
     }
 
-    /* ── Replay / Buffered data indicator ─────────────────────── */
-    .replay-stat { display: none; }
-    .replay-stat.active { display: flex; }
-    .replay-stat .stat-value { color: var(--orange); animation: pulse 1s infinite; }
-
-    .replay-banner {
-      display: none;
-      font-size: 10px;
-      padding: 1px 8px;
-      border-radius: 10px;
-      background: rgba(240, 136, 62, 0.15);
-      color: var(--orange);
-      font-weight: 500;
-      white-space: nowrap;
-    }
-
-    .replay-banner.active {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      animation: pulse 1.5s ease-in-out infinite;
-    }
-
     .threshold-cfg {
       display: none;
       background: var(--surface);
@@ -1127,7 +1104,6 @@
       <div class="stat"><span class="stat-label">Poll all (ms)</span><span class="stat-value" id="s-pmbus-avg">—</span>
       </div>
       <div class="stat"><span class="stat-label">Pub all (ms)</span><span class="stat-value" id="s-mqtt-avg">—</span></div>
-      <div class="stat replay-stat" id="replay-stat"><span class="stat-label">Replay</span><span class="stat-value orange" id="s-replay">0</span></div>
     </div>
 
     <!-- ── Charts + Events ────────────────────────────────────────────── -->
@@ -1260,7 +1236,6 @@
             <span class="dev-tab-placeholder">No devices seen yet</span>
           </div>
           <span class="card-tag">telemetry</span>
-          <span class="replay-banner" id="replay-banner">⟳ Replaying…</span>
           <div class="card-actions" style="position:relative;">
             <button class="export-btn" title="Export all telemetry CSV" onclick="exportTelemetryCSV()">&#x2B73;
               CSV</button>
@@ -1331,11 +1306,6 @@
     let counts = { telemetry: 0, status: 0, metrics: 0, events: 0 };
     let client = null;
 
-    // ── Buffered-record replay detection ──────────────────────────────────
-    const GAP_THRESHOLD_MS = 5000;   // records with ts_ms > 5s behind wall-clock are "buffered"
-    const GAP_LINE_BREAK_MS = 3000;  // insert null-gap if consecutive points are >3s apart
-    let _originalTelemDuration = null;  // stashed user duration while replay-expanded
-
     // ── Auto-reconnect ────────────────────────────────────────────────────
     let _reconnectTimer = null;
     let _reconnectDelay = 1000;   // ms, doubles each attempt, caps at 30s
@@ -1369,8 +1339,6 @@
       Object.keys(deviceData).forEach(k => delete deviceData[k]);
       activeAddr = null;
       renderDeviceTabs();
-      _hideReplayUI();
-      _resetReplayWindow();
       // Reset status badges
       ['sb-word', 'sb-vout', 'sb-iout', 'sb-temp'].forEach((id, i) => {
         const el = document.getElementById(id);
@@ -1392,15 +1360,7 @@
 
     function ensureDevice(addr) {
       if (deviceData[addr]) return;
-      deviceData[addr] = {
-        vin: [], vout: [], iout: [], temp: [], status: {},
-        _lastLiveTs: 0,       // timestamp of last confirmed live record
-        _lastTs: 0,           // timestamp of last record (any kind, for gap detection)
-        _minAge: undefined,   // min observed (now()-ts) for clock-skew-resilient buffered detection
-        _replayActive: false, // true while buffered records are arriving
-        _replayCount: 0,      // buffered records received in current burst
-        _replayOldestTs: 0,   // oldest ts_ms in current replay burst
-      };
+      deviceData[addr] = { vin: [], vout: [], iout: [], temp: [], status: {} };
       renderDeviceTabs();
       if (!activeAddr) switchDevice(addr);   // auto-select first device
     }
@@ -1427,22 +1387,9 @@
       activeAddr = addr;
       renderDeviceTabs();
 
-      const d = deviceData[addr];
-
-      // Handle replay state for the switched-to device
-      if (d._replayActive) {
-        _expandReplayWindow(d._replayOldestTs);
-        _updateReplayUI(d._replayCount);
-      } else {
-        _resetReplayWindow();
-        _hideReplayUI();
-      }
-
       // Replay this device's history into the 4 sub-charts
-      const activeDuration = d._replayActive
-        ? Math.max(now() - (d._replayOldestTs || now()) + 15000, DURATION_MS())
-        : DURATION_MS();
-      const cutoff = now() - activeDuration;
+      const cutoff = now() - DURATION_MS();
+      const d = deviceData[addr];
       [cVin, cVout, cIout, cTemp].forEach((ch, i) => {
         const key = ['vin', 'vout', 'iout', 'temp'][i];
         ch.data.datasets[0].data = d[key].filter(p => p.x >= cutoff);
@@ -1623,8 +1570,7 @@
         data: {
           datasets: [{
             label: `${label} (${yUnit})`, borderColor: color, borderWidth: 1.5,
-            pointRadius: 0, pointHoverRadius: 3, pointHitRadius: 10,
-            data: []
+            pointRadius: 0, pointHoverRadius: 3, pointHitRadius: 10, data: []
           }]
         },
         options: {
@@ -1764,130 +1710,27 @@
       const iout = toNum(a.iout);
       const temp = toNum(c.temp1);
 
-      // ── Detect buffered record (clock-skew-resilient) ─────────────────
-      const rawAge = now() - ts;
+      // Always store in device history buffer
       const d = deviceData[addr];
-      if (d._minAge === undefined || rawAge < d._minAge) d._minAge = rawAge;
-      const isBuffered = (rawAge - d._minAge) > GAP_THRESHOLD_MS;
-
-      // ── Insert null-gap to break line across time discontinuities ──────
-      if (d._lastTs > 0 && (ts - d._lastTs) > GAP_LINE_BREAK_MS) {
-        const gapNull = { x: d._lastTs + 1, y: null };
-        ['vin', 'vout', 'iout', 'temp'].forEach(k => d[k].push({ ...gapNull }));
-        if (addr === activeAddr) {
-          [cVin, cVout, cIout, cTemp].forEach(ch => {
-            ch.data.datasets[0].data.push({ ...gapNull });
-          });
-        }
-      }
-      d._lastTs = ts;
-
-      // ── Store in device history buffer ────────────────────────────────────────
       if (!isNaN(vin)) d.vin.push({ x: ts, y: vin });
       if (!isNaN(vout)) d.vout.push({ x: ts, y: vout });
       if (!isNaN(iout)) d.iout.push({ x: ts, y: iout });
       if (!isNaN(temp)) d.temp.push({ x: ts, y: temp });
 
-      // ── Prune old entries ───────────────────────────────────────────────
-      const keepDuration = d._replayActive
-        ? Math.max(now() - (d._replayOldestTs || now()) + 30000, DURATION_MS() * 2)
-        : DURATION_MS() * 2;
-      const cutoff = now() - keepDuration;
+      // Prune old entries (keep 2× window to survive tab switches)
+      const maxAge = DURATION_MS() * 2;
+      const cutoff = ts - maxAge;
       ['vin', 'vout', 'iout', 'temp'].forEach(k => {
         while (d[k].length && d[k][0].x < cutoff) d[k].shift();
       });
 
-      // ── Track replay state ─────────────────────────────────────────────
-      if (isBuffered) {
-        if (!d._replayActive) {
-          d._replayActive = true;
-          d._replayCount = 0;
-          d._replayOldestTs = ts;
-        }
-        d._replayCount++;
-        if (ts < d._replayOldestTs) d._replayOldestTs = ts;
-        if (addr === activeAddr) {
-          _expandReplayWindow(d._replayOldestTs);
-          _updateReplayUI(d._replayCount);
-        }
-      } else {
-        d._lastLiveTs = ts;
-        if (d._replayActive) {
-          d._replayActive = false;
-          d._replayCount = 0;
-          if (addr === activeAddr) {
-            _resetReplayWindow();
-            _hideReplayUI();
-          }
-        }
-      }
-
-      // ── Push to live charts only for the active device ─────────────────
+      // Push to live charts only for the active device
       if (addr === activeAddr) {
         if (!isNaN(vin)) { push(cVin, 0, vin, ts); checkAlarm('vin', vin); }
         if (!isNaN(vout)) { push(cVout, 0, vout, ts); checkAlarm('vout', vout); }
         if (!isNaN(iout)) { push(cIout, 0, iout, ts); checkAlarm('iout', iout); }
         if (!isNaN(temp)) { push(cTemp, 0, temp, ts); checkAlarm('temp', temp); }
       }
-    }
-
-    // ── Replay window management ─────────────────────────────────────────
-    function _expandReplayWindow(oldestTs) {
-      const needed = now() - oldestTs + 15000; // +15s margin
-      const current = DURATION_MS();
-      if (needed <= current) return;
-      if (_originalTelemDuration === null) _originalTelemDuration = current;
-      [cVin, cVout, cIout, cTemp].forEach(ch => {
-        if (ch.options.scales.x?.realtime) {
-          ch.options.scales.x.realtime.duration = needed;
-        }
-      });
-    }
-
-    function _resetReplayWindow() {
-      if (_originalTelemDuration === null) return;
-      const dur = _originalTelemDuration;
-      _originalTelemDuration = null;
-      [cVin, cVout, cIout, cTemp].forEach(ch => {
-        if (ch.options.scales.x?.realtime) {
-          ch.options.scales.x.realtime.duration = dur;
-        }
-      });
-    }
-
-    function _updateReplayUI(count) {
-      const statEl = document.getElementById('replay-stat');
-      if (statEl) statEl.classList.add('active');
-      stat('s-replay', count);
-      const banner = document.getElementById('replay-banner');
-      if (banner) {
-        banner.textContent = `\u27f3 Replaying ${count} buffered records\u2026`;
-        banner.classList.add('active');
-      }
-      // Visual: switch telemetry datasets to dashed/dimmed replay style
-      [cVin, cVout, cIout, cTemp].forEach(ch => {
-        const ds = ch.data.datasets[0];
-        if (!ds._origColor) ds._origColor = ds.borderColor;
-        ds.borderDash = [6, 4];
-        ds.borderColor = ds._origColor + '88';
-        ds.pointRadius = 2;
-        ds.pointBackgroundColor = '#f0883e';
-      });
-    }
-
-    function _hideReplayUI() {
-      const statEl = document.getElementById('replay-stat');
-      if (statEl) statEl.classList.remove('active');
-      const banner = document.getElementById('replay-banner');
-      if (banner) banner.classList.remove('active');
-      // Visual: restore solid live style
-      [cVin, cVout, cIout, cTemp].forEach(ch => {
-        const ds = ch.data.datasets[0];
-        ds.borderDash = undefined;
-        if (ds._origColor) ds.borderColor = ds._origColor;
-        ds.pointRadius = 0;
-        ds.pointBackgroundColor = ds._origColor || ds.borderColor;
-      });
     }
 
     // ── Handle event message ──────────────────────────────────────────────
@@ -2036,16 +1879,8 @@
     // ── Update chart durations when history changes ───────────────────────
     document.getElementById('inp-history').addEventListener('change', () => {
       const d = DURATION_MS();
-      const telemCharts = [cVin, cVout, cIout, cTemp];
       allCharts.forEach(ch => {
-        if (ch.options.scales.x?.realtime) {
-          // Don't override expanded replay window on telemetry sub-charts
-          if (_originalTelemDuration !== null && telemCharts.includes(ch)) {
-            _originalTelemDuration = d;  // stash new user preference
-            return;
-          }
-          ch.options.scales.x.realtime.duration = d;
-        }
+        if (ch.options.scales.x?.realtime) ch.options.scales.x.realtime.duration = d;
         ch.update('none');
       });
     });
@@ -2114,13 +1949,9 @@
     // ── Periodic stale-history pruner ─────────────────────────────────────
     // Runs every 60s; prunes ALL devices regardless of active message flow
     setInterval(() => {
-      const baseCutoff = now() - DURATION_MS() * 2;
+      const cutoff = now() - DURATION_MS() * 2;
       let tabsDirty = false;
       Object.entries(deviceData).forEach(([addr, d]) => {
-        // Extend retention for replay-active devices to preserve buffered data
-        const cutoff = d._replayActive
-          ? Math.min(baseCutoff, (d._replayOldestTs || baseCutoff) - 10000)
-          : baseCutoff;
         ['vin', 'vout', 'iout', 'temp'].forEach(k => {
           while (d[k].length && d[k][0].x < cutoff) d[k].shift();
         });
