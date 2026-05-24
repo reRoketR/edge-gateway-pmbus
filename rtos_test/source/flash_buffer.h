@@ -17,11 +17,11 @@
  * Each 512-byte data row stores:
  *   - 4-byte magic (0xB1F0DA7A)
  *   - 2-byte payload_len
- *   - 2-byte reserved
+ *   - 1-byte record kind
+ *   - 1-byte reserved
  *   - 4-byte origin_read_start_ms
  *   - 4-byte origin_boot_gen
- *   - 80-byte topic
- *   - 412-byte payload (truncated to leave room for timing metadata)
+ *   - compact binary payload bytes
  *   - 4-byte CRC32 of the above
  *
  * Flash API used:
@@ -32,7 +32,8 @@
  * Constraints:
  *   - Flash writes block ~16–20 ms.  Normally called from buffer_task
  *     (Task C, low priority), but may also be called from mqtt_gw_task
- *     (Task B, prio 3) via buffer_mgr_put() when RAM is full (spill path).
+ *     (Task B, prio 3) via buffer_mgr_put_record() when RAM is full
+ *     (spill path).
  *   - Interrupts must remain enabled during flash writes (PDL requirement).
  *   - Em_EEPROM region is in a separate flash sector, avoiding Read-while-
  *     Write violations with application code in main flash.
@@ -46,7 +47,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "buffer_mgr.h"     /* buffer_record_t */
+#include "buffer_record.h"  /* buffer_record_t */
 
 /*******************************************************************************
  * Flash region constants
@@ -81,18 +82,18 @@
 /** Magic value identifying a valid flash record */
 #define FLASH_RECORD_MAGIC      (0xB1F0DA7AUL)
 
-/** Max payload field size in flash record (512 - 16 metadata - 80 topic - 4 CRC) */
-#define FLASH_PAYLOAD_MAX       (412U)
+/** Max payload field size in flash record (512 - 16 metadata - 4 CRC) */
+#define FLASH_RECORD_MAX_PAYLOAD  (492U)
 
 /** On-flash data record (exactly 512 bytes, packed into one row) */
 typedef struct __attribute__((packed)) {
     uint32_t magic;                          /**< FLASH_RECORD_MAGIC          */
     uint16_t payload_len;                    /**< Actual payload length       */
-    uint16_t reserved;                       /**< Padding / future use        */
+    uint8_t  kind;                           /**< buffer_record_kind_t        */
+    uint8_t  reserved;                       /**< Padding / future use        */
     uint32_t origin_read_start_ms;           /**< Same-boot latency origin    */
     uint32_t origin_boot_gen;                /**< Boot generation marker      */
-    char     topic[BUFFER_TOPIC_MAX];        /**< MQTT topic (80 bytes)       */
-    char     payload[FLASH_PAYLOAD_MAX];     /**< JSON payload (412 bytes)    */
+    uint8_t  payload[FLASH_RECORD_MAX_PAYLOAD]; /**< Binary payload bytes     */
     uint32_t crc32;                          /**< CRC32 of bytes 0..507       */
 } flash_data_row_t;
 
@@ -144,26 +145,6 @@ bool flash_buffer_init(void);
  * latency calculation.
  */
 bool flash_buffer_put_record(const buffer_record_t *rec);
-
-/**
- * @brief Write a record to flash.
- *
- * Writes to the next available data row.  If full:
- *   - drop_oldest = true  → overwrites oldest (advances tail)
- *   - drop_oldest = false → drops new record
- *
- * Also writes an updated metadata row (for crash recovery).
- *
- * @warning This function calls Cy_Flash_WriteRow() which blocks for ~16 ms.
- *          Call only from a low-priority task.
- *
- * @param[in] topic        MQTT topic string
- * @param[in] payload      JSON payload string
- * @param[in] payload_len  Payload length
- *
- * @return true if the record was written, false on error or drop.
- */
-bool flash_buffer_put(const char *topic, const char *payload, uint16_t payload_len);
 
 /**
  * @brief Read (peek) the oldest record from flash without consuming it.

@@ -456,9 +456,7 @@ static void test_same_boot_latency_helper(void)
     uint32_t latency_us = 0u;
     metrics_snapshot_t snap;
 
-    strcpy(rec.topic, "pmbus/test/dev/0x58/telemetry");
-    strcpy(rec.payload, "{\"v\":1.0}");
-    rec.payload_len = (uint16_t)strlen(rec.payload);
+    buffer_record_clear(&rec, BUFFER_RECORD_TELEMETRY);
     rec.origin_read_start_ms = 100u;
     rec.origin_boot_gen = 7u;
 

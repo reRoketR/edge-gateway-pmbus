@@ -6,8 +6,8 @@
  * @details
  * Two-tier buffering: RAM ring buffer (fast) + optional flash-backed
  * persistent buffer (survives reboot).  Each buffered record stores a
- * pre-encoded JSON string plus its MQTT topic, so that flushing does not
- * require re-encoding.
+ * compact binary payload; JSON and MQTT topics are reconstructed only when
+ * a record is published.
  *
  * Features:
  *   - Thread-safe put/get with explicit spill/flush serialization
@@ -32,25 +32,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-/*******************************************************************************
- * Buffered record format
- ******************************************************************************/
-
-/** Max JSON payload size per buffered record */
-#define BUFFER_PAYLOAD_MAX  512u
-
-/** Max topic string length */
-#define BUFFER_TOPIC_MAX    80u
-
-typedef struct {
-    char     topic[BUFFER_TOPIC_MAX];       /**< MQTT topic string           */
-    char     payload[BUFFER_PAYLOAD_MAX];   /**< Pre-encoded JSON payload    */
-    uint16_t payload_len;                   /**< Actual payload length       */
-    uint32_t origin_read_start_ms;          /**< PMBus read-start monotonic ms;
-                                                 0 when not telemetry-backed  */
-    uint32_t origin_boot_gen;               /**< Boot generation that created
-                                                 origin_read_start_ms         */
-} buffer_record_t;
+#include "buffer_record.h"
 
 /*******************************************************************************
  * Initialization
@@ -118,13 +100,11 @@ void buffer_mgr_signal_spill_task(void);
  *
  * Increments buffer_enqueued and (if applicable) buffer_dropped metrics.
  *
- * @param[in] topic        MQTT topic string
- * @param[in] payload      JSON payload string
- * @param[in] payload_len  Payload length
+ * @param[in] rec  Binary record payload
  *
  * @return true if the record was accepted, false if dropped.
  */
-bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len);
+bool buffer_mgr_put_record(const buffer_record_t *rec);
 
 /**
  * @brief Get the current boot generation used for buffered latency tracking.

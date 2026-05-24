@@ -275,7 +275,10 @@ static void test_A_queue_drain_ram(void)
     /* Verify a record can be peeked */
     buffer_record_t out;
     TEST_ASSERT_TRUE(buffer_mgr_peek(&out));
-    TEST_ASSERT_TRUE(strstr(out.topic, "telemetry") != NULL);
+    TEST_ASSERT_EQ_U32(BUFFER_RECORD_TELEMETRY, out.kind);
+    TEST_ASSERT_EQ_U32(0x58u, out.payload.telemetry.addr_7bit);
+    TEST_ASSERT_EQ_U32(0u, out.payload.telemetry.seq);
+    TEST_ASSERT_EQ_U32(100u, out.origin_read_start_ms);
 
     printf("  [A] PASSED\n");
 }
@@ -522,6 +525,13 @@ static void test_H_normal_flush(void)
     /* Verify records are telemetry JSON with identifiable content */
     TEST_ASSERT_TRUE(strstr(publish_mock_get_topic(0), "telemetry") != NULL);
     TEST_ASSERT_TRUE(strstr(publish_mock_get_payload(0), "vin") != NULL);
+
+    metrics_snapshot_t snap;
+    metrics_snapshot_and_reset(&snap, 1000000u, 10000u);
+    TEST_ASSERT_EQ_U32(8u, snap.timing.read_to_publish_sample_count);
+    TEST_ASSERT_EQ_U32(snap.timing.read_to_publish_avg_us,
+                       snap.timing.telemetry_before_publish_avg_us +
+                       snap.timing.telemetry_publish_avg_us);
 
     printf("  [H] PASSED\n");
 }
