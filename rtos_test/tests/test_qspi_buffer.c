@@ -47,29 +47,81 @@ static void reset_and_init(void)
     TEST_ASSERT_TRUE(qspi_buffer_init());
 }
 
-static void fill_bytes(char *buf, size_t len, char value)
+static buffer_record_t make_telem_record(uint8_t addr, uint32_t seq,
+                                         uint32_t read_start_ms,
+                                         uint32_t origin_boot_gen)
 {
-    for (size_t i = 0; i < len; i++)
-    {
-        buf[i] = value;
-    }
-}
-
-static void test_normal_put_peek_consume(void)
-{
+    telemetry_record_t src;
     buffer_record_t rec;
 
-    printf("--- test_normal_put_peek_consume ---\n");
+    memset(&src, 0, sizeof(src));
+    src.ts_ms = 1000000u + seq;
+    src.time_synced = true;
+    src.seq = seq;
+    src.addr_7bit = addr;
+    src.label = "psu_a";
+    src.pec = true;
+    src.read_ms = 5u;
+    src.retries = 1u;
+    src.vin_mV = 12000 + (int32_t)seq;
+    src.vout_mV = 1000u;
+    src.iin_mA = 500;
+    src.iout_mA = 4000;
+    src.temp1_mC = 40000;
+    src.pout_mW = 5000;
+    src.raw_vin = 0x0101u;
+    src.raw_vout = 0x0202u;
+    src.raw_iin = 0x0303u;
+    src.raw_iout = 0x0404u;
+    src.raw_temp1 = 0x0505u;
+    src.raw_pout = 0x0606u;
+    src.valid_mask = TELEM_VALID_ALL;
+    src.read_start_ms = read_start_ms;
+
+    buffer_record_from_telemetry(&rec, &src, origin_boot_gen);
+    return rec;
+}
+
+static buffer_record_t make_event_record(event_type_t type, const char *detail)
+{
+    event_record_t src;
+    buffer_record_t rec;
+
+    memset(&src, 0, sizeof(src));
+    src.ts_ms = 2000000u;
+    src.time_synced = true;
+    src.type = type;
+    if (detail != NULL)
+    {
+        strncpy(src.detail, detail, EVT_DETAIL_MAX - 1u);
+        src.detail[EVT_DETAIL_MAX - 1u] = '\0';
+    }
+
+    buffer_record_from_event(&rec, &src);
+    return rec;
+}
+
+static void test_roundtrip_telemetry_record(void)
+{
+    buffer_record_t in;
+    buffer_record_t out;
+
+    printf("--- test_roundtrip_telemetry_record ---\n");
     reset_and_init();
 
-    TEST_ASSERT_TRUE(qspi_buffer_put("topic/a", "{\"v\":1}", 7u));
+    in = make_telem_record(0x58u, 7u, 4321u, 99u);
+    TEST_ASSERT_TRUE(qspi_buffer_put_record(&in));
     TEST_ASSERT_EQ_U32(1u, qspi_buffer_depth());
-    TEST_ASSERT_TRUE(qspi_buffer_peek(&rec));
-    TEST_ASSERT_EQ_STR("topic/a", rec.topic);
-    TEST_ASSERT_EQ_STR("{\"v\":1}", rec.payload);
-    TEST_ASSERT_EQ_U32(7u, rec.payload_len);
-    TEST_ASSERT_EQ_U32(0u, rec.origin_read_start_ms);
-    TEST_ASSERT_EQ_U32(0u, rec.origin_boot_gen);
+    TEST_ASSERT_TRUE(qspi_buffer_peek(&out));
+    TEST_ASSERT_EQ_U32(BUFFER_RECORD_TELEMETRY, out.kind);
+    TEST_ASSERT_EQ_U32(4321u, out.origin_read_start_ms);
+    TEST_ASSERT_EQ_U32(99u, out.origin_boot_gen);
+    TEST_ASSERT_EQ_U32(0x58u, out.payload.telemetry.addr_7bit);
+    TEST_ASSERT_EQ_U32(7u, out.payload.telemetry.seq);
+    TEST_ASSERT_EQ_U32(12007u, (uint32_t)out.payload.telemetry.vin_mV);
+    TEST_ASSERT_EQ_U32(1000u, out.payload.telemetry.vout_mV);
+    TEST_ASSERT_EQ_U32(5u, out.payload.telemetry.read_ms);
+    TEST_ASSERT_EQ_U32(TELEM_VALID_ALL, out.payload.telemetry.valid_mask);
     TEST_ASSERT_TRUE(qspi_buffer_consume());
     TEST_ASSERT_EQ_U32(0u, qspi_buffer_depth());
     TEST_ASSERT_EQ_U32(1u, qspi_mock_metric_buffer_enqueued());
@@ -77,125 +129,71 @@ static void test_normal_put_peek_consume(void)
     TEST_ASSERT_EQ_U32(0u, qspi_mock_metric_buffer_dropped());
 }
 
-static void test_put_truncates_to_contract(void)
+static void test_invalid_record_is_rejected(void)
 {
-    buffer_record_t rec;
-    char topic[BUFFER_TOPIC_MAX + 20u];
-    char payload[BUFFER_PAYLOAD_MAX + 40u];
+    buffer_record_t bad;
 
-    printf("--- test_put_truncates_to_contract ---\n");
+    printf("--- test_invalid_record_is_rejected ---\n");
     reset_and_init();
 
-    for (size_t i = 0; i < sizeof(topic) - 1u; i++)
-    {
-        topic[i] = (char)('a' + (i % 26u));
-    }
-    topic[sizeof(topic) - 1u] = '\0';
-    fill_bytes(payload, sizeof(payload), 'P');
+    memset(&bad, 0, sizeof(bad));
+    bad.kind = 255u;
 
-    TEST_ASSERT_TRUE(qspi_buffer_put(topic, payload, (uint16_t)sizeof(payload)));
-    TEST_ASSERT_TRUE(qspi_buffer_peek(&rec));
-    TEST_ASSERT_EQ_U32(BUFFER_TOPIC_MAX - 1u, (uint32_t)strlen(rec.topic));
-    TEST_ASSERT_EQ_U32(BUFFER_PAYLOAD_MAX - 1u, rec.payload_len);
-    TEST_ASSERT_EQ_U32(BUFFER_PAYLOAD_MAX - 1u, (uint32_t)strlen(rec.payload));
+    TEST_ASSERT_FALSE(qspi_buffer_put_record(&bad));
+    TEST_ASSERT_EQ_U32(0u, qspi_buffer_depth());
 }
 
 static void test_sector_boundary_crossing_erases_next_sector(void)
 {
-    char topic[BUFFER_TOPIC_MAX];
-    char payload[BUFFER_PAYLOAD_MAX];
+    buffer_record_t rec;
+    buffer_record_t out;
     uint32_t initial_erases;
+    uint32_t guard = 0u;
 
     printf("--- test_sector_boundary_crossing_erases_next_sector ---\n");
     reset_and_init();
 
-    memset(topic, 't', sizeof(topic) - 1u);
-    topic[sizeof(topic) - 1u] = '\0';
-    memset(payload, 'x', sizeof(payload) - 1u);
-    payload[sizeof(payload) - 1u] = '\0';
-
+    rec = make_event_record(EVT_MQTT_CONNECTED, "x");
     initial_erases = qspi_mock_erase_calls();
     while (qspi_mock_erase_calls() == initial_erases)
     {
-        TEST_ASSERT_TRUE(qspi_buffer_put(topic, payload, BUFFER_PAYLOAD_MAX - 1u));
-    }
-
-    TEST_ASSERT_MSG(qspi_buffer_depth() > 0u, "expected non-empty buffer after boundary crossing");
-}
-
-static void test_ring_wraparound_stays_operational(void)
-{
-    char payload[BUFFER_PAYLOAD_MAX];
-    char topic[32];
-    buffer_record_t rec;
-    uint32_t initial_erases;
-    uint32_t guard = 0u;
-
-    printf("--- test_ring_wraparound_stays_operational ---\n");
-    reset_and_init();
-
-    memset(payload, 'w', sizeof(payload) - 1u);
-    payload[sizeof(payload) - 1u] = '\0';
-    initial_erases = qspi_mock_erase_calls();
-
-    while (qspi_mock_erase_calls() < (initial_erases + 6u))
-    {
-        snprintf(topic, sizeof(topic), "wrap/%lu", (unsigned long)guard);
-        TEST_ASSERT_TRUE(qspi_buffer_put(topic, payload, BUFFER_PAYLOAD_MAX - 1u));
+        TEST_ASSERT_TRUE(qspi_buffer_put_record(&rec));
         guard++;
-        TEST_ASSERT_MSG(guard < 4000u, "wraparound loop guard tripped at %lu",
+        TEST_ASSERT_MSG(guard < 5000u, "sector-crossing loop guard tripped at %lu",
                         (unsigned long)guard);
     }
 
-    TEST_ASSERT_MSG(qspi_mock_metric_buffer_dropped() > 0u,
-                    "expected drop metrics once ring wraps");
-    TEST_ASSERT_TRUE(qspi_buffer_peek(&rec));
-    TEST_ASSERT_MSG(rec.topic[0] != '\0', "expected a valid record after wraparound");
+    TEST_ASSERT_MSG(qspi_buffer_depth() > 0u,
+                    "expected non-empty buffer after boundary crossing");
+    TEST_ASSERT_TRUE(qspi_buffer_peek(&out));
+    TEST_ASSERT_EQ_U32(BUFFER_RECORD_EVENT, out.kind);
+    TEST_ASSERT_TRUE(strcmp(out.payload.event.detail, "x") == 0);
 }
 
-static void test_recovery_from_metadata_journal(void)
+static void test_reinit_recovers_latest_record(void)
 {
-    buffer_record_t rec;
+    buffer_record_t out;
+    buffer_record_t rec1;
+    buffer_record_t rec2;
 
-    printf("--- test_recovery_from_metadata_journal ---\n");
+    printf("--- test_reinit_recovers_latest_record ---\n");
     reset_and_init();
 
-    TEST_ASSERT_TRUE(qspi_buffer_put("rec/1", "alpha", 5u));
-    TEST_ASSERT_TRUE(qspi_buffer_put("rec/2", "bravo", 5u));
+    rec1 = make_telem_record(0x58u, 1u, 100u, 11u);
+    rec2 = make_telem_record(0x58u, 2u, 200u, 11u);
+    TEST_ASSERT_TRUE(qspi_buffer_put_record(&rec1));
+    TEST_ASSERT_TRUE(qspi_buffer_put_record(&rec2));
     TEST_ASSERT_TRUE(qspi_buffer_consume());
     TEST_ASSERT_EQ_U32(1u, qspi_buffer_depth());
 
     TEST_ASSERT_TRUE(qspi_buffer_init());
     TEST_ASSERT_EQ_U32(1u, qspi_buffer_depth());
-    TEST_ASSERT_TRUE(qspi_buffer_peek(&rec));
-    TEST_ASSERT_EQ_STR("rec/2", rec.topic);
-    TEST_ASSERT_EQ_STR("bravo", rec.payload);
-}
-
-static void test_origin_metadata_survives_reinit(void)
-{
-    buffer_record_t in = {0};
-    buffer_record_t out;
-
-    printf("--- test_origin_metadata_survives_reinit ---\n");
-    reset_and_init();
-
-    strcpy(in.topic, "telem/58");
-    strcpy(in.payload, "{\"v\":1.23}");
-    in.payload_len = (uint16_t)strlen(in.payload);
-    in.origin_read_start_ms = 4321u;
-    in.origin_boot_gen = 99u;
-
-    TEST_ASSERT_TRUE(qspi_buffer_put_record(&in));
     TEST_ASSERT_TRUE(qspi_buffer_peek(&out));
-    TEST_ASSERT_EQ_U32(4321u, out.origin_read_start_ms);
-    TEST_ASSERT_EQ_U32(99u, out.origin_boot_gen);
-
-    TEST_ASSERT_TRUE(qspi_buffer_init());
-    TEST_ASSERT_TRUE(qspi_buffer_peek(&out));
-    TEST_ASSERT_EQ_U32(4321u, out.origin_read_start_ms);
-    TEST_ASSERT_EQ_U32(99u, out.origin_boot_gen);
-    TEST_ASSERT_EQ_STR("telem/58", out.topic);
+    TEST_ASSERT_EQ_U32(BUFFER_RECORD_TELEMETRY, out.kind);
+    TEST_ASSERT_EQ_U32(2u, out.payload.telemetry.seq);
+    TEST_ASSERT_EQ_U32(200u, out.origin_read_start_ms);
+    TEST_ASSERT_EQ_U32(11u, out.origin_boot_gen);
+    TEST_ASSERT_EQ_U32(0x58u, out.payload.telemetry.addr_7bit);
 }
 
 static void test_corrupted_latest_metadata_falls_back(void)
@@ -206,8 +204,10 @@ static void test_corrupted_latest_metadata_falls_back(void)
     printf("--- test_corrupted_latest_metadata_falls_back ---\n");
     reset_and_init();
 
-    TEST_ASSERT_TRUE(qspi_buffer_put("meta/1", "one", 3u));
-    TEST_ASSERT_TRUE(qspi_buffer_put("meta/2", "two", 3u));
+    rec = make_event_record(EVT_MQTT_CONNECTED, "one");
+    TEST_ASSERT_TRUE(qspi_buffer_put_record(&rec));
+    rec = make_event_record(EVT_MQTT_CONNECTED, "two");
+    TEST_ASSERT_TRUE(qspi_buffer_put_record(&rec));
     TEST_ASSERT_EQ_U32(2u, qspi_buffer_depth());
 
     qspi_mock_corrupt_u32(latest_entry_offset + 24u, 0u);
@@ -215,26 +215,25 @@ static void test_corrupted_latest_metadata_falls_back(void)
     TEST_ASSERT_TRUE(qspi_buffer_init());
     TEST_ASSERT_EQ_U32(1u, qspi_buffer_depth());
     TEST_ASSERT_TRUE(qspi_buffer_peek(&rec));
-    TEST_ASSERT_EQ_STR("meta/1", rec.topic);
-    TEST_ASSERT_EQ_STR("one", rec.payload);
+    TEST_ASSERT_EQ_U32(BUFFER_RECORD_EVENT, rec.kind);
+    TEST_ASSERT_TRUE(strcmp(rec.payload.event.detail, "one") == 0);
 }
 
 static void test_ping_pong_journal_rollover_recovers(void)
 {
-    char topic[24];
-    uint32_t puts = 0u;
-    uint32_t depth_before;
-    uint32_t writes_before;
     buffer_record_t rec;
     const uint8_t *mmap;
+    uint32_t depth_before;
+    uint32_t writes_before;
+    uint32_t puts = 0u;
 
     printf("--- test_ping_pong_journal_rollover_recovers ---\n");
     reset_and_init();
 
+    rec = make_event_record(EVT_MQTT_CONNECTED, "x");
     while (puts < 9400u)
     {
-        snprintf(topic, sizeof(topic), "jp/%lu", (unsigned long)puts);
-        TEST_ASSERT_TRUE(qspi_buffer_put(topic, "x", 1u));
+        TEST_ASSERT_TRUE(qspi_buffer_put_record(&rec));
         puts++;
     }
 
@@ -248,19 +247,17 @@ static void test_ping_pong_journal_rollover_recovers(void)
     TEST_ASSERT_EQ_U32(depth_before, qspi_buffer_depth());
     TEST_ASSERT_EQ_U32(writes_before, qspi_buffer_total_writes());
     TEST_ASSERT_TRUE(qspi_buffer_peek(&rec));
-    TEST_ASSERT_MSG(rec.topic[0] != '\0', "expected valid record after rollover recovery");
+    TEST_ASSERT_EQ_U32(BUFFER_RECORD_EVENT, rec.kind);
 }
 
 int main(void)
 {
     printf("=== QSPI Buffer Host Tests ===\n\n");
 
-    test_normal_put_peek_consume();
-    test_put_truncates_to_contract();
+    test_roundtrip_telemetry_record();
+    test_invalid_record_is_rejected();
     test_sector_boundary_crossing_erases_next_sector();
-    test_ring_wraparound_stays_operational();
-    test_recovery_from_metadata_journal();
-    test_origin_metadata_survives_reinit();
+    test_reinit_recovers_latest_record();
     test_corrupted_latest_metadata_falls_back();
     test_ping_pong_journal_rollover_recovers();
 

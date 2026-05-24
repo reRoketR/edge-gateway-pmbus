@@ -19,7 +19,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "buffer_mgr.h"     /* buffer_record_t */
+#include "buffer_record.h"  /* buffer_record_t */
 
 /*******************************************************************************
  * QSPI Flash Region Constants
@@ -66,11 +66,11 @@
 typedef struct __attribute__((packed)) {
     uint32_t magic;                          /**< QSPI_RECORD_MAGIC           */
     uint16_t payload_len;                    /**< Actual payload length       */
-    uint8_t  topic_len;                      /**< Actual topic length         */
+    uint8_t  kind;                           /**< buffer_record_kind_t        */
     uint8_t  reserved;                       /**< Padding / future use        */
     uint32_t origin_read_start_ms;           /**< Same-boot latency origin    */
     uint32_t origin_boot_gen;                /**< Boot generation marker      */
-    /* Followed by: topic bytes, payload bytes, 4-byte CRC32 */
+    /* Followed by: binary payload bytes, 4-byte CRC32 */
 } qspi_data_header_t;
 
 /*******************************************************************************
@@ -104,7 +104,6 @@ _Static_assert(sizeof(qspi_meta_entry_t) == 28, "qspi_meta_entry_t must be 28 by
 
 bool qspi_buffer_init(void);
 bool qspi_buffer_put_record(const buffer_record_t *rec);
-bool qspi_buffer_put(const char *topic, const char *payload, uint16_t payload_len);
 bool qspi_buffer_peek(buffer_record_t *out);
 bool qspi_buffer_consume(void);
 uint32_t qspi_buffer_depth(void);

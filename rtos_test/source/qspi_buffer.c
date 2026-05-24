@@ -276,18 +276,20 @@ static bool room_available(uint32_t h, uint32_t t, uint32_t req)
 bool qspi_buffer_put_record(const buffer_record_t *rec)
 {
     if (!s_is_initialized) return false;
-    if (rec == NULL || rec->topic[0] == '\0' || rec->payload_len == 0u) return false;
+    if (rec == NULL) return false;
 
     QSPI_LOCK();
 
-    uint32_t topic_len = strlen(rec->topic);
-    uint16_t payload_len = rec->payload_len;
-    
-    // Truncate sizes so they are naturally valid during peek() and read_record_header()
-    if (topic_len > BUFFER_TOPIC_MAX - 1) topic_len = BUFFER_TOPIC_MAX - 1;
-    if (payload_len > BUFFER_PAYLOAD_MAX - 1) payload_len = BUFFER_PAYLOAD_MAX - 1;
+    uint16_t payload_len = buffer_record_payload_len(rec);
+    const uint8_t *payload =
+        (const uint8_t *)buffer_record_payload_ptr_const(rec);
+    if (payload_len == 0u || payload == NULL)
+    {
+        QSPI_UNLOCK();
+        return false;
+    }
 
-    uint32_t req_size = sizeof(qspi_data_header_t) + topic_len + payload_len + 4; // +4 for CRC32
+    uint32_t req_size = sizeof(qspi_data_header_t) + payload_len + 4u; // +4 for CRC32
 
     // Ensure space (Consume drops if necessary)
     while (!room_available(s_meta_cache.head_offset, s_meta_cache.tail_offset, req_size)) {
@@ -324,17 +326,16 @@ bool qspi_buffer_put_record(const buffer_record_t *rec)
     qspi_data_header_t hdr;
     hdr.magic = QSPI_RECORD_MAGIC;
     hdr.payload_len = payload_len;
-    hdr.topic_len = topic_len;
+    hdr.kind = rec->kind;
     hdr.reserved = 0;
     hdr.origin_read_start_ms = rec->origin_read_start_ms;
     hdr.origin_boot_gen = rec->origin_boot_gen;
 
     memcpy(write_buf, &hdr, sizeof(hdr));
-    memcpy(write_buf + sizeof(hdr), rec->topic, topic_len);
-    memcpy(write_buf + sizeof(hdr) + topic_len, rec->payload, payload_len);
+    memcpy(write_buf + sizeof(hdr), payload, payload_len);
 
-    uint32_t record_crc = crc32_compute(write_buf, sizeof(hdr) + topic_len + payload_len);
-    memcpy(write_buf + sizeof(hdr) + topic_len + payload_len, &record_crc, 4);
+    uint32_t record_crc = crc32_compute(write_buf, sizeof(hdr) + payload_len);
+    memcpy(write_buf + sizeof(hdr) + payload_len, &record_crc, 4);
 
     if (!qspi_flash_write_sync(h, req_size, write_buf)) {
         printf("[QSPI_BUF] Write failed at offset %lu\n", (unsigned long)h);
@@ -361,28 +362,6 @@ bool qspi_buffer_put_record(const buffer_record_t *rec)
     return true;
 }
 
-bool qspi_buffer_put(const char *topic, const char *payload, uint16_t payload_len)
-{
-    if (topic == NULL || payload == NULL || payload_len == 0u)
-    {
-        return false;
-    }
-
-    buffer_record_t rec;
-    memset(&rec, 0, sizeof(rec));
-
-    strncpy(rec.topic, topic, BUFFER_TOPIC_MAX - 1u);
-    rec.topic[BUFFER_TOPIC_MAX - 1u] = '\0';
-
-    uint16_t copy_len = payload_len;
-    if (copy_len > BUFFER_PAYLOAD_MAX - 1u) copy_len = BUFFER_PAYLOAD_MAX - 1u;
-    memcpy(rec.payload, payload, copy_len);
-    rec.payload[copy_len] = '\0';
-    rec.payload_len = copy_len;
-
-    return qspi_buffer_put_record(&rec);
-}
-
 // Helper safely reads and validates next record header and boundary wraps
 static bool read_record_header(uint32_t *offset, qspi_data_header_t *hdr)
 {
@@ -407,11 +386,19 @@ static bool read_record_header(uint32_t *offset, qspi_data_header_t *hdr)
     memcpy(hdr, (const void*)(QSPI_MEM_MAPPED_BASE + t), sizeof(qspi_data_header_t));
 
     // Bounds check on fields to prevent massive/malicious reads (Issue #1 FIX)
-    if (hdr->topic_len >= BUFFER_TOPIC_MAX || hdr->payload_len >= BUFFER_PAYLOAD_MAX) {
+    if (hdr->kind > BUFFER_RECORD_EVENT) {
         return false;
     }
-    
-    uint32_t req_size = sizeof(qspi_data_header_t) + hdr->topic_len + hdr->payload_len + 4;
+
+    if (hdr->payload_len > sizeof(buffer_event_payload_t)) {
+        return false;
+    }
+
+    if (hdr->payload_len != buffer_record_payload_len_for_kind(hdr->kind)) {
+        return false;
+    }
+
+    uint32_t req_size = sizeof(qspi_data_header_t) + hdr->payload_len + 4;
     // Check if the record physically exceeds sector
     if ((t % QSPI_BUF_SECTOR_SIZE) + req_size > QSPI_BUF_SECTOR_SIZE) {
         return false;
@@ -439,7 +426,7 @@ bool qspi_buffer_peek(buffer_record_t *out)
 
     uintptr_t mapped_addr = QSPI_MEM_MAPPED_BASE + t;
     const uint8_t* mapped_ptr = (const uint8_t*)mapped_addr;
-    uint32_t req_size = sizeof(qspi_data_header_t) + hdr.topic_len + hdr.payload_len + 4;
+    uint32_t req_size = sizeof(qspi_data_header_t) + hdr.payload_len + 4;
 
     // Validate CRC
     uint32_t computed_crc = crc32_compute(mapped_ptr, req_size - 4);
@@ -454,14 +441,13 @@ bool qspi_buffer_peek(buffer_record_t *out)
     }
     
     // Extract
-    memcpy(out->topic, mapped_ptr + sizeof(qspi_data_header_t), hdr.topic_len);
-    out->topic[hdr.topic_len] = '\0';
-
-    memcpy(out->payload, mapped_ptr + sizeof(qspi_data_header_t) + hdr.topic_len, hdr.payload_len);
-    out->payload[hdr.payload_len] = '\0';
-    out->payload_len = hdr.payload_len;
+    memset(out, 0, sizeof(*out));
+    out->kind = hdr.kind;
     out->origin_read_start_ms = hdr.origin_read_start_ms;
     out->origin_boot_gen = hdr.origin_boot_gen;
+    memcpy(buffer_record_payload_ptr(out),
+           mapped_ptr + sizeof(qspi_data_header_t),
+           hdr.payload_len);
     
     QSPI_UNLOCK();
     return true;
@@ -479,7 +465,7 @@ static bool qspi_buffer_consume_internal(bool is_drop)
         uint32_t t_sec = t / QSPI_BUF_SECTOR_SIZE;
         s_meta_cache.tail_offset = (t_sec + 1) * QSPI_BUF_SECTOR_SIZE;
     } else {
-        uint32_t req_size = sizeof(qspi_data_header_t) + hdr.topic_len + hdr.payload_len + 4;
+        uint32_t req_size = sizeof(qspi_data_header_t) + hdr.payload_len + 4;
         s_meta_cache.tail_offset = t + req_size;
     }
 

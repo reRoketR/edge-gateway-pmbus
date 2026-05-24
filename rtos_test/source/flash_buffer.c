@@ -228,7 +228,17 @@ static bool record_is_valid(const flash_data_row_t *rec)
         return false;
     }
 
-    if (rec->payload_len > FLASH_PAYLOAD_MAX)
+    if (rec->kind > BUFFER_RECORD_EVENT)
+    {
+        return false;
+    }
+
+    if (rec->payload_len > FLASH_RECORD_MAX_PAYLOAD)
+    {
+        return false;
+    }
+
+    if (rec->payload_len != buffer_record_payload_len_for_kind(rec->kind))
     {
         return false;
     }
@@ -354,29 +364,27 @@ bool flash_buffer_put_record(const buffer_record_t *rec)
         }
     }
 
+    uint16_t payload_len = buffer_record_payload_len(rec);
+    const uint8_t *payload =
+        (const uint8_t *)buffer_record_payload_ptr_const(rec);
+    if (payload_len == 0u || payload == NULL)
+    {
+        FLASH_UNLOCK();
+        return false;
+    }
+
     /* Build the data row in a RAM buffer (must be 4-byte aligned) */
     static flash_data_row_t row_buf __attribute__((aligned(4)));
     memset(&row_buf, 0xFF, sizeof(row_buf));  /* Fill with erased state */
 
     row_buf.magic    = FLASH_RECORD_MAGIC;
+    row_buf.payload_len = payload_len;
+    row_buf.kind = rec->kind;
     row_buf.reserved = 0u;
-
     row_buf.origin_read_start_ms = rec->origin_read_start_ms;
     row_buf.origin_boot_gen = rec->origin_boot_gen;
 
-    /* Copy topic */
-    strncpy(row_buf.topic, rec->topic, BUFFER_TOPIC_MAX - 1u);
-    row_buf.topic[BUFFER_TOPIC_MAX - 1u] = '\0';
-
-    /* Copy payload (truncate to FLASH_PAYLOAD_MAX) */
-    uint16_t copy_len = rec->payload_len;
-    if (copy_len > FLASH_PAYLOAD_MAX - 1u)
-    {
-        copy_len = FLASH_PAYLOAD_MAX - 1u;
-    }
-    memcpy(row_buf.payload, rec->payload, copy_len);
-    row_buf.payload[copy_len] = '\0';
-    row_buf.payload_len = copy_len;
+    memcpy(row_buf.payload, payload, payload_len);
 
     /* Compute CRC over everything except the crc32 field */
     row_buf.crc32 = crc32_calc(&row_buf, offsetof(flash_data_row_t, crc32));
@@ -408,31 +416,6 @@ bool flash_buffer_put_record(const buffer_record_t *rec)
     metrics_inc_buffer_enqueued();
     FLASH_UNLOCK();
     return true;
-}
-
-bool flash_buffer_put(const char *topic, const char *payload, uint16_t payload_len)
-{
-    if (topic == NULL || payload == NULL || payload_len == 0u)
-    {
-        return false;
-    }
-
-    buffer_record_t rec;
-    memset(&rec, 0, sizeof(rec));
-
-    strncpy(rec.topic, topic, BUFFER_TOPIC_MAX - 1u);
-    rec.topic[BUFFER_TOPIC_MAX - 1u] = '\0';
-
-    uint16_t copy_len = payload_len;
-    if (copy_len > BUFFER_PAYLOAD_MAX - 1u)
-    {
-        copy_len = BUFFER_PAYLOAD_MAX - 1u;
-    }
-    memcpy(rec.payload, payload, copy_len);
-    rec.payload[copy_len] = '\0';
-    rec.payload_len = copy_len;
-
-    return flash_buffer_put_record(&rec);
 }
 
 bool flash_buffer_peek(buffer_record_t *out)
@@ -472,19 +455,13 @@ bool flash_buffer_peek(buffer_record_t *out)
     }
 
     /* Copy to caller's buffer_record_t */
-    memcpy(out->topic, flash_rec->topic, BUFFER_TOPIC_MAX);
-    out->topic[BUFFER_TOPIC_MAX - 1u] = '\0';
-
-    uint16_t len = flash_rec->payload_len;
-    if (len > BUFFER_PAYLOAD_MAX - 1u)
-    {
-        len = BUFFER_PAYLOAD_MAX - 1u;
-    }
-    memcpy(out->payload, flash_rec->payload, len);
-    out->payload[len] = '\0';
-    out->payload_len = len;
+    memset(out, 0, sizeof(*out));
+    out->kind = flash_rec->kind;
     out->origin_read_start_ms = flash_rec->origin_read_start_ms;
     out->origin_boot_gen = flash_rec->origin_boot_gen;
+
+    memcpy(buffer_record_payload_ptr(out), flash_rec->payload,
+           flash_rec->payload_len);
 
     FLASH_UNLOCK();
     return true;

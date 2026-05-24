@@ -6,7 +6,8 @@
  *              Tier 1: RAM ring buffer (fast, volatile)
  *              Tier 2: Optional persistent buffer backend
  *
- *              The RAM ring buffer stores pre-encoded JSON + topic strings.
+ *              The RAM ring buffer stores compact binary records.
+ *              JSON and MQTT topics are reconstructed only at publish time.
  *              Size is determined by g_config.buffer.ram_max_records.
  *
  *              When flash_max_records > 0, records that cannot fit in RAM
@@ -24,8 +25,6 @@
 #include "gateway_config.h"
 #include "gateway_ipc.h"
 #include "metrics.h"
-#include "telemetry.h"
-#include "events.h"
 #include "emergency_ring.h"
 #if defined(BUFFER_BACKEND_QSPI)
 #include "qspi_flash.h"
@@ -45,21 +44,11 @@
 #include <string.h>
 
 /*******************************************************************************
- * Spill task constants and scratch buffers
+ * Spill task constants
  ******************************************************************************/
 
 /** Max idle wait when no producer notification arrives (ms) */
 #define SPILL_IDLE_WAIT_MAX_MS   1000u
-
-/** JSON encoding buffer (max observed telemetry ~232 bytes) */
-#define SPILL_JSON_BUF_SIZE   512u
-
-/** Topic string buffer */
-#define SPILL_TOPIC_BUF_SIZE  80u
-
-/** Scratch buffers — owned exclusively by buffer_task, no concurrency risk */
-static char s_spill_json[SPILL_JSON_BUF_SIZE];
-static char s_spill_topic[SPILL_TOPIC_BUF_SIZE];
 
 /*******************************************************************************
  * Private data
@@ -87,11 +76,7 @@ static TaskHandle_t s_flush_task_handle = NULL;
 static TaskHandle_t s_spill_task_handle = NULL;
 static bool s_ram_migration_pending = false;
 
-static bool buffer_mgr_put_internal(const char *topic,
-                                    const char *payload,
-                                    uint16_t payload_len,
-                                    uint32_t origin_read_start_ms,
-                                    uint32_t origin_boot_gen);
+static bool buffer_mgr_put_record_internal(const buffer_record_t *rec);
 static void buffer_mgr_notify_flush_task(void);
 BMC_STATIC void buffer_mgr_drain_once(void);
 
@@ -227,34 +212,16 @@ void buffer_mgr_signal_spill_task(void)
 /*******************************************************************************
  * Put
  ******************************************************************************/
-static bool buffer_mgr_put_internal(const char *topic,
-                                    const char *payload,
-                                    uint16_t payload_len,
-                                    uint32_t origin_read_start_ms,
-                                    uint32_t origin_boot_gen)
+static bool buffer_mgr_put_record_internal(const buffer_record_t *rec)
 {
-    if (s_ring == NULL || s_capacity == 0u ||
-        topic == NULL || payload == NULL || payload_len == 0u)
+    if (s_ring == NULL || s_capacity == 0u || rec == NULL ||
+        buffer_record_payload_len(rec) == 0u)
     {
         return false;
     }
 
     buffer_record_t incoming;
-    memset(&incoming, 0, sizeof(incoming));
-
-    strncpy(incoming.topic, topic, BUFFER_TOPIC_MAX - 1u);
-    incoming.topic[BUFFER_TOPIC_MAX - 1u] = '\0';
-
-    uint16_t copy_len = payload_len;
-    if (copy_len > BUFFER_PAYLOAD_MAX - 1u)
-    {
-        copy_len = BUFFER_PAYLOAD_MAX - 1u;
-    }
-    memcpy(incoming.payload, payload, copy_len);
-    incoming.payload[copy_len] = '\0';
-    incoming.payload_len = copy_len;
-    incoming.origin_read_start_ms = origin_read_start_ms;
-    incoming.origin_boot_gen = origin_boot_gen;
+    memcpy(&incoming, rec, sizeof(incoming));
 
     bool dropped_oldest = false;
     bool counted_by_persistent = false;
@@ -324,9 +291,9 @@ static bool buffer_mgr_put_internal(const char *topic,
     return true;
 }
 
-bool buffer_mgr_put(const char *topic, const char *payload, uint16_t payload_len)
+bool buffer_mgr_put_record(const buffer_record_t *rec)
 {
-    return buffer_mgr_put_internal(topic, payload, payload_len, 0u, 0u);
+    return buffer_mgr_put_record_internal(rec);
 }
 
 uint32_t buffer_mgr_current_boot_gen(void)
@@ -420,13 +387,9 @@ static bool drain_telemetry_rescue_ring(void)
     telemetry_record_t rec;
     while (emergency_ring_get(&rec))
     {
-        int len = encode_telemetry_json(&rec, s_spill_json, SPILL_JSON_BUF_SIZE);
-        if (len <= 0) continue;
-        int tl = build_device_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE,
-                                     rec.addr_7bit, "telemetry");
-        if (tl <= 0) continue;
-        if (buffer_mgr_put_internal(s_spill_topic, s_spill_json, (uint16_t)len,
-                                    rec.read_start_ms, s_current_boot_gen))
+        buffer_record_t packed;
+        buffer_record_from_telemetry(&packed, &rec, s_current_boot_gen);
+        if (buffer_mgr_put_record_internal(&packed))
         {
             did_enqueue = true;
         }
@@ -441,13 +404,9 @@ static bool drain_telemetry_queue(void)
     telemetry_record_t rec;
     while (xQueueReceive(gateway_ipc_telemetry_queue(), &rec, 0) == pdTRUE)
     {
-        int len = encode_telemetry_json(&rec, s_spill_json, SPILL_JSON_BUF_SIZE);
-        if (len <= 0) continue;
-        int tl = build_device_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE,
-                                     rec.addr_7bit, "telemetry");
-        if (tl <= 0) continue;
-        if (buffer_mgr_put_internal(s_spill_topic, s_spill_json, (uint16_t)len,
-                                    rec.read_start_ms, s_current_boot_gen))
+        buffer_record_t packed;
+        buffer_record_from_telemetry(&packed, &rec, s_current_boot_gen);
+        if (buffer_mgr_put_record_internal(&packed))
         {
             did_enqueue = true;
         }
@@ -462,12 +421,9 @@ static bool drain_status_rescue_ring(void)
     status_record_t rec;
     while (emergency_status_ring_get(&rec))
     {
-        int len = encode_status_json(&rec, s_spill_json, SPILL_JSON_BUF_SIZE);
-        if (len <= 0) continue;
-        int tl = build_device_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE,
-                                     rec.addr_7bit, "status");
-        if (tl <= 0) continue;
-        if (buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len))
+        buffer_record_t packed;
+        buffer_record_from_status(&packed, &rec);
+        if (buffer_mgr_put_record_internal(&packed))
         {
             did_enqueue = true;
         }
@@ -482,12 +438,9 @@ static bool drain_status_queue(void)
     status_record_t rec;
     while (xQueueReceive(gateway_ipc_status_queue(), &rec, 0) == pdTRUE)
     {
-        int len = encode_status_json(&rec, s_spill_json, SPILL_JSON_BUF_SIZE);
-        if (len <= 0) continue;
-        int tl = build_device_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE,
-                                     rec.addr_7bit, "status");
-        if (tl <= 0) continue;
-        if (buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len))
+        buffer_record_t packed;
+        buffer_record_from_status(&packed, &rec);
+        if (buffer_mgr_put_record_internal(&packed))
         {
             did_enqueue = true;
         }
@@ -502,11 +455,9 @@ static bool drain_event_rescue_ring(void)
     event_record_t evt;
     while (emergency_event_ring_get(&evt))
     {
-        int len = encode_event_json(&evt, s_spill_json, SPILL_JSON_BUF_SIZE);
-        if (len <= 0) continue;
-        int tl = build_events_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE);
-        if (tl <= 0) continue;
-        if (buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len))
+        buffer_record_t packed;
+        buffer_record_from_event(&packed, &evt);
+        if (buffer_mgr_put_record_internal(&packed))
         {
             did_enqueue = true;
         }
@@ -521,11 +472,9 @@ static bool drain_event_queue(void)
     event_record_t evt;
     while (xQueueReceive(gateway_ipc_event_queue(), &evt, 0) == pdTRUE)
     {
-        int len = encode_event_json(&evt, s_spill_json, SPILL_JSON_BUF_SIZE);
-        if (len <= 0) continue;
-        int tl = build_events_topic(s_spill_topic, SPILL_TOPIC_BUF_SIZE);
-        if (tl <= 0) continue;
-        if (buffer_mgr_put(s_spill_topic, s_spill_json, (uint16_t)len))
+        buffer_record_t packed;
+        buffer_record_from_event(&packed, &evt);
+        if (buffer_mgr_put_record_internal(&packed))
         {
             did_enqueue = true;
         }
