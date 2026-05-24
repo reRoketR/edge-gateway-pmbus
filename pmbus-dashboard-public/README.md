@@ -20,12 +20,19 @@ boundaries:
    dashboard is opened after the gateway has been running, only new messages
    from that point onward are displayed.
 
-2. **No offline data replay.**
+2. **~~No offline data replay.~~ (Resolved)**
    When the gateway reconnects after a broker outage and flushes its
-   store-and-forward buffer, those buffered records are published to
-   `pmbus/<gw>/buffered/*` topics. The dashboard currently treats them the same
-   as live data — it does not visually distinguish buffered-vs-live records or
-   reconstruct the original timeline.
+   store-and-forward buffer, the dashboard now detects buffered records
+   by comparing each record's `ts_ms` against the current wall-clock time
+   (threshold: 5 s). Buffered records are rendered with **dashed,
+   semi-transparent lines** and **visible orange markers** to distinguish
+   them from live data. Time discontinuities in the data stream
+   (> 3 s between consecutive points) automatically insert gap markers
+   that break the chart line, preventing misleading diagonal jumps across
+   outage periods. The chart window auto-expands to encompass the full
+   buffered timeline, and a pulsing **⟳ Replay** indicator appears in the
+   stats bar and telemetry card header. Once live data resumes, the chart
+   resets to its normal duration and the replay UI hides automatically.
 
 3. **Chart memory grows unbounded in long sessions.**
    The streaming charts (Chart.js + chartjs-plugin-streaming) append data
