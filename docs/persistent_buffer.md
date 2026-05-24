@@ -272,3 +272,8 @@ backends. If changing backends:
 3. erase the target backend if needed
 
 This is a backend switch, not a live data migration.
+
+Changing the QSPI ring geometry or metadata semantics also invalidates the old
+journal. For example, the transition from the 2 MB / 6-sector layout to the
+255-sector layout intentionally forces a metadata reset on first boot of the
+new firmware so the gateway does not misinterpret old wraparound offsets.

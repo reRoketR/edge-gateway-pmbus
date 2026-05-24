@@ -90,8 +90,8 @@ typedef struct __attribute__((packed)) {
  * On-flash Metadata Journal
  ******************************************************************************/
 
-/** Magic value for the metadata entry ("MET2") */
-#define QSPI_META_MAGIC           (0x4D455432UL)
+/** Magic value for the metadata entry ("MET3"). Bumped when layout semantics change. */
+#define QSPI_META_MAGIC           (0x4D455433UL)
 
 /**
  * Metadata journal entry.

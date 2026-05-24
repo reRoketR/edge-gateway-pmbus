@@ -60,6 +60,24 @@ static void test_geometry_constants(void)
     TEST_ASSERT_EQ_U32(524288u, QSPI_BUF_DATA_START);
 }
 
+static void test_old_layout_metadata_is_rejected_and_reset(void)
+{
+    const uint32_t old_layout_magic = 0x4D455432u; /* "MET2" from the 2 MiB layout */
+    const uint8_t *mmap;
+    uint32_t stored_magic = 0u;
+
+    printf("--- test_old_layout_metadata_is_rejected_and_reset ---\n");
+    qspi_mock_reset();
+    qspi_mock_corrupt_u32(0u, old_layout_magic);
+
+    TEST_ASSERT_TRUE(qspi_buffer_init());
+    TEST_ASSERT_EQ_U32(0u, qspi_buffer_depth());
+
+    mmap = qspi_mock_mmap_base();
+    memcpy(&stored_magic, mmap, sizeof(stored_magic));
+    TEST_ASSERT_EQ_U32(QSPI_META_MAGIC, stored_magic);
+}
+
 static buffer_record_t make_telem_record(uint8_t addr, uint32_t seq,
                                          uint32_t read_start_ms,
                                          uint32_t origin_boot_gen)
@@ -268,6 +286,7 @@ int main(void)
     printf("=== QSPI Buffer Host Tests ===\n\n");
 
     test_geometry_constants();
+    test_old_layout_metadata_is_rejected_and_reset();
     test_roundtrip_telemetry_record();
     test_invalid_record_is_rejected();
     test_sector_boundary_crossing_erases_next_sector();
